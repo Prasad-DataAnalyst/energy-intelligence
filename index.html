@@ -3,331 +3,384 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Qatar LNG Restart Scenario Monitor 2026 | Prasad Selvaraj — Independent Energy Intelligence Researcher</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<title>Prasad Selvaraj — Independent Energy Intelligence Research</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;background:#f5f5f4;color:#1a1a1a;padding:20px 16px;min-height:100vh}
-.container{max-width:1080px;margin:0 auto}
-.hero{background:#1A3A6B;border-radius:14px;padding:24px 28px;margin-bottom:14px;color:#fff}
-.hero-row{display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:14px}
-.hero-title{font-size:22px;font-weight:700;color:#fff}
-.hero-sub{font-size:12px;color:rgba(255,255,255,.65);margin-top:4px}
-.pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:4px 12px;border-radius:20px;background:rgba(239,159,39,.2);color:#ffd080;border:1px solid rgba(239,159,39,.35)}
-.dot{width:7px;height:7px;border-radius:50%;background:#ffd080;animation:pulse 1.5s infinite}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
-.hero-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
-.hs-lbl{font-size:10px;color:rgba(255,255,255,.55);margin-bottom:3px}
-.hs-val{font-size:13px;font-weight:600;color:#C8960C}
-.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:14px}
-.kpi{background:#fff;border:1px solid #e5e5e5;border-radius:10px;padding:12px;position:relative;overflow:hidden}
-.kpi-top{position:absolute;top:0;left:0;right:0;height:3px}
-.kpi-lbl{font-size:10px;color:#777;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px}
-.kpi-val{font-size:19px;font-weight:700;color:#1a1a1a;margin-bottom:2px}
-.kpi-sub{font-size:10px;color:#999}
-.up{color:#1D9E75}.dn{color:#E24B4A}.warn{color:#EF9F27}
-.nav{display:flex;gap:5px;margin-bottom:14px;flex-wrap:wrap}
-.nb{font-size:11px;font-weight:500;padding:6px 14px;border-radius:20px;border:1px solid #ddd;background:#fff;color:#555;cursor:pointer}
-.nb.on{background:#1A3A6B;color:#fff;border-color:#1A3A6B}
-.pane{display:none}.pane.on{display:block}
-.g2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
-.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px}
-.card{background:#fff;border:1px solid #e5e5e5;border-radius:12px;padding:14px}
-.ct{font-size:12px;font-weight:700;color:#1a1a1a;margin-bottom:10px}
-.note{border-left:3px solid;border-radius:0 8px 8px 0;padding:10px 12px;margin-bottom:8px}
-.nb2{border-color:#378ADD;background:#EAF2FB}.nb2 .nt{color:#0C447C}
-.ng{border-color:#1D9E75;background:#EAF3DE}.ng .nt{color:#27500A}
-.na{border-color:#EF9F27;background:#FEF3E2}.na .nt{color:#633806}
-.nr{border-color:#E24B4A;background:#FDEAEA}.nr .nt{color:#791F1F}
-.nt{font-size:11px;font-weight:700;margin-bottom:3px}
-.ni{font-size:11px;color:#555;line-height:1.55}
-.br{margin-bottom:8px}
-.bl{display:flex;justify-content:space-between;font-size:11px;color:#666;margin-bottom:3px}
-.bl b{color:#1a1a1a;font-weight:600}
-.bt{height:7px;background:#f0f0f0;border-radius:4px;overflow:hidden}
-.bf{height:100%;border-radius:4px}
-.tg{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;margin-bottom:10px}
-.tr{border-radius:6px;padding:8px 4px;text-align:center;border:1px solid #e5e5e5}
-.tn{font-size:10px;font-weight:700;margin-bottom:3px}
-.tc{font-size:9px;color:#777;margin-bottom:3px}
-.ts{font-size:9px;font-weight:700;padding:2px 4px;border-radius:4px;display:inline-block}
-.tg2{background:#EAF3DE;border-color:#97C459}.tg2 .tn{color:#27500A}
-.ta2{background:#FEF3E2;border-color:#EF9F27}.ta2 .tn{color:#633806}
-.tr2{background:#FDEAEA;border-color:#E24B4A}.tr2 .tn{color:#791F1F}
-.sg{background:#EAF3DE;color:#27500A}.sa{background:#FEF3E2;color:#633806}.sr{background:#FDEAEA;color:#791F1F}
-.ms{display:flex;align-items:start;gap:10px;margin-bottom:10px}
-.mn{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0}
-.mc{flex:1}
-.md{font-size:11px;font-weight:600;color:#1a1a1a}
-.mt{font-size:10px;margin-top:2px}
-.role{background:#f8f8f8;border-radius:8px;padding:10px;margin-bottom:8px}
-.rt{font-size:12px;font-weight:700;color:#1A3A6B;margin-bottom:2px}
-.rm{font-size:11px;color:#666;margin-bottom:5px}
-.rb{height:5px;border-radius:3px;margin-bottom:3px}
-.rl{font-size:10px;color:#1D9E75;font-weight:600}
-.analyst{background:#fff;border:1px solid #e5e5e5;border-radius:14px;padding:20px 24px;margin-top:16px;display:flex;align-items:flex-start;gap:14px}
-.av{width:52px;height:52px;border-radius:50%;background:#1A3A6B;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:#C8960C;flex-shrink:0}
-.chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
-.chip{font-size:10px;padding:2px 8px;border-radius:12px;font-weight:600}
-.cb{background:#EAF2FB;color:#0C447C}.cg{background:#EAF3DE;color:#27500A}.ca{background:#FEF3E2;color:#633806}
-.attr{font-size:10px;color:#aaa;margin-top:12px;padding-top:10px;border-top:1px solid #eee;line-height:1.7}
-.attr b{color:#1A3A6B}
-.leg{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:8px}
-.li{display:flex;align-items:center;gap:4px;font-size:10px;color:#666}
-.ld{width:9px;height:9px;border-radius:2px;flex-shrink:0}
-@media(max-width:640px){.kpis{grid-template-columns:repeat(2,1fr)}.g2,.g3{grid-template-columns:1fr}.tg{grid-template-columns:repeat(4,1fr)}.hero-stats{grid-template-columns:1fr}}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;background:#f5f5f4;color:#1a1a1a;min-height:100vh}
+
+/* HEADER */
+.header{background:#1A3A6B;padding:48px 24px 40px;text-align:center}
+.header-avatar{width:72px;height:72px;border-radius:50%;background:#C8960C;display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:700;color:#1A3A6B;margin:0 auto 16px}
+.header-name{font-size:26px;font-weight:700;color:#fff;margin-bottom:6px}
+.header-title{font-size:14px;color:#C8960C;font-weight:600;margin-bottom:8px}
+.header-sub{font-size:13px;color:rgba(255,255,255,.65);max-width:580px;margin:0 auto 20px;line-height:1.6}
+.header-chips{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-bottom:20px}
+.chip{font-size:11px;font-weight:600;padding:4px 12px;border-radius:20px;background:rgba(255,255,255,.1);color:rgba(255,255,255,.85);border:1px solid rgba(255,255,255,.2)}
+.header-links{display:flex;flex-wrap:wrap;justify-content:center;gap:10px}
+.hlink{font-size:11px;color:rgba(255,255,255,.6);text-decoration:none;padding:4px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.2)}
+.hlink:hover{background:rgba(255,255,255,.1);color:#fff}
+
+/* STATS BAR */
+.stats-bar{background:#fff;border-bottom:1px solid #e5e5e5;padding:16px 24px}
+.stats-inner{max-width:900px;margin:0 auto;display:grid;grid-template-columns:repeat(4,1fr);gap:0}
+.stat{text-align:center;padding:8px}
+.stat-val{font-size:22px;font-weight:700;color:#1A3A6B}
+.stat-lbl{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-top:2px}
+.stat+.stat{border-left:1px solid #eee}
+
+/* MAIN CONTENT */
+.main{max-width:900px;margin:0 auto;padding:32px 20px}
+
+/* SECTION HEADERS */
+.section-title{font-size:13px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.08em;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid #e5e5e5}
+
+/* DASHBOARD CARDS */
+.dashboards{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;margin-bottom:40px}
+.dash-card{background:#fff;border:1px solid #e5e5e5;border-radius:12px;overflow:hidden;transition:box-shadow .2s,transform .2s;display:flex;flex-direction:column}
+.dash-card:hover{box-shadow:0 4px 20px rgba(0,0,0,.08);transform:translateY(-2px)}
+.dash-card-top{height:6px}
+.dash-card-body{padding:16px;flex:1}
+.dash-tag{font-size:10px;font-weight:700;padding:3px 10px;border-radius:20px;display:inline-block;margin-bottom:10px}
+.tag-live{background:#E3F5EF;color:#0F6E56}
+.tag-new{background:#EAF2FB;color:#0C447C}
+.tag-coming{background:#f0f0f0;color:#888}
+.tag-scenario{background:#FEF3E2;color:#633806}
+.dash-title{font-size:15px;font-weight:700;color:#1A3A6B;margin-bottom:6px;line-height:1.3}
+.dash-desc{font-size:12px;color:#666;line-height:1.6;margin-bottom:12px}
+.dash-meta{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+.meta-pill{font-size:10px;padding:2px 8px;border-radius:10px;background:#f5f5f4;color:#666}
+.dash-footer{padding:12px 16px;border-top:1px solid #f0f0f0;display:flex;align-items:center;justify-content:space-between;background:#fafaf9}
+.dash-date{font-size:10px;color:#aaa}
+.dash-btn{font-size:11px;font-weight:600;padding:6px 16px;border-radius:8px;text-decoration:none;border:none;cursor:pointer}
+.btn-view{background:#1A3A6B;color:#fff}
+.btn-view:hover{background:#152e56}
+.btn-soon{background:#f0f0f0;color:#aaa;cursor:default}
+
+/* RESEARCH PAPERS */
+.papers{display:flex;flex-direction:column;gap:10px;margin-bottom:40px}
+.paper{background:#fff;border:1px solid #e5e5e5;border-radius:10px;padding:14px 16px;display:flex;align-items:flex-start;gap:12px}
+.paper-num{width:28px;height:28px;border-radius:50%;background:#1A3A6B;color:#C8960C;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px}
+.paper-body{flex:1}
+.paper-title{font-size:13px;font-weight:600;color:#1A3A6B;margin-bottom:3px;line-height:1.4}
+.paper-meta{font-size:11px;color:#888;margin-bottom:6px}
+.paper-tags{display:flex;flex-wrap:wrap;gap:5px}
+.paper-tag{font-size:10px;padding:2px 7px;border-radius:8px;background:#EAF2FB;color:#0C447C}
+.paper-views{font-size:11px;color:#1D9E75;font-weight:600;white-space:nowrap;margin-top:2px}
+
+/* CREDENTIALS */
+.creds{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:40px}
+.cred{background:#fff;border:1px solid #e5e5e5;border-radius:10px;padding:12px 14px}
+.cred-name{font-size:12px;font-weight:600;color:#1a1a1a;margin-bottom:2px}
+.cred-issuer{font-size:11px;color:#888}
+.cred-new{font-size:9px;font-weight:700;color:#0F6E56;background:#E3F5EF;padding:1px 6px;border-radius:8px;margin-left:6px}
+
+/* CONTACT */
+.contact-card{background:#1A3A6B;border-radius:12px;padding:28px;text-align:center;margin-bottom:32px}
+.contact-title{font-size:16px;font-weight:700;color:#fff;margin-bottom:6px}
+.contact-sub{font-size:12px;color:rgba(255,255,255,.65);margin-bottom:16px;line-height:1.6}
+.contact-links{display:flex;flex-wrap:wrap;justify-content:center;gap:10px}
+.clink{font-size:12px;font-weight:600;padding:8px 20px;border-radius:8px;text-decoration:none}
+.clink-gold{background:#C8960C;color:#1A3A6B}
+.clink-outline{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.4)}
+.clink-outline:hover{background:rgba(255,255,255,.1)}
+
+/* FOOTER */
+.footer{text-align:center;font-size:11px;color:#aaa;padding:16px;border-top:1px solid #e5e5e5;line-height:1.7}
+.footer b{color:#888}
+
+@media(max-width:600px){
+  .stats-inner{grid-template-columns:repeat(2,1fr)}
+  .header-name{font-size:20px}
+  .dash-card-top{height:4px}
+}
 </style>
 </head>
 <body>
-<div class="container">
 
-<div class="hero">
-  <div class="hero-row">
-    <div>
-      <div class="hero-title">Qatar LNG Restart Scenario Monitor</div>
-      <div style="font-size:15px;font-weight:600;color:#C8960C;margin-top:2px">Post-disruption scenario analysis &amp; market interpretation · April 2026</div>
-      <div class="hero-sub">Scenario analysis by Prasad Selvaraj — Independent Energy Intelligence Researcher · OGMP 2.0 Analyst · Doha, Qatar</div>
-    </div>
-    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
-      <span class="pill"><span class="dot"></span>Ceasefire reported — scenario analysis in progress</span>
-      <span style="font-size:10px;color:rgba(255,255,255,.45)">Bloomberg · IEA · QNA · IEEFA · Apr 8 2026 · Analyst interpretation</span>
-    </div>
+<!-- HEADER -->
+<div class="header">
+  <div class="header-avatar">PS</div>
+  <div class="header-name">Prasad Selvaraj</div>
+  <div class="header-title">Independent Energy Intelligence Researcher · OGMP 2.0 Analyst · Doha, Qatar</div>
+  <div class="header-sub">Research interests in offshore methane compliance, UAV inspection systems, Gulf energy market scenario analysis, and emissions intelligence frameworks. Author of the SAT-UAV Methane Intelligence Framework (SUMIF).</div>
+  <div class="header-chips">
+    <span class="chip">OGMP 2.0</span>
+    <span class="chip">SUMIF Framework</span>
+    <span class="chip">UAV Inspection</span>
+    <span class="chip">CAP 437</span>
+    <span class="chip">Power BI PL-300</span>
+    <span class="chip">Petroleum Engineering AI</span>
+    <span class="chip">ESG Reporting</span>
+    <span class="chip">HSE Offshore</span>
   </div>
-  <div class="hero-stats">
-    <div><div class="hs-lbl">Conflict duration</div><div class="hs-val">~5 weeks · Ceasefire reported Apr 8</div></div>
-    <div><div class="hs-lbl">LNG capacity offline</div><div class="hs-val">Reports indicate significant LNG capacity may be affected (est. ~12.8 MTPA)</div></div>
-    <div><div class="hs-lbl">Annual revenue at risk</div><div class="hs-val">Substantial annual revenue exposure — CEO commentary to Reuters</div></div>
+  <div class="header-links">
+    <a class="hlink" href="https://www.linkedin.com/in/prasadselvaraj" target="_blank">LinkedIn</a>
+    <a class="hlink" href="https://doi.org/10.5281/zenodo.18968721" target="_blank">Zenodo DOI</a>
+    <a class="hlink" href="https://orcid.org/0009-0001-4513-3910" target="_blank">ORCID</a>
+    <a class="hlink" href="https://dig-ahead-44653197.figma.site" target="_blank">SUMIF App</a>
+    <a class="hlink" href="https://independent.academia.edu/PrasadSelvaraj" target="_blank">Academia.edu</a>
   </div>
 </div>
 
-<div class="kpis">
-  <div class="kpi"><div class="kpi-top" style="background:#1D9E75"></div><div class="kpi-lbl">Restart status</div><div class="kpi-val">Reported mobilisation</div><div class="kpi-sub warn">Reported mobilisation — Bloomberg Apr 8</div></div>
-  <div class="kpi"><div class="kpi-top" style="background:#378ADD"></div><div class="kpi-lbl">Strait of Hormuz</div><div class="kpi-val">Improving access conditions</div><div class="kpi-sub up">Improving access conditions</div></div>
-  <div class="kpi"><div class="kpi-top" style="background:#EF9F27"></div><div class="kpi-lbl">Intact capacity est.</div><div class="kpi-val">~83%</div><div class="kpi-sub">Estimated — analyst interpretation</div></div>
-  <div class="kpi"><div class="kpi-top" style="background:#E24B4A"></div><div class="kpi-lbl">Damaged train repair</div><div class="kpi-val">3–5 yrs</div><div class="kpi-sub dn">CEO statement to Reuters Mar 2026</div></div>
+<!-- STATS BAR -->
+<div class="stats-bar">
+  <div class="stats-inner">
+    <div class="stat"><div class="stat-val">2</div><div class="stat-lbl">Live dashboards</div></div>
+    <div class="stat"><div class="stat-val">6</div><div class="stat-lbl">Research papers</div></div>
+    <div class="stat"><div class="stat-val">331+</div><div class="stat-lbl">Research views</div></div>
+    <div class="stat"><div class="stat-val">15+</div><div class="stat-lbl">Years experience</div></div>
+  </div>
 </div>
 
-<div class="nav">
-  <button class="nb on" onclick="tab('restart')">Scenario timeline</button>
-  <button class="nb" onclick="tab('trains')">Train status</button>
-  <button class="nb" onclick="tab('market')">Market rebalancing</button>
-  <button class="nb" onclick="tab('rebuild')">Rebuild opportunity</button>
-  <button class="nb" onclick="tab('roles')">Job opportunities</button>
-</div>
+<!-- MAIN -->
+<div class="main">
 
-<div id="p-restart" class="pane on">
-  <div class="g2">
-    <div class="card">
-      <div class="ct">Scenario milestone tracker — Ras Laffan (reported &amp; estimated)</div>
-      <div class="ms"><div class="mn" style="background:#EAF3DE;color:#27500A">1</div><div class="mc"><div class="md">Ceasefire declared</div><div class="mt up">Ceasefire reported — Apr 8, 2026</div></div><div style="width:10px;height:10px;border-radius:50%;background:#1D9E75;flex-shrink:0;margin-top:4px"></div></div>
-      <div class="ms"><div class="mn" style="background:#EAF3DE;color:#27500A">2</div><div class="mc"><div class="md">Engineers reportedly mobilised</div><div class="mt warn">Apr 8, 2026 — Reported, Bloomberg · subject to verification</div></div><div style="width:10px;height:10px;border-radius:50%;background:#EF9F27;flex-shrink:0;margin-top:4px"></div></div>
-      <div class="ms"><div class="mn" style="background:#f0f0f0;color:#777">3</div><div class="mc"><div class="md">Damage assessment complete</div><div class="mt" style="color:#999">Est. Apr 12–15 — Pending</div></div><div style="width:10px;height:10px;border-radius:50%;background:#ddd;flex-shrink:0;margin-top:4px"></div></div>
-      <div class="ms"><div class="mn" style="background:#f0f0f0;color:#777">4</div><div class="mc"><div class="md">Intact trains partial restart</div><div class="mt" style="color:#999">Scenario estimate — late April if conditions hold</div></div><div style="width:10px;height:10px;border-radius:50%;background:#ddd;flex-shrink:0;margin-top:4px"></div></div>
-      <div class="ms"><div class="mn" style="background:#f0f0f0;color:#777">5</div><div class="mc"><div class="md">Strait fully navigable, cargoes dispatched</div><div class="mt" style="color:#999">Est. May–Jun — depends on Hormuz</div></div><div style="width:10px;height:10px;border-radius:50%;background:#ddd;flex-shrink:0;margin-top:4px"></div></div>
-      <div class="ms"><div class="mn" style="background:#f0f0f0;color:#777">6</div><div class="mc"><div class="md">Potential contract reinstatement scenario</div><div class="mt" style="color:#999">Scenario estimate Q3 2026 — subject to compliance conditions</div></div><div style="width:10px;height:10px;border-radius:50%;background:#ddd;flex-shrink:0;margin-top:4px"></div></div>
-      <div class="ms" style="margin-bottom:0"><div class="mn" style="background:#FDEAEA;color:#791F1F">7</div><div class="mc"><div class="md">Damaged trains repaired — full capacity</div><div class="mt dn">Scenario estimate 2029–2031 — multi-year repair window</div></div><div style="width:10px;height:10px;border-radius:50%;background:#E24B4A;flex-shrink:0;margin-top:4px"></div></div>
-    </div>
-    <div class="card">
-      <div class="ct">Illustrative capacity recovery scenario — MTPA (analyst estimate)</div>
-      <div class="leg">
-        <span class="li"><span class="ld" style="background:#378ADD"></span>Restart scenario</span>
-        <span class="li"><span class="ld" style="background:#1D9E75;width:9px;height:3px;border-radius:0"></span>Pre-conflict 77 MTPA</span>
+  <!-- DASHBOARDS -->
+  <div class="section-title">Intelligence Dashboards</div>
+  <div class="dashboards">
+
+    <!-- Dashboard 1 -->
+    <div class="dash-card">
+      <div class="dash-card-top" style="background:#E24B4A"></div>
+      <div class="dash-card-body">
+        <span class="dash-tag tag-live">Live</span>
+        <div class="dash-title">Qatar LNG Restart Scenario Monitor</div>
+        <div class="dash-desc">Post-disruption scenario analysis of Qatar's LNG restart following the April 2026 ceasefire. Covers train status, capacity recovery, market rebalancing and rebuild opportunity mapping.</div>
+        <div class="dash-meta">
+          <span class="meta-pill">LNG Recovery</span>
+          <span class="meta-pill">Ras Laffan</span>
+          <span class="meta-pill">OGMP 2.0</span>
+          <span class="meta-pill">Scenario Analysis</span>
+        </div>
       </div>
-      <div style="position:relative;height:190px"><canvas id="c1"></canvas></div>
-      <div class="note na" style="margin-top:10px"><div class="nt">Key constraint</div><div class="ni">CEO stated restart takes weeks minimum. Strait of Hormuz must be navigable before cargoes can move. Reports indicate significant capacity may be sidelined — Multi-year repair estimate per CEO statement to Reuters — subject to damage assessment.</div></div>
-    </div>
-  </div>
-  <div class="g3">
-    <div class="note ng" style="margin-bottom:0"><div class="nt">Ceasefire — market reaction</div><div class="ni">TTF gas prices reportedly fell ~20% following ceasefire announcement. Oil declined. Insurance costs dropping. Market interpretation: pricing may reflect optimism rather than confirmed supply restoration — actual rebalancing typically takes months.</div></div>
-    <div class="note nb2" style="margin-bottom:0"><div class="nt">Strait of Hormuz reopening</div><div class="ni">Shipping must resume before any LNG cargoes leave Ras Laffan. Saudi East-West pipeline (7mb/d) is reported as the primary bypass route — no LNG bypass exists for Qatar based on available information. Hormuz dependency is a key scenario variable.</div></div>
-    <div class="note na" style="margin-bottom:0"><div class="nt">Repair supply chain challenge</div><div class="ni">Restoring Ras Laffan requires specialised LNG train components with 12–18 month procurement lead times. Historical precedent suggests supply chain recovery for LNG components takes months — this is a scenario assumption, not confirmed timeline.</div></div>
-  </div>
-</div>
-
-<div id="p-trains" class="pane">
-  <div class="card" style="margin-bottom:10px">
-    <div class="ct">Ras Laffan — 14 LNG trains · scenario status interpretation · April 8, 2026</div>
-    <div class="tg">
-      <div class="tr tg2"><div class="tn">T1</div><div class="tc">7.8 MT</div><div class="ts sg">Intact</div></div>
-      <div class="tr tg2"><div class="tn">T2</div><div class="tc">7.8 MT</div><div class="ts sg">Intact</div></div>
-      <div class="tr tg2"><div class="tn">T3</div><div class="tc">7.8 MT</div><div class="ts sg">Intact</div></div>
-      <div class="tr ta2"><div class="tn">T4</div><div class="tc">7.8 MT</div><div class="ts sa">Assessing</div></div>
-      <div class="tr tg2"><div class="tn">T5</div><div class="tc">7.8 MT</div><div class="ts sg">Intact</div></div>
-      <div class="tr tg2"><div class="tn">T6</div><div class="tc">7.8 MT</div><div class="ts sg">Intact</div></div>
-      <div class="tr tg2"><div class="tn">T7</div><div class="tc">3.4 MT</div><div class="ts sg">Intact</div></div>
-      <div class="tr tg2"><div class="tn">T8</div><div class="tc">7.8 MT</div><div class="ts sg">Intact</div></div>
-      <div class="tr tr2"><div class="tn">T9</div><div class="tc">6.4 MT</div><div class="ts sr">Rep. damaged</div></div>
-      <div class="tr tg2"><div class="tn">T10</div><div class="tc">7.8 MT</div><div class="ts sg">Intact</div></div>
-      <div class="tr tg2"><div class="tn">T11</div><div class="tc">7.8 MT</div><div class="ts sg">Intact</div></div>
-      <div class="tr tr2"><div class="tn">T12</div><div class="tc">6.4 MT</div><div class="ts sr">Rep. damaged</div></div>
-      <div class="tr tg2"><div class="tn">T13</div><div class="tc">8.0 MT</div><div class="ts sg">Intact</div></div>
-      <div class="tr tg2"><div class="tn">T14</div><div class="tc">8.0 MT</div><div class="ts sg">Intact</div></div>
-    </div>
-    <div class="leg" style="margin-bottom:12px">
-      <span class="li"><span class="ld" style="background:#1D9E75"></span>Intact — ready for restart (12 trains · ~84 MTPA)</span>
-      <span class="li"><span class="ld" style="background:#E24B4A"></span>Damaged — 3 to 5 year repair (2 trains · 12.8 MTPA)</span>
-      <span class="li"><span class="ld" style="background:#EF9F27"></span>Assessing — status pending (1 train)</span>
-    </div>
-    <div class="g2">
-      <div>
-        <div class="br"><div class="bl"><b>Intact capacity</b><span class="up">Estimated ~83% intact — analyst interpretation</span></div><div class="bt"><div class="bf" style="width:83%;background:#1D9E75"></div></div></div>
-        <div class="br"><div class="bl"><b>Damaged capacity sidelined</b><span class="dn">Estimated ~17% affected — per reporting</span></div><div class="bt"><div class="bf" style="width:17%;background:#E24B4A"></div></div></div>
-        <div class="br"><div class="bl"><b>Inspection priority — T9 &amp; T12</b><span class="warn">UAV assessment first</span></div><div class="bt"><div class="bf" style="width:100%;background:#EF9F27"></div></div></div>
+      <div class="dash-footer">
+        <span class="dash-date">April 2026 · 5 scenario tabs</span>
+        <a class="dash-btn btn-view" href="Qatar_LNG_Restart_Scenario_Monitor_2026.html">View dashboard</a>
       </div>
-      <div class="note ng" style="margin-bottom:0"><div class="nt">Inspection opportunity — T9 &amp; T12</div><div class="ni">Affected infrastructure would typically require emissions assessment before any reinstatement — OGMP 2.0 compliance is likely to be a buyer expectation. UAV optical gas imaging with satellite methane sensing provides the safest damage verification — precisely the SUMIF framework methodology. This kind of scenario illustrates a potential application of the framework methodology.</div></div>
     </div>
-  </div>
-</div>
 
-<div id="p-market" class="pane">
-  <div class="g2">
-    <div class="card">
-      <div class="ct">Energy price trajectory — crisis to ceasefire (indexed)</div>
-      <div class="leg">
-        <span class="li"><span class="ld" style="background:#378ADD"></span>TTF European gas</span>
-        <span class="li"><span class="ld" style="background:#E24B4A"></span>Asian LNG spot</span>
+    <!-- Dashboard 2 -->
+    <div class="dash-card">
+      <div class="dash-card-top" style="background:#1A3A6B"></div>
+      <div class="dash-card-body">
+        <span class="dash-tag tag-new">Executive</span>
+        <div class="dash-title">Middle East Oil &amp; Gas Executive Intelligence Report</div>
+        <div class="dash-desc">Strategic market intelligence covering GCC investment, NOC strategies, crisis disruption analysis, 2026–2030 outlook, ESG decarbonisation roadmap and decision intelligence engine with scenario simulation.</div>
+        <div class="dash-meta">
+          <span class="meta-pill">GCC Markets</span>
+          <span class="meta-pill">NOC Strategy</span>
+          <span class="meta-pill">Scenario Engine</span>
+          <span class="meta-pill">E-UVaR</span>
+        </div>
       </div>
-      <div style="position:relative;height:190px"><canvas id="c2"></canvas></div>
+      <div class="dash-footer">
+        <span class="dash-date">April 2026 · 7 analysis tabs</span>
+        <a class="dash-btn btn-view" href="ME_oil_gas_executive_intelligence_2026.html">View dashboard</a>
+      </div>
     </div>
-    <div class="card">
-      <div class="ct">Who fills the Qatar LNG gap — supply substitution share</div>
-      <div style="position:relative;height:190px"><canvas id="c3"></canvas></div>
+
+    <!-- Dashboard 3 — Coming soon -->
+    <div class="dash-card" style="opacity:.7">
+      <div class="dash-card-top" style="background:#1D9E75"></div>
+      <div class="dash-card-body">
+        <span class="dash-tag tag-coming">Coming soon</span>
+        <div class="dash-title">Gulf Energy Infrastructure Rebuild Intelligence</div>
+        <div class="dash-desc">Scenario analysis of the Gulf rebuild phase — $49B+ investment mapping, contractor opportunities, HSE workforce demand, inspection priority queue and timeline modelling.</div>
+        <div class="dash-meta">
+          <span class="meta-pill">Rebuild Phase</span>
+          <span class="meta-pill">EPC Contractors</span>
+          <span class="meta-pill">HSE Demand</span>
+          <span class="meta-pill">UAV Inspection</span>
+        </div>
+      </div>
+      <div class="dash-footer">
+        <span class="dash-date">In development</span>
+        <span class="dash-btn btn-soon">Coming soon</span>
+      </div>
+    </div>
+
+    <!-- Dashboard 4 — Coming soon -->
+    <div class="dash-card" style="opacity:.7">
+      <div class="dash-card-top" style="background:#EF9F27"></div>
+      <div class="dash-card-body">
+        <span class="dash-tag tag-coming">Coming soon</span>
+        <div class="dash-title">Global LNG Market Rebalancing Monitor</div>
+        <div class="dash-desc">Tracking the global LNG supply gap, substitution flows, price trajectory scenarios and energy transition acceleration signals following Gulf disruption.</div>
+        <div class="dash-meta">
+          <span class="meta-pill">LNG Markets</span>
+          <span class="meta-pill">Supply Gap</span>
+          <span class="meta-pill">Price Scenarios</span>
+          <span class="meta-pill">Energy Transition</span>
+        </div>
+      </div>
+      <div class="dash-footer">
+        <span class="dash-date">In development</span>
+        <span class="dash-btn btn-soon">Coming soon</span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- RESEARCH PAPERS -->
+  <div class="section-title">Published Research</div>
+  <div class="papers">
+
+    <div class="paper">
+      <div class="paper-num">1</div>
+      <div class="paper-body">
+        <div class="paper-title">Aviation Safety in Oil &amp; Gas Operations: Drone Inspection Models and the Cost-Benefit of UAV Logistics</div>
+        <div class="paper-meta">Academia.edu · Zenodo · 2025 · DOI: 10.5281/ZENODO.18968721</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+          <div class="paper-tags">
+            <span class="paper-tag">UAV Inspection</span>
+            <span class="paper-tag">Aviation Safety</span>
+            <span class="paper-tag">Oil &amp; Gas</span>
+          </div>
+          <div class="paper-views">207 views · 30 downloads</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="paper">
+      <div class="paper-num">2</div>
+      <div class="paper-body">
+        <div class="paper-title">SAT-UAV Methane Intelligence Framework (SUMIF) — Integrating Satellite and Drone-Based Sensing with Mass Balance ESG Modeling for OGMP 2.0 Gold Standard Compliance</div>
+        <div class="paper-meta">Academia.edu · 2025</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+          <div class="paper-tags">
+            <span class="paper-tag">OGMP 2.0</span>
+            <span class="paper-tag">Methane</span>
+            <span class="paper-tag">Satellite UAV</span>
+            <span class="paper-tag">ESG</span>
+          </div>
+          <div class="paper-views">89 views · 33 downloads</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="paper">
+      <div class="paper-num">3</div>
+      <div class="paper-body">
+        <div class="paper-title">AI-Powered Structural Health Monitoring of Offshore Drilling Platforms Using UAV and Sensor Fusion</div>
+        <div class="paper-meta">Academia.edu · 2026</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+          <div class="paper-tags">
+            <span class="paper-tag">Structural Health</span>
+            <span class="paper-tag">AI</span>
+            <span class="paper-tag">Offshore</span>
+            <span class="paper-tag">Sensor Fusion</span>
+          </div>
+          <div class="paper-views">Published 2026</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="paper">
+      <div class="paper-num">4</div>
+      <div class="paper-body">
+        <div class="paper-title">Role of Drones in Methane Emission Detection and Mitigation</div>
+        <div class="paper-meta">Academia.edu · 2025</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+          <div class="paper-tags">
+            <span class="paper-tag">Methane</span>
+            <span class="paper-tag">Drones</span>
+            <span class="paper-tag">Emissions</span>
+          </div>
+          <div class="paper-views">24 views</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="paper">
+      <div class="paper-num">5</div>
+      <div class="paper-body">
+        <div class="paper-title">Integration of Data Analytics and Drone AI Technology in the Oil and Gas Industry: A Review and Future Roadmap</div>
+        <div class="paper-meta">Academia.edu · 2025</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+          <div class="paper-tags">
+            <span class="paper-tag">Data Analytics</span>
+            <span class="paper-tag">Drone AI</span>
+            <span class="paper-tag">Oil &amp; Gas</span>
+          </div>
+          <div class="paper-views">Published 2025</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="paper">
+      <div class="paper-num">6</div>
+      <div class="paper-body">
+        <div class="paper-title">Arctic Circle Oil &amp; Gas Resources, Economic Potential, and Shipping Routes: A Multi-Country Assessment</div>
+        <div class="paper-meta">Academia.edu · 2025</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+          <div class="paper-tags">
+            <span class="paper-tag">Arctic</span>
+            <span class="paper-tag">LNG</span>
+            <span class="paper-tag">Shipping Routes</span>
+          </div>
+          <div class="paper-views">9 views</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- CREDENTIALS -->
+  <div class="section-title">Certifications &amp; Qualifications</div>
+  <div class="creds">
+    <div class="cred">
+      <div class="cred-name">Petroleum Engineering with AI Applications <span class="cred-new">2026</span></div>
+      <div class="cred-issuer">L&amp;T EduTech — Coursera</div>
+    </div>
+    <div class="cred">
+      <div class="cred-name">ESG Reporting Certificate <span class="cred-new">2026</span></div>
+      <div class="cred-issuer">The ESG Institute</div>
+    </div>
+    <div class="cred">
+      <div class="cred-name">CAP 437 Helicopter Landing Officer</div>
+      <div class="cred-issuer">UK Civil Aviation Authority</div>
+    </div>
+    <div class="cred">
+      <div class="cred-name">Microsoft Power BI PL-300</div>
+      <div class="cred-issuer">Microsoft</div>
+    </div>
+    <div class="cred">
+      <div class="cred-name">HSE Engineering Specialisation</div>
+      <div class="cred-issuer">Khalifa University, Abu Dhabi</div>
+    </div>
+    <div class="cred">
+      <div class="cred-name">UAS/RPAS Drone Pilot Licence</div>
+      <div class="cred-issuer">Madras Institute of Technology</div>
+    </div>
+    <div class="cred">
+      <div class="cred-name">IBM Generative AI Professional</div>
+      <div class="cred-issuer">IBM</div>
+    </div>
+    <div class="cred">
+      <div class="cred-name">MBA — International Business</div>
+      <div class="cred-issuer">Alagappa University</div>
     </div>
   </div>
-  <div class="card" style="margin-bottom:10px">
-    <div class="ct">Force majeure contracts — country exposure &amp; reinstatement priority</div>
-    <div class="br"><div class="bl"><b>Italy</b><span>Reported ~53% of EU Qatari LNG — source: IEEFA — most exposed</span></div><div class="bt"><div class="bf" style="width:90%;background:#E24B4A"></div></div></div>
-    <div class="br"><div class="bl"><b>South Korea</b><span>Long-term offtake — force majeure reported</span></div><div class="bt"><div class="bf" style="width:70%;background:#EF9F27"></div></div></div>
-    <div class="br"><div class="bl"><b>China (Sinopec / CNPC)</b><span>27-year contracts — monitoring conditions closely</span></div><div class="bt"><div class="bf" style="width:75%;background:#378ADD"></div></div></div>
-    <div class="br"><div class="bl"><b>Belgium</b><span>Reported ~19% of EU Qatari LNG — source: IEEFA</span></div><div class="bt"><div class="bf" style="width:50%;background:#EF9F27"></div></div></div>
-    <div class="br"><div class="bl"><b>Poland</b><span>Reported ~17% of EU Qatari LNG — source: IEEFA — diversifying to US LNG</span></div><div class="bt"><div class="bf" style="width:40%;background:#EF9F27"></div></div></div>
+
+  <!-- CONTACT -->
+  <div class="contact-card">
+    <div class="contact-title">Open to collaboration and energy sector opportunities</div>
+    <div class="contact-sub">Based in Doha, Qatar. Research interests in OGMP 2.0 compliance, UAV inspection frameworks, offshore safety management and Gulf energy market intelligence. Available for HSE advisory, emissions compliance and digital inspection roles.</div>
+    <div class="contact-links">
+      <a class="clink clink-gold" href="https://www.linkedin.com/in/prasadselvaraj" target="_blank">Connect on LinkedIn</a>
+      <a class="clink clink-outline" href="mailto:prasad2t@gmail.com">prasad2t@gmail.com</a>
+      <a class="clink clink-outline" href="https://dig-ahead-44653197.figma.site" target="_blank">SUMIF Framework App</a>
+    </div>
   </div>
-  <div class="g3">
-    <div class="note ng" style="margin-bottom:0"><div class="nt">US LNG permanent market share gain</div><div class="ni">US LNG has been widely reported as a beneficiary of the supply disruption. Market share dynamics are a scenario interpretation — diversification trends may persist post-crisis based on buyer behaviour patterns.</div></div>
-    <div class="note nb2" style="margin-bottom:0"><div class="nt">Energy transition accelerating</div><div class="ni">Philippines, India and China all accelerated solar and battery deployments during the crisis. The disruption appears to be accelerating both energy security and decarbonisation investment — this is an analyst interpretation of reported market signals.</div></div>
-    <div class="note na" style="margin-bottom:0"><div class="nt">OGMP 2.0 — restart condition</div><div class="ni">Methane transparency expectations are likely to rise among European buyers — OGMP 2.0 Level 4-5 compliance may become a reinstatement condition based on existing EU regulatory direction. This represents a potential demand signal for integrated inspection and emissions audit services.</div></div>
-  </div>
+
 </div>
 
-<div id="p-rebuild" class="pane">
-  <div class="card" style="margin-bottom:10px">
-    <div class="ct">Gulf energy rebuild — sector investment scenarios ($B analyst estimate)</div>
-    <div style="position:relative;height:200px"><canvas id="c4"></canvas></div>
-  </div>
-  <div class="g2">
-    <div class="card">
-      <div class="ct">Inspection &amp; HSE workforce demand — rebuild phase surge</div>
-      <div class="br"><div class="bl"><b>UAV inspection operators</b><span class="up">Significant increase — scenario estimate</span></div><div class="bt"><div class="bf" style="width:100%;background:#1D9E75"></div></div></div>
-      <div class="br"><div class="bl"><b>OGMP 2.0 emissions specialists</b><span class="up">Significant increase — scenario estimate</span></div><div class="bt"><div class="bf" style="width:92%;background:#1D9E75"></div></div></div>
-      <div class="br"><div class="bl"><b>HSE advisors</b><span class="up">Significant increase — scenario estimate</span></div><div class="bt"><div class="bf" style="width:88%;background:#1D9E75"></div></div></div>
-      <div class="br"><div class="bl"><b>Structural integrity engineers</b><span class="up">Moderate increase — scenario estimate</span></div><div class="bt"><div class="bf" style="width:80%;background:#378ADD"></div></div></div>
-      <div class="br"><div class="bl"><b>Environmental auditors</b><span class="warn">Moderate increase — scenario estimate</span></div><div class="bt"><div class="bf" style="width:74%;background:#EF9F27"></div></div></div>
-      <div class="br"><div class="bl"><b>EPC project coordinators</b><span class="warn">Moderate increase — scenario estimate</span></div><div class="bt"><div class="bf" style="width:65%;background:#EF9F27"></div></div></div>
-    </div>
-    <div class="card">
-      <div class="ct">Illustrative EPC contractor scenario — Gulf rebuild</div>
-      <div style="position:relative;height:210px"><canvas id="c5"></canvas></div>
-    </div>
-  </div>
-  <div class="note nb2" style="margin-top:10px"><div class="nt">Strategic insight — the rebuild phase may create opportunities</div><div class="ni">Reports indicate more than 40 major energy infrastructure assets were affected across the Gulf — full damage scope is subject to ongoing assessment. Each requires damage assessment, inspection clearance, repair contracting, HSE oversight and emissions compliance certification before restart. For professionals with UAV inspection, offshore safety and OGMP 2.0 credentials already based in Doha — the rebuild phase may represent a significant professional opportunity — based on projected workforce demand scenarios.</div></div>
+<!-- FOOTER -->
+<div class="footer">
+  <b>Prasad Selvaraj</b> — Independent Energy Intelligence Researcher · Doha, Qatar<br>
+  ORCID: 0009-0001-4513-3910 · DOI: 10.5281/ZENODO.18968721 · linkedin.com/in/prasadselvaraj<br>
+  All dashboards represent independent scenario analysis based on publicly available sources. Not investment advice.
 </div>
 
-<div id="p-roles" class="pane">
-  <div class="card" style="margin-bottom:10px">
-    <div class="ct">Indicative high-relevance roles — Gulf energy rebuild phase · April 2026</div>
-    <div class="role"><div class="rt">UAV Inspection Coordinator — LNG facility restart</div><div class="rm">QatarEnergy / EPC contractors · Doha · QAR range: market estimate only</div><div class="rb" style="width:98%;background:#1D9E75"></div><div class="rl">Strong alignment — UAV optical gas imaging, UAS/RPAS licence, CAP 437 certification and SUMIF emissions framework are directly relevant to LNG facility inspection requirements.</div></div>
-    <div class="role"><div class="rt">OGMP 2.0 Emissions Compliance Specialist — restart certification</div><div class="rm">Bureau Veritas / Lloyd's Register / QatarEnergy · Doha · QAR range: market estimate only</div><div class="rb" style="width:95%;background:#1D9E75"></div><div class="rl">Strong alignment — OGMP 2.0 research focus, published SUMIF framework and ESG reporting certifications align with emerging emissions compliance requirements in LNG restart processes.</div></div>
-    <div class="role"><div class="rt">HSE Advisor — offshore infrastructure damage assessment</div><div class="rm">Worley / Wood Group / Petrofac · Doha · QAR range: market estimate only</div><div class="rb" style="width:93%;background:#1D9E75"></div><div class="rl">Good fit — 15 years safety management experience, CAP 437 offshore operations and HSE Engineering qualification (Khalifa University) are relevant to rebuild phase advisory roles.</div></div>
-    <div class="role"><div class="rt">Methane Intelligence Analyst — post-conflict emissions audit</div><div class="rm">Independent consulting · Doha/Remote · Project-based</div><div class="rb" style="width:96%;background:#378ADD"></div><div class="rl">Strong alignment — SUMIF framework research directly addresses the intersection of satellite sensing, UAV inspection and OGMP 2.0 compliance in offshore gas contexts.</div></div>
-    <div class="role"><div class="rt">Digital Inspection &amp; Data Analyst — rebuild programme</div><div class="rm">QatarEnergy LNG / McDermott · Doha · QAR range: market estimate only</div><div class="rb" style="width:88%;background:#378ADD"></div><div class="rl">Good fit — Power BI PL-300, Petroleum Engineering AI applications and GIS analytical skills are relevant to data-driven rebuild programme management.</div></div>
-  </div>
-  <div class="note ng"><div class="nt">Your positioning statement for recruiters — use this now</div><div class="ni">"As an independent OGMP 2.0 researcher and UAV inspection specialist already based in Doha, with published research in methane emissions quantification and offshore safety management, My research background positions me to contribute to LNG restart and rebuild programmes — particularly in emissions compliance, UAV inspection and OGMP 2.0 audit workflows — areas where my research and certifications are directly applicable."</div></div>
-</div>
-
-<div class="analyst">
-  <div class="av">PS</div>
-  <div style="flex:1">
-    <div style="font-size:15px;font-weight:700;color:#1A3A6B">Prasad Selvaraj</div>
-    <div style="font-size:12px;color:#C8960C;font-weight:600;margin-bottom:6px">Independent Energy Intelligence Researcher · OGMP 2.0 Analyst · SUMIF Framework Author · Doha, Qatar</div>
-    <div style="font-size:11px;color:#555;line-height:1.65;margin-bottom:8px">Independent researcher with research interests in offshore methane compliance, UAV inspection systems and Gulf energy market analysis. Author of the SAT-UAV Methane Intelligence Framework (SUMIF) — OGMP 2.0 Gold Standard compliant architecture integrating satellite sensing, drone inspection and mass-balance ESG modelling. Six published research papers. CAP 437 · UAS/RPAS Licensed · Power BI PL-300 · HSE Engineering (Khalifa University) · Petroleum Engineering with AI Applications (L&amp;T EduTech) · ESG Reporting 2026.</div>
-    <div class="chips">
-      <span class="chip cg">OGMP 2.0 Specialist</span>
-      <span class="chip cb">SUMIF Framework Author</span>
-      <span class="chip ca">UAV Inspection Expert</span>
-      <span class="chip cg">CAP 437 Certified</span>
-      <span class="chip cb">6 Published Papers</span>
-      <span class="chip ca">Power BI PL-300</span>
-      <span class="chip cg">Petroleum Engineering AI</span>
-      <span class="chip cb">ESG Reporting 2026</span>
-    </div>
-    <div style="font-size:10px;color:#999;margin-top:10px;padding-top:8px;border-top:1px solid #eee">
-      <b style="color:#1A3A6B">Research DOI:</b> 10.5281/ZENODO.18968721 &nbsp;·&nbsp; <b style="color:#1A3A6B">SUMIF App:</b> dig-ahead-44653197.figma.site &nbsp;·&nbsp; <b style="color:#1A3A6B">LinkedIn:</b> linkedin.com/in/prasadselvaraj &nbsp;·&nbsp; <b style="color:#1A3A6B">ORCID:</b> 0009-0001-4513-3910 &nbsp;·&nbsp; <b style="color:#1A3A6B">Contact:</b> <a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="b7c7c5d6c4d6d385c3f7d0dad6dedb99d4d8da">[email&#160;protected]</a>
-    </div>
-  </div>
-</div>
-
-<div class="attr">
-  <b>Sources:</b> Bloomberg — Qatar begins work to resume LNG production after ceasefire, Apr 8 2026 · Al Jazeera — QatarEnergy declares force majeure on LNG contracts · IEA Middle East Energy Markets Update · IEEFA — Impact of Middle East Crisis on Global Energy Markets, Apr 2 2026 · Qatar News Agency — Ceasefire agreement positive signs for energy supply, Apr 8 2026 · Natural Gas Intelligence · Oil &amp; Gas Middle East<br>
-  <b>Disclaimer:</b> This dashboard is scenario-based independent analysis. Facts are drawn from publicly available sources cited above. Estimates, projections and role-relevance assessments are analyst interpretations and scenario assumptions — not confirmed intelligence. Salary ranges are market estimates only. Not investment advice. Not affiliated with any named company or organisation. &copy; 2026 Prasad Selvaraj — Independent Energy Intelligence Research.
-</div>
-
-</div>
-
-<script>
-function tab(n){
-  ['restart','trains','market','rebuild','roles'].forEach(i=>{
-    document.getElementById('p-'+i).classList.toggle('on',i===n);
-  });
-  document.querySelectorAll('.nb').forEach((b,i)=>{
-    b.classList.toggle('on',['restart','trains','market','rebuild','roles'][i]===n);
-  });
-  setTimeout(draw,60);
-}
-const ch={};
-const B={responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}}};
-const BL='#378ADD',GR='#1D9E75',AM='#EF9F27',RD='#E24B4A';
-function mk(id,cfg){
-  if(ch[id])return;
-  const el=document.getElementById(id);
-  if(!el||!el.getContext)return;
-  try{ch[id]=new Chart(el,cfg);}catch(e){}
-}
-function draw(){
-  mk('c1',{type:'line',
-    data:{labels:['Pre-war','Mar 2','Mar 15','Apr 8 Ceasefire','Apr 20','May','Jun','Sep','Dec','2027','2030'],
-      datasets:[
-        {label:'Restart scenario',data:[77,10,8,null,20,35,50,65,70,82,97],borderColor:BL,tension:.4,pointRadius:2,fill:false,spanGaps:true},
-        {label:'Pre-conflict baseline',data:[77,77,77,77,77,77,77,77,77,77,97],borderColor:GR,borderDash:[5,3],tension:0,pointRadius:0,fill:false}
-      ]},
-    options:{...B,plugins:{legend:{display:true,position:'top',labels:{font:{size:9},boxWidth:8}}},
-      scales:{x:{ticks:{font:{size:9},maxRotation:30}},y:{min:0,max:110,ticks:{font:{size:9},callback:v=>v+'M'}}}}
-  });
-  mk('c2',{type:'line',
-    data:{labels:['Feb 20','Feb 28','Mar 5','Mar 10','Mar 20','Apr 1','Apr 8 Ceasefire','Apr 10'],
-      datasets:[
-        {label:'TTF European gas',data:[30,32,48,60,62,60,48,46],borderColor:BL,tension:.4,pointRadius:3,fill:false},
-        {label:'Asian LNG spot',data:[12,14,28,35,35,34,28,26],borderColor:RD,tension:.4,borderDash:[4,2],pointRadius:3,fill:false}
-      ]},
-    options:{...B,plugins:{legend:{display:true,position:'top',labels:{font:{size:9},boxWidth:8}}},
-      scales:{x:{ticks:{font:{size:9},maxRotation:30}},y:{ticks:{font:{size:9}}}}}
-  });
-  mk('c3',{type:'bar',indexAxis:'y',
-    data:{labels:['US LNG','Australia','Spot market','Mozambique restart','Others'],
-      datasets:[{data:[45,25,15,8,7],backgroundColor:[BL,GR,AM,BL,AM],borderRadius:4}]},
-    options:{...B,scales:{x:{max:50,ticks:{font:{size:9},callback:v=>v+'%'}},y:{ticks:{font:{size:10}}}}}
-  });
-  mk('c4',{type:'bar',
-    data:{labels:['LNG facility rebuild','Offshore platforms','Refinery repairs','Petrochem','Pipelines','Inspection & HSE'],
-      datasets:[{data:[15,12,8,6,5,3],backgroundColor:[RD,RD,AM,AM,BL,GR],borderRadius:5}]},
-    options:{...B,scales:{x:{ticks:{font:{size:9}}},y:{ticks:{font:{size:9},callback:v=>'$'+v+'B'}}}}
-  });
-  mk('c5',{type:'doughnut',
-    data:{labels:['McDermott 22%','Worley 18%','Wood 15%','Technip 14%','Saipem 12%','Others 19%'],
-      datasets:[{data:[22,18,15,14,12,19],backgroundColor:[BL,GR,AM,RD,'#7F77DD','#888780'],borderWidth:0}]},
-    options:{...B,cutout:'55%',plugins:{legend:{display:true,position:'bottom',labels:{font:{size:9},boxWidth:8,padding:4}}}}
-  });
-}
-window.addEventListener('load',draw);
-</script>
 </body>
 </html>
