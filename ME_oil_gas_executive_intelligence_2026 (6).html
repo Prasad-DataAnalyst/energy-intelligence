@@ -1,0 +1,860 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Middle East Oil &amp; Gas — Executive Intelligence Report 2026 | Prasad Selvaraj, Independent Energy Analyst</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+    background: #f5f5f4;
+    color: #1a1a1a;
+    padding: 24px 16px;
+    min-height: 100vh;
+  }
+  .container { max-width: 1100px; margin: 0 auto; }
+
+  /* ── HERO ── */
+  .hero {
+    background: #1A3A6B;
+    border-radius: 14px;
+    padding: 28px 32px;
+    margin-bottom: 16px;
+    color: #fff;
+  }
+  .hero-top { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
+  .hero-title { font-size: 24px; font-weight: 600; color: #fff; }
+  .hero-sub   { font-size: 13px; color: rgba(255,255,255,.7); margin-top: 4px; }
+  .live { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600;
+          padding: 4px 12px; border-radius: 20px; background: rgba(226,75,74,.25); color: #ff8a89;
+          border: 1px solid rgba(226,75,74,.4); }
+  .live-dot { width: 7px; height: 7px; border-radius: 50%; background: #ff8a89; animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+  .hero-stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; }
+  .hero-stat-label { font-size: 11px; color: rgba(255,255,255,.6); margin-bottom: 3px; }
+  .hero-stat-val   { font-size: 15px; font-weight: 600; color: #C8960C; }
+
+  /* ── KPI STRIP ── */
+  .kpi-grid { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 8px; margin-bottom: 16px; }
+  .kpi {
+    background: #fff;
+    border: 1px solid #e5e5e5;
+    border-radius: 10px;
+    padding: 14px 12px;
+    position: relative;
+    overflow: hidden;
+  }
+  .kpi-accent { position: absolute; top: 0; left: 0; right: 0; height: 3px; }
+  .kpi-label { font-size: 10px; color: #777; margin-bottom: 6px; text-transform: uppercase; letter-spacing: .05em; }
+  .kpi-val   { font-size: 21px; font-weight: 600; color: #1a1a1a; margin-bottom: 2px; }
+  .kpi-sub   { font-size: 10px; color: #999; }
+  .up  { color: #1D9E75; }
+  .dn  { color: #E24B4A; }
+  .wrn { color: #EF9F27; }
+
+  /* ── NAV TABS ── */
+  .nav { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
+  .nb {
+    font-size: 12px; font-weight: 500;
+    padding: 7px 16px;
+    border-radius: 20px;
+    border: 1px solid #ddd;
+    background: #fff;
+    color: #555;
+    cursor: pointer;
+    transition: all .15s;
+    white-space: nowrap;
+  }
+  .nb:hover { border-color: #aaa; color: #1a1a1a; }
+  .nb.on { background: #1A3A6B; color: #fff; border-color: #1A3A6B; }
+
+  /* ── PANES ── */
+  .pane { display: none; }
+  .pane.on { display: block; }
+
+  /* ── LAYOUT GRIDS ── */
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+  .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+
+  /* ── CARDS ── */
+  .card {
+    background: #fff;
+    border: 1px solid #e5e5e5;
+    border-radius: 12px;
+    padding: 16px;
+  }
+  .ct { font-size: 12px; font-weight: 600; color: #1a1a1a; margin-bottom: 12px; }
+  .cs { font-size: 11px; color: #777; margin-bottom: 10px; }
+  .ch { position: relative; }
+
+  /* ── BAR ROWS ── */
+  .bar-r { margin-bottom: 10px; }
+  .bar-lbl { display: flex; justify-content: space-between; font-size: 11px; color: #666; margin-bottom: 4px; }
+  .bar-lbl b { color: #1a1a1a; font-weight: 600; }
+  .bt { height: 8px; background: #f0f0f0; border-radius: 4px; overflow: hidden; }
+  .bf { height: 100%; border-radius: 4px; }
+
+  /* ── INSIGHTS ── */
+  .insight {
+    border-left: 3px solid;
+    border-radius: 0 8px 8px 0;
+    padding: 10px 14px;
+    margin-bottom: 10px;
+  }
+  .i-blue  { border-color: #378ADD; background: #EAF2FB; }
+  .i-green { border-color: #1D9E75; background: #E3F5EF; }
+  .i-amber { border-color: #EF9F27; background: #FEF3E2; }
+  .i-red   { border-color: #E24B4A; background: #FDEAEA; }
+  .i-title { font-size: 11px; font-weight: 700; margin-bottom: 4px; }
+  .i-blue  .i-title { color: #185FA5; }
+  .i-green .i-title { color: #0F6E56; }
+  .i-amber .i-title { color: #7A4800; }
+  .i-red   .i-title { color: #922828; }
+  .i-text  { font-size: 11px; color: #555; line-height: 1.55; }
+
+  /* ── RISK GRID ── */
+  .risk-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+  .risk-item { background: #f8f8f8; border-radius: 8px; padding: 12px; }
+  .risk-name { font-size: 11px; font-weight: 700; color: #1a1a1a; margin-bottom: 6px; }
+  .risk-bar  { height: 5px; border-radius: 3px; margin-bottom: 5px; }
+  .risk-meta { font-size: 10px; color: #666; line-height: 1.5; }
+
+  /* ── NOC GRID ── */
+  .noc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+  .noc { background: #f8f8f8; border-radius: 10px; padding: 14px; }
+  .noc-name { font-size: 13px; font-weight: 700; color: #1A3A6B; margin-bottom: 2px; }
+  .noc-val  { font-size: 11px; color: #666; margin-bottom: 8px; }
+  .noc-bar  { height: 4px; border-radius: 2px; margin-bottom: 8px; }
+  .noc-inner { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .ni-label { font-size: 10px; color: #888; margin-bottom: 2px; }
+  .ni-val   { font-size: 11px; font-weight: 600; color: #1a1a1a; }
+
+  /* ── TIMELINE ── */
+  .timeline { position: relative; padding-left: 22px; }
+  .tl-line  { position: absolute; left: 7px; top: 6px; bottom: 6px; width: 2px; background: #ddd; }
+  .tl-item  { position: relative; margin-bottom: 18px; }
+  .tl-dot   { position: absolute; left: -19px; top: 3px; width: 11px; height: 11px; border-radius: 50%; border: 2px solid; }
+  .tl-year  { font-size: 10px; font-weight: 700; color: #777; margin-bottom: 3px; text-transform: uppercase; letter-spacing: .04em; }
+  .tl-text  { font-size: 11px; color: #1a1a1a; line-height: 1.45; }
+  .tl-sub   { font-size: 10px; color: #888; margin-top: 3px; }
+
+  /* ── SCENARIO TABS ── */
+  .scenario-tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+  .st { font-size: 11px; padding: 5px 14px; border-radius: 12px; border: 1px solid #ddd; background: #fff; color: #666; cursor: pointer; }
+  .st.on { background: #1A3A6B; color: #fff; border-color: #1A3A6B; font-weight: 600; }
+  .scenario-content { display: none; }
+  .scenario-content.on { display: block; }
+
+  /* ── MATRIX ── */
+  .matrix { display: grid; grid-template-columns: repeat(3,1fr); gap: 6px; margin-bottom: 12px; }
+  .mx-cell { padding: 10px; border-radius: 8px; text-align: center; }
+  .mx-label { font-size: 9px; color: #888; margin-bottom: 4px; text-transform: uppercase; letter-spacing: .04em; }
+  .mx-val   { font-size: 13px; font-weight: 700; }
+
+  /* ── LEGEND ── */
+  .leg { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }
+  .li  { display: flex; align-items: center; gap: 5px; font-size: 10px; color: #666; }
+  .ld  { width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; }
+
+  /* ── ATTRIBUTION ── */
+  .attribution {
+    font-size: 10px; color: #999;
+    margin-top: 20px; padding-top: 12px;
+    border-top: 1px solid #e5e5e5;
+    line-height: 1.7;
+  }
+  .attribution b { color: #1A3A6B; }
+
+  /* ── RESPONSIVE ── */
+  @media (max-width: 700px) {
+    .kpi-grid { grid-template-columns: repeat(2,1fr); }
+    .row2, .row3, .noc-grid, .risk-grid { grid-template-columns: 1fr; }
+    .hero-stats { grid-template-columns: 1fr; }
+    .matrix { grid-template-columns: repeat(2,1fr); }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+<!-- HERO -->
+<div class="hero">
+  <div class="hero-top">
+    <div>
+      <div class="hero-title">Middle East Oil &amp; Gas</div>
+      <div class="hero-title" style="color:#C8960C;font-size:18px">Executive Intelligence Report 2026</div>
+      <div class="hero-sub">Strategic Analysis for Senior Leadership &nbsp;·&nbsp; Q2 2026 &nbsp;·&nbsp; Prasad Selvaraj — Independent Energy Intelligence Analyst &amp; OGMP 2.0 Researcher</div>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
+      <span class="live"><span class="live-dot"></span>Crisis Active — March 2026</span>
+      <span style="font-size:11px;color:rgba(255,255,255,.5)">Sources: IEA · Rystad · EIA · April 2026</span>
+    </div>
+  </div>
+  <div class="hero-stats">
+    <div><div class="hero-stat-label">Brent Crude post-conflict</div><div class="hero-stat-val">~$120+/bbl &nbsp;↑60% since Feb 28</div></div>
+    <div><div class="hero-stat-label">Gulf production curtailed</div><div class="hero-stat-val">10 mb/d+ shut in</div></div>
+    <div><div class="hero-stat-label">Global LNG supply disrupted</div><div class="hero-stat-val">~20% reduction</div></div>
+  </div>
+</div>
+
+<!-- KPI STRIP -->
+<div class="kpi-grid">
+  <div class="kpi"><div class="kpi-accent" style="background:#E24B4A"></div><div class="kpi-label">ME O&amp;G Market 2030</div><div class="kpi-val">$1.41T</div><div class="kpi-sub up">↑ 3.9% CAGR</div></div>
+  <div class="kpi"><div class="kpi-accent" style="background:#378ADD"></div><div class="kpi-label">GCC Contracts 2016–Now</div><div class="kpi-val">$348B</div><div class="kpi-sub up">↑ $34B avg/year</div></div>
+  <div class="kpi"><div class="kpi-accent" style="background:#1D9E75"></div><div class="kpi-label">Qatar LNG Target 2030</div><div class="kpi-val">142 MTPA</div><div class="kpi-sub up">↑ 85% from 77 MTPA</div></div>
+  <div class="kpi"><div class="kpi-accent" style="background:#EF9F27"></div><div class="kpi-label">ME Gas Investment 2025</div><div class="kpi-val">$40B</div><div class="kpi-sub">25% of global upstream</div></div>
+  <div class="kpi"><div class="kpi-accent" style="background:#D4537E"></div><div class="kpi-label">Strait of Hormuz Oil</div><div class="kpi-val">25%</div><div class="kpi-sub dn">Global seaborne trade</div></div>
+</div>
+
+<!-- NAV -->
+<div class="nav">
+  <button class="nb on" onclick="tab('overview')">Market Overview</button>
+  <button class="nb" onclick="tab('noc')">NOC Strategies</button>
+  <button class="nb" onclick="tab('crisis')">Crisis &amp; Disruption</button>
+  <button class="nb" onclick="tab('future')">2026–2030 Outlook</button>
+  <button class="nb" onclick="tab('esg')">ESG &amp; Decarbonisation</button>
+  <button class="nb" onclick="tab('signal')">Strategic Signals</button>
+  <button class="nb" style="background:#1A3A6B;color:#C8960C;border-color:#1A3A6B;font-weight:700" onclick="tab('decision')">⚡ Decision Intelligence</button>
+</div>
+
+<!-- PANE: OVERVIEW -->
+<div id="pane-overview" class="pane on">
+  <div class="row2">
+    <div class="card"><div class="ct">GCC upstream investment by country — 2025 ($B)</div><div class="ch" style="height:200px"><canvas id="c1"></canvas></div></div>
+    <div class="card"><div class="ct">Middle East O&amp;G market size — historical &amp; forecast ($T)</div><div class="ch" style="height:200px"><canvas id="c2"></canvas></div></div>
+  </div>
+  <div class="row3">
+    <div class="card"><div class="ct">Production share — Gulf NOCs 2025</div><div class="ch" style="height:180px"><canvas id="c3"></canvas></div></div>
+    <div class="card"><div class="ct">Qatar LNG capacity roadmap (MTPA)</div><div class="ch" style="height:180px"><canvas id="c4"></canvas></div></div>
+    <div class="card">
+      <div class="ct">Strait of Hormuz — global trade exposure</div>
+      <div class="bar-r"><div class="bar-lbl"><b>Seaborne oil</b><span>25% global</span></div><div class="bt"><div class="bf" style="width:82%;background:#E24B4A"></div></div></div>
+      <div class="bar-r"><div class="bar-lbl"><b>LNG trade</b><span>20% global</span></div><div class="bt"><div class="bf" style="width:66%;background:#E24B4A"></div></div></div>
+      <div class="bar-r"><div class="bar-lbl"><b>Qatar LNG exports</b><span>93% via Strait</span></div><div class="bt"><div class="bf" style="width:93%;background:#D4537E"></div></div></div>
+      <div class="bar-r"><div class="bar-lbl"><b>Global urea trade</b><span>30% via Strait</span></div><div class="bt"><div class="bf" style="width:75%;background:#EF9F27"></div></div></div>
+      <div class="bar-r"><div class="bar-lbl"><b>Gulf aluminium supply</b><span>8% global</span></div><div class="bt"><div class="bf" style="width:40%;background:#EF9F27"></div></div></div>
+    </div>
+  </div>
+  <div class="insight i-blue"><div class="i-title">Strategic context — why the Middle East still dominates</div><div class="i-text">Middle East NOCs sanctioned $50B in conventional projects in 2025 — the third consecutive year of record spending. While Western majors prioritised shareholder returns, Gulf NOCs locked in structural supply leadership through 2035. The region captures 25% of global upstream gas investment while holding the world's lowest-cost production base at under $3/MMBtu breakeven for Qatar.</div></div>
+</div>
+
+<!-- PANE: NOC -->
+<div id="pane-noc" class="pane">
+  <div class="noc-grid">
+    <div class="noc">
+      <div class="noc-name">QatarEnergy</div>
+      <div class="noc-val">LNG expansion + North Field West · 142 MTPA by 2030</div>
+      <div class="noc-bar" style="background:#378ADD;width:88%"></div>
+      <div class="noc-inner">
+        <div><div class="ni-label">Qatar O&G market</div><div class="ni-val">$30.4B (2026E)</div></div>
+        <div><div class="ni-label">Breakeven cost</div><div class="ni-val" style="color:#1D9E75">$3/MMBtu</div></div>
+        <div><div class="ni-label">Key move 2026</div><div class="ni-val" style="font-weight:400">NF West partnerships + AI digitalisation</div></div>
+        <div><div class="ni-label">Crisis status</div><div class="ni-val" style="color:#E24B4A;font-weight:400">Force majeure · Ras Laffan offline</div></div>
+      </div>
+    </div>
+    <div class="noc">
+      <div class="noc-name">Saudi Aramco</div>
+      <div class="noc-val">Jafurah unconventional gas + HUMAIN AI initiative</div>
+      <div class="noc-bar" style="background:#1D9E75;width:95%"></div>
+      <div class="noc-inner">
+        <div><div class="ni-label">Saudi GDP 2026</div><div class="ni-val">$1.1 Trillion</div></div>
+        <div><div class="ni-label">Fiscal breakeven</div><div class="ni-val" style="color:#EF9F27">$80/bbl</div></div>
+        <div><div class="ni-label">Key move 2026</div><div class="ni-val" style="font-weight:400">HUMAIN AI — data-as-asset commercialisation</div></div>
+        <div><div class="ni-label">Bypass capacity</div><div class="ni-val" style="color:#1D9E75;font-weight:400">East-West pipeline 7mb/d active</div></div>
+      </div>
+    </div>
+    <div class="noc">
+      <div class="noc-name">ADNOC (UAE)</div>
+      <div class="noc-val">XRG global gas strategy + Hail &amp; Ghasha sour gas $11B</div>
+      <div class="noc-bar" style="background:#EF9F27;width:80%"></div>
+      <div class="noc-inner">
+        <div><div class="ni-label">Foreign investment</div><div class="ni-val">~40% upstream</div></div>
+        <div><div class="ni-label">Key acquisition</div><div class="ni-val" style="font-weight:400">Caspian Southern Gas Corridor</div></div>
+        <div><div class="ni-label">Strategy 2026</div><div class="ni-val" style="font-weight:400">Mubadala consolidation + equity expansion</div></div>
+        <div><div class="ni-label">Bypass capacity</div><div class="ni-val" style="color:#1D9E75;font-weight:400">Fujairah terminal operational</div></div>
+      </div>
+    </div>
+    <div class="noc">
+      <div class="noc-name">Iraq NOC</div>
+      <div class="noc-val">30 new projects in licensing rounds · 70% foreign funded</div>
+      <div class="noc-bar" style="background:#D4537E;width:55%"></div>
+      <div class="noc-inner">
+        <div><div class="ni-label">Foreign funding</div><div class="ni-val">&gt;70% upstream</div></div>
+        <div><div class="ni-label">Crisis impact</div><div class="ni-val" style="color:#E24B4A;font-weight:400">Rumaila + WQ2 curtailed</div></div>
+        <div><div class="ni-label">Opportunity</div><div class="ni-val" style="font-weight:400">Flared gas capture · 30 new awards</div></div>
+        <div><div class="ni-label">Risk level</div><div class="ni-val" style="color:#E24B4A;font-weight:400">Highest in region</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="card"><div class="ct">NOC strategic posture comparison — 2026</div><div class="ch" style="height:220px"><canvas id="c5"></canvas></div></div>
+</div>
+
+<!-- PANE: CRISIS -->
+<div id="pane-crisis" class="pane">
+  <div class="row2">
+    <div class="card"><div class="ct">Energy price surge — pre vs post conflict (indexed)</div><div class="ch" style="height:200px"><canvas id="c6"></canvas></div></div>
+    <div class="card"><div class="ct">Production curtailment by country (mb/d estimate)</div><div class="ch" style="height:200px"><canvas id="c7"></canvas></div></div>
+  </div>
+  <div class="risk-grid">
+    <div class="risk-item"><div class="risk-name">Strait of Hormuz closure</div><div class="risk-bar" style="background:#E24B4A;width:95%"></div><div class="risk-meta">CRITICAL — No alternative route for Qatar, Kuwait, Bahrain LNG. Saudi/UAE pipeline bypass now at full capacity.</div></div>
+    <div class="risk-item"><div class="risk-name">Ras Laffan facility offline</div><div class="risk-bar" style="background:#E24B4A;width:90%"></div><div class="risk-meta">World's largest LNG liquefaction complex offline since March 2. Force majeure declared. North Field East delay confirmed.</div></div>
+    <div class="risk-item"><div class="risk-name">Refinery capacity at risk</div><div class="risk-bar" style="background:#D4537E;width:75%"></div><div class="risk-meta">4mb/d refining capacity at risk. Storage filling rapidly. Export-oriented refineries cutting runs or shutting completely.</div></div>
+    <div class="risk-item"><div class="risk-name">IEA emergency stock release</div><div class="risk-bar" style="background:#EF9F27;width:60%"></div><div class="risk-meta">Largest-ever IEA emergency release activated March 11. Partially offsetting supply shock but insufficient alone.</div></div>
+    <div class="risk-item"><div class="risk-name">Asian LNG demand shock</div><div class="risk-bar" style="background:#EF9F27;width:70%"></div><div class="risk-meta">Gas rationing in multiple Asian countries. Dutch TTF up 60%. Asian spot prices doubled. Demand adjustments underway.</div></div>
+    <div class="risk-item"><div class="risk-name">Food security — fertiliser chain</div><div class="risk-bar" style="background:#EF9F27;width:55%"></div><div class="risk-meta">30% of global urea moves through the Strait. LNG-fed fertiliser plants disrupted. Global food price pressure building.</div></div>
+  </div>
+  <div class="insight i-amber"><div class="i-title">CEO decision point — Saudi Arabia's strategic pivot</div><div class="i-text">Saudi Aramco set a record daily export of 5.9mb/d from Yanbu port on March 9 — versus an average 1.7mb/d in 2025. The East-West Petroline (7mb/d capacity) is the only significant bypass route in the region, giving Saudi Arabia a decisive geopolitical and commercial advantage during this crisis. This single infrastructure decision is reshaping Asian and European energy supply chains in real time.</div></div>
+</div>
+
+<!-- PANE: FUTURE -->
+<div id="pane-future" class="pane">
+  <div class="scenario-tabs">
+    <button class="st on" onclick="sc('base')">Base case</button>
+    <button class="st" onclick="sc('bull')">Bull case</button>
+    <button class="st" onclick="sc('bear')">Bear case</button>
+  </div>
+  <div id="sc-base" class="scenario-content on"><div class="insight i-blue"><div class="i-title">Base case — Partial resolution Q3 2026 · Brent $85–95 by year-end</div><div class="i-text">Strait reopens partially by mid-2026. Ras Laffan resumes 60–70% capacity by Q4. Qatar NFE delayed 12–18 months. Global LNG market tight through 2027. ME NOC capex recovers from 2027. Digital transformation and AI adoption accelerate as crisis exposes infrastructure vulnerability across the Gulf.</div></div></div>
+  <div id="sc-bull" class="scenario-content"><div class="insight i-green"><div class="i-title">Bull case — Rapid ceasefire Q2 2026 · Brent $105–115 near-term spike then $75–85</div><div class="i-text">Conflict resolves by June 2026. Qatar LNG resumes full operations by Q3. NFE delayed only 6 months. Insurance of energy infrastructure triggers massive HSE and digital inspection investment cycle across Gulf. ME NOC capex hits new record in 2027–2028, creating unprecedented demand for offshore safety and emissions compliance professionals.</div></div></div>
+  <div id="sc-bear" class="scenario-content"><div class="insight i-red"><div class="i-title">Bear case — Extended conflict through 2027 · Structural supply deficit</div><div class="i-text">Ras Laffan remains offline 12+ months. NFE delayed 2–3 years. Qatar loses LNG market share to US and Australia permanently. Gulf expat exodus accelerates, creating severe talent vacuum in HSE and engineering. IEA emergency stocks depleted within 9 months. Global LNG prices remain structurally elevated through 2028.</div></div></div>
+  <div class="row2" style="margin-top:12px">
+    <div class="card"><div class="ct">Qatar LNG capacity — three scenarios to 2030 (MTPA)</div><div class="ch" style="height:210px"><canvas id="c8"></canvas></div></div>
+    <div class="card">
+      <div class="ct">Investment timeline — major ME projects 2026–2030</div>
+      <div class="timeline">
+        <div class="tl-line"></div>
+        <div class="tl-item"><div class="tl-dot" style="border-color:#E24B4A;background:#FDEAEA"></div><div class="tl-year">2026 — Crisis Year</div><div class="tl-text">Ras Laffan offline · NFE delayed · IEA emergency release · $50B+ projects paused across region</div></div>
+        <div class="tl-item"><div class="tl-dot" style="border-color:#EF9F27;background:#FEF3E2"></div><div class="tl-year">2027 — Recovery Phase</div><div class="tl-text">Ras Laffan partial restart · NFE commissioning begins · Jafurah Phase 1 output · OPEC+ capacity audit</div><div class="tl-sub">Saudi Aramco HUMAIN AI commercial launch</div></div>
+        <div class="tl-item"><div class="tl-dot" style="border-color:#378ADD;background:#EAF2FB"></div><div class="tl-year">2028 — Expansion Peak</div><div class="tl-text">Qatar 126 MTPA achieved · ADNOC Hail &amp; Ghasha online · Global LNG capacity wave peak — 95 BCM/yr new capacity</div></div>
+        <div class="tl-item"><div class="tl-dot" style="border-color:#1D9E75;background:#E3F5EF"></div><div class="tl-year">2029–2030 — Leadership Consolidation</div><div class="tl-text">Qatar 142 MTPA · Saudi gas self-sufficiency · ME O&amp;G market $1.41T · CCS capacity 11M tonnes CO₂/yr</div><div class="tl-sub">Digital twin and AI standard across all Gulf NOC operations</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- PANE: ESG -->
+<div id="pane-esg" class="pane">
+  <div class="row2">
+    <div class="card"><div class="ct">Qatar CCS capacity roadmap (M tonnes CO₂/year)</div><div class="ch" style="height:190px"><canvas id="c9"></canvas></div></div>
+    <div class="card"><div class="ct">OGMP 2.0 Gulf operator compliance — estimated level distribution</div><div class="ch" style="height:190px"><canvas id="c10"></canvas></div></div>
+  </div>
+  <div class="card" style="margin-bottom:12px">
+    <div class="ct">ESG regulatory pressure timeline — impact on Gulf LNG exports</div>
+    <div class="row3" style="margin-top:10px;margin-bottom:0">
+      <div class="insight i-amber" style="margin-bottom:0"><div class="i-title">EU Methane Regulation — Aug 2024</div><div class="i-text">LNG suppliers must submit methane performance profiles. Affects all Qatar LNG entering Europe. Direct compliance cost estimated €200M+ annually for full LNG fleet.</div></div>
+      <div class="insight i-amber" style="margin-bottom:0"><div class="i-title">EU ETS Shipping — 2026</div><div class="i-text">Carbon tax now applies to LNG cargoes entering Europe. Accelerates demand for OGMP 2.0 Level 4–5 direct measurement. Adds €15–25/tonne CO₂ cost pressure on every cargo.</div></div>
+      <div class="insight i-red" style="margin-bottom:0"><div class="i-title">CSRD Mandatory — 2026–2028</div><div class="i-text">EU Corporate Sustainability Reporting Directive — Gulf companies with EU revenue relationships face mandatory ESG disclosure. Qatar LNG buyers now require supplier ESG certification in offtake contracts.</div></div>
+    </div>
+  </div>
+  <div class="insight i-green"><div class="i-title">The OGMP 2.0 compliance gap — the largest unaddressed commercial risk in Gulf LNG</div><div class="i-text">Qatar's 27-year LNG contracts with Sinopec, CNPC, Shell and TotalEnergies require OGMP 2.0 Gold Standard Level 4–5 methane reporting. Current industry-wide practice remains predominantly estimation-based (Level 1–2), creating a measurable compliance gap threatening €200B+ in long-term contract security. The SAT-UAV Methane Intelligence Framework (SUMIF) — integrating satellite sensing, UAV optical gas imaging and mass-balance modelling — is architecturally designed to bridge this gap at scale. Research: DOI 10.5281/ZENODO.18968721 · dig-ahead-44653197.figma.site</div></div>
+</div>
+
+<!-- PANE: SIGNALS -->
+<div id="pane-signal" class="pane">
+  <div class="card" style="margin-bottom:12px">
+    <div class="ct">Six strategic signals shaping Middle East energy leadership 2026</div>
+    <div class="matrix">
+      <div class="mx-cell" style="background:#EAF2FB"><div class="mx-label">Signal 1</div><div class="mx-val" style="color:#185FA5">Data as Asset</div></div>
+      <div class="mx-cell" style="background:#E3F5EF"><div class="mx-label">Signal 2</div><div class="mx-val" style="color:#0F6E56">AI Adoption</div></div>
+      <div class="mx-cell" style="background:#FEF3E2"><div class="mx-label">Signal 3</div><div class="mx-val" style="color:#7A4800">Equity Global</div></div>
+      <div class="mx-cell" style="background:#FDEAEA"><div class="mx-label">Signal 4</div><div class="mx-val" style="color:#922828">Bypass Infra</div></div>
+      <div class="mx-cell" style="background:#EEEDFE"><div class="mx-label">Signal 5</div><div class="mx-val" style="color:#3C3489">Talent Vacuum</div></div>
+      <div class="mx-cell" style="background:#E3F5EF"><div class="mx-label">Signal 6</div><div class="mx-val" style="color:#0F6E56">ESG Compliance</div></div>
+    </div>
+  </div>
+  <div class="row2">
+    <div class="card">
+      <div class="ct">Opportunity signals</div>
+      <div class="insight i-blue" style="margin-bottom:8px"><div class="i-title">Signal 1 — Data as an asset (Aramco HUMAIN initiative)</div><div class="i-text">Aramco's HUMAIN initiative seeks to commercialise proprietary seismic and digital-twin data into tradable energy data hubs. This reframes data from a cost centre to a revenue stream — a model all Gulf NOCs will adopt by 2028. Energy data professionals and AI specialists are the primary beneficiaries.</div></div>
+      <div class="insight i-green" style="margin-bottom:8px"><div class="i-title">Signal 2 — AI and UAV digital twin adoption</div><div class="i-text">Supply chain costs rising 4% annually. Opex increasing 6–7%/year due to aging assets and complexity. AI-driven predictive maintenance and UAV inspection directly address this — projected $2–4B annual savings across Gulf NOCs by 2028. Investment in this capability is now structurally mandated.</div></div>
+      <div class="insight i-amber" style="margin-bottom:0"><div class="i-title">Signal 3 — Equity globalisation</div><div class="i-text">ADNOC acquiring Caspian stakes. QatarEnergy securing global LNG shipping fleet. KUFPEC targeting North American gas equity. Gulf NOCs are no longer producers — they are global diversified energy portfolio managers with international governance requirements.</div></div>
+    </div>
+    <div class="card">
+      <div class="ct">Risk signals</div>
+      <div class="insight i-red" style="margin-bottom:8px"><div class="i-title">Signal 4 — Bypass infrastructure as strategic weapon</div><div class="i-text">Saudi East-West pipeline hit 5.9mb/d record on March 9 — 3.5x normal. Infrastructure previously viewed as redundant is now the most strategically valuable energy asset in the Middle East. Gulf states will invest $50B+ in bypass capacity over the next five years.</div></div>
+      <div class="insight i-amber" style="margin-bottom:8px"><div class="i-title">Signal 5 — Talent vacuum accelerating</div><div class="i-text">Western expat professionals departing Gulf energy sector at unprecedented rate. HSE, emissions compliance, digital inspection and UAV operations most acutely affected. Locally-based professionals with these specific credentials are the immediate commercial beneficiaries of this structural shift.</div></div>
+      <div class="insight i-green" style="margin-bottom:0"><div class="i-title">Signal 6 — ESG compliance becomes commercial necessity</div><div class="i-text">EU methane regulations, CSRD and OGMP 2.0 requirements are now embedded in long-term offtake contracts. Gulf operators unable to demonstrate Level 4–5 methane compliance risk renegotiation of European contracts worth $15B+ annually.</div></div>
+    </div>
+  </div>
+  <div class="card" style="margin-top:12px"><div class="ct">Opex inflation vs digital efficiency savings — the NOC strategic dilemma 2022–2030 (indexed)</div><div class="ch" style="height:190px"><canvas id="c11"></canvas></div></div>
+</div>
+
+<!-- PANE: DECISION INTELLIGENCE -->
+<div id="pane-decision" class="pane">
+
+<!-- DI header banner -->
+<div style="background:linear-gradient(135deg,#1A3A6B,#0F6E56);border-radius:12px;padding:20px 24px;margin-bottom:16px;color:#fff">
+  <div style="font-size:16px;font-weight:700;color:#C8960C;margin-bottom:4px">⚡ Decision Intelligence Engine</div>
+  <div style="font-size:12px;color:rgba(255,255,255,.75)">Executive simulation · Methane compliance analytics · Digital inspection economics · Career market fit · Emissions uncertainty value-at-risk</div>
+  <div style="font-size:11px;color:rgba(255,255,255,.5);margin-top:6px">Prasad Selvaraj — Independent Energy Intelligence Analyst · SUMIF Framework Author · OGMP 2.0 Researcher · DOI: 10.5281/ZENODO.18968721</div>
+</div>
+
+<!-- MODULE 1: SCENARIO SIMULATOR -->
+<div class="card" style="margin-bottom:14px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+    <div class="ct" style="margin-bottom:0">Module 1 — Executive Disruption Scenario Simulator</div>
+    <span style="font-size:10px;background:#EAF2FB;color:#185FA5;padding:3px 10px;border-radius:12px;font-weight:600">INTERACTIVE</span>
+  </div>
+  <div style="font-size:11px;color:#777;margin-bottom:14px">Adjust disruption parameters — outputs update in real time. Move any slider to simulate executive impact.</div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+    <div>
+      <div style="font-size:11px;font-weight:600;color:#1A3A6B;margin-bottom:10px;text-transform:uppercase;letter-spacing:.04em">Disruption Inputs</div>
+
+      <div style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:#555;margin-bottom:4px"><span>Strait closure duration</span><b id="v1">30 days</b></div>
+        <input type="range" min="0" max="180" value="30" step="1" id="s1" oninput="sim()" style="width:100%">
+      </div>
+      <div style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:#555;margin-bottom:4px"><span>LNG outage severity</span><b id="v2">40%</b></div>
+        <input type="range" min="0" max="100" value="40" step="1" id="s2" oninput="sim()" style="width:100%">
+      </div>
+      <div style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:#555;margin-bottom:4px"><span>Methane leak severity (kt/day)</span><b id="v3">12 kt</b></div>
+        <input type="range" min="0" max="50" value="12" step="1" id="s3" oninput="sim()" style="width:100%">
+      </div>
+      <div style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:#555;margin-bottom:4px"><span>Insurance premium rise</span><b id="v4">25%</b></div>
+        <input type="range" min="0" max="150" value="25" step="1" id="s4" oninput="sim()" style="width:100%">
+      </div>
+      <div style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:#555;margin-bottom:4px"><span>Carbon price ($/tonne CO₂)</span><b id="v5">$85</b></div>
+        <input type="range" min="25" max="250" value="85" step="5" id="s5" oninput="sim()" style="width:100%">
+      </div>
+      <div style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:#555;margin-bottom:4px"><span>Inspection delay backlog</span><b id="v6">45 days</b></div>
+        <input type="range" min="0" max="365" value="45" step="1" id="s6" oninput="sim()" style="width:100%">
+      </div>
+    </div>
+
+    <div>
+      <div style="font-size:11px;font-weight:600;color:#1A3A6B;margin-bottom:10px;text-transform:uppercase;letter-spacing:.04em">Impact Outputs</div>
+
+      <div id="sim-outputs">
+        <div class="sim-row" style="background:#f8f8f8;border-radius:8px;padding:10px;margin-bottom:8px">
+          <div style="font-size:10px;color:#777;margin-bottom:3px;text-transform:uppercase;letter-spacing:.04em">Revenue at risk</div>
+          <div style="display:flex;align-items:baseline;gap:6px"><span id="o1" style="font-size:22px;font-weight:700;color:#E24B4A">$4.2B</span><span style="font-size:11px;color:#999">/month</span></div>
+        </div>
+        <div class="sim-row" style="background:#f8f8f8;border-radius:8px;padding:10px;margin-bottom:8px">
+          <div style="font-size:10px;color:#777;margin-bottom:3px;text-transform:uppercase;letter-spacing:.04em">LNG delivery delay</div>
+          <div style="display:flex;align-items:baseline;gap:6px"><span id="o2" style="font-size:22px;font-weight:700;color:#EF9F27">18 days</span><span style="font-size:11px;color:#999">average cargo</span></div>
+        </div>
+        <div class="sim-row" style="background:#f8f8f8;border-radius:8px;padding:10px;margin-bottom:8px">
+          <div style="font-size:10px;color:#777;margin-bottom:3px;text-transform:uppercase;letter-spacing:.04em">Emissions exposure (E-UVaR)</div>
+          <div style="display:flex;align-items:baseline;gap:6px"><span id="o3" style="font-size:22px;font-weight:700;color:#D4537E">$340M</span><span style="font-size:11px;color:#999">uncertainty value-at-risk</span></div>
+        </div>
+        <div class="sim-row" style="background:#f8f8f8;border-radius:8px;padding:10px;margin-bottom:8px">
+          <div style="font-size:10px;color:#777;margin-bottom:3px;text-transform:uppercase;letter-spacing:.04em">HSE risk level</div>
+          <div><span id="o4-badge" style="display:inline-block;font-size:12px;font-weight:700;padding:4px 14px;border-radius:20px;background:#FDEAEA;color:#922828">HIGH</span></div>
+        </div>
+        <div class="sim-row" style="background:#f8f8f8;border-radius:8px;padding:10px;margin-bottom:8px">
+          <div style="font-size:10px;color:#777;margin-bottom:3px;text-transform:uppercase;letter-spacing:.04em">Contract risk score</div>
+          <div style="display:flex;align-items:baseline;gap:6px"><span id="o5" style="font-size:22px;font-weight:700;color:#7F77DD">72/100</span><span style="font-size:11px;color:#999">critical threshold</span></div>
+        </div>
+        <div style="background:#EAF2FB;border-radius:8px;padding:10px;border-left:3px solid #378ADD">
+          <div style="font-size:10px;color:#185FA5;font-weight:700;margin-bottom:4px">RECOMMENDED EXECUTIVE ACTION</div>
+          <div id="o6" style="font-size:11px;color:#185FA5;line-height:1.5">Activate UAV emergency inspection protocol. Deploy satellite methane monitoring. Engage OGMP 2.0 auditor for contract protection. Initiate bypass logistics with Fujairah.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div style="background:#f0f4ff;border-radius:8px;padding:10px 14px;margin-top:12px;font-size:11px;color:#185FA5">
+    <b>What this means:</b> This simulator models the compound impact of simultaneous disruptions on LNG revenue, contract exposure, and methane compliance. It operationalises the SUMIF framework's key finding: measurement maturity directly reduces E-UVaR. Every day of inspection delay increases emissions uncertainty value-at-risk by approximately $7.5M.
+  </div>
+</div>
+
+<!-- MODULE 2: EARLY WARNING SIGNAL INDEX -->
+<div class="card" style="margin-bottom:14px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+    <div class="ct" style="margin-bottom:0">Module 2 — Leading Indicator Index &amp; Early Warning System</div>
+    <span id="ews-overall" style="font-size:11px;font-weight:700;padding:4px 14px;border-radius:20px;background:#FDEAEA;color:#922828">ELEVATED RISK</span>
+  </div>
+  <div style="font-size:11px;color:#777;margin-bottom:14px">Eight leading signals tracked across Gulf energy operations. Green = normal · Amber = watch · Red = action required.</div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+    <div id="ews-grid"></div>
+    <div>
+      <div style="font-size:11px;font-weight:600;color:#1A3A6B;margin-bottom:8px">30-day trend — signal composite index</div>
+      <div style="position:relative;height:140px"><canvas id="c-ews"></canvas></div>
+    </div>
+  </div>
+
+  <div style="background:#FEF3E2;border-radius:8px;padding:12px 14px;border-left:3px solid #EF9F27">
+    <div style="font-size:11px;font-weight:700;color:#7A4800;margin-bottom:6px">TOP 3 EMERGING RISKS — Next 30 days</div>
+    <div style="font-size:11px;color:#555;margin-bottom:4px">① <b>Inspection backlog escalation</b> — 45-day average delay approaching defect escalation threshold. Probability of unplanned shutdown: 34% within 60 days.</div>
+    <div style="font-size:11px;color:#555;margin-bottom:4px">② <b>Methane event frequency rising</b> — Flaring and venting rates 28% above pre-conflict baseline. OGMP 2.0 reporting gap widening. EU contract exposure growing.</div>
+    <div style="font-size:11px;color:#555">③ <b>ESG compliance gap acceleration</b> — With 3 Western ESG audit firms having departed Qatar, third-party verification capacity has dropped 60%. CSRD obligations unmet.</div>
+  </div>
+</div>
+
+<!-- MODULE 3: METHANE INTELLIGENCE LAYER -->
+<div class="card" style="margin-bottom:14px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+    <div class="ct" style="margin-bottom:0">Module 3 — Methane Compliance Intelligence &amp; E-UVaR Analytics</div>
+    <span style="font-size:10px;background:#E3F5EF;color:#0F6E56;padding:3px 10px;border-radius:12px;font-weight:600">SUMIF FRAMEWORK</span>
+  </div>
+  <div style="font-size:11px;color:#777;margin-bottom:14px">Emissions Uncertainty Value-at-Risk (E-UVaR) — what is the business risk of not knowing your methane number accurately?</div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px">
+    <div style="background:#f8f8f8;border-radius:8px;padding:12px">
+      <div style="font-size:10px;color:#777;text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px">Measurement maturity</div>
+      <div style="font-size:10px;color:#555;margin-bottom:8px">Gulf industry average OGMP level</div>
+      <div style="position:relative;height:130px"><canvas id="c-ogmp"></canvas></div>
+    </div>
+    <div style="background:#f8f8f8;border-radius:8px;padding:12px">
+      <div style="font-size:10px;color:#777;text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px">E-UVaR by asset type ($M)</div>
+      <div style="font-size:10px;color:#555;margin-bottom:8px">Emissions uncertainty at carbon $85/t</div>
+      <div style="position:relative;height:130px"><canvas id="c-euvar"></canvas></div>
+    </div>
+    <div style="background:#f8f8f8;border-radius:8px;padding:12px">
+      <div style="font-size:10px;color:#777;text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px">Facility risk ranking</div>
+      <div style="font-size:10px;color:#555;margin-bottom:6px">By methane uncertainty exposure</div>
+      <div id="facility-rank"></div>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+    <div>
+      <div style="font-size:11px;font-weight:600;color:#1A3A6B;margin-bottom:8px">Compliance cost exposure — Level 2 vs Level 4/5 gap</div>
+      <div class="bar-r"><div class="bar-lbl"><b>Offshore platforms</b><span style="color:#E24B4A">$240M gap</span></div><div class="bt"><div class="bf" style="width:80%;background:#E24B4A"></div></div></div>
+      <div class="bar-r"><div class="bar-lbl"><b>LNG trains</b><span style="color:#E24B4A">$180M gap</span></div><div class="bt"><div class="bf" style="width:60%;background:#EF9F27"></div></div></div>
+      <div class="bar-r"><div class="bar-lbl"><b>Gas gathering</b><span style="color:#EF9F27">$95M gap</span></div><div class="bt"><div class="bf" style="width:32%;background:#EF9F27"></div></div></div>
+      <div class="bar-r"><div class="bar-lbl"><b>Refineries</b><span style="color:#1D9E75">$42M gap</span></div><div class="bt"><div class="bf" style="width:14%;background:#1D9E75"></div></div></div>
+    </div>
+    <div style="background:#E3F5EF;border-radius:8px;padding:12px;border-left:3px solid #1D9E75">
+      <div style="font-size:11px;font-weight:700;color:#0F6E56;margin-bottom:6px">SUMIF FRAMEWORK — THE SOLUTION</div>
+      <div style="font-size:11px;color:#1a1a1a;margin-bottom:6px">Integrating satellite sensing + UAV optical gas imaging + mass-balance modelling reduces methane measurement uncertainty from <b>±40% → ±8%</b>.</div>
+      <div style="font-size:11px;color:#555;margin-bottom:6px">This single improvement eliminates approximately <b>$280M of E-UVaR</b> exposure for a mid-size Gulf LNG operator.</div>
+      <div style="font-size:10px;color:#0F6E56;font-weight:600">DOI: 10.5281/ZENODO.18968721 · dig-ahead-44653197.figma.site</div>
+    </div>
+  </div>
+
+  <div style="background:#f0f4ff;border-radius:8px;padding:10px 14px;font-size:11px;color:#185FA5">
+    <b>What nobody is measuring:</b> Methane data quality debt. Every day an operator relies on Level 1–2 estimation instead of direct measurement, their EU contract exposure grows by ~$1.2M due to widening OGMP 2.0 compliance gap. This is the hidden cost that does not appear on any balance sheet — until a European offtake buyer triggers a contract review clause.
+  </div>
+</div>
+
+<!-- MODULE 4: DIGITAL INSPECTION VALUE CALCULATOR -->
+<div class="card" style="margin-bottom:14px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+    <div class="ct" style="margin-bottom:0">Module 4 — Digital Inspection &amp; UAV Value Calculator</div>
+    <span style="font-size:10px;background:#EAF2FB;color:#185FA5;padding:3px 10px;border-radius:12px;font-weight:600">INTERACTIVE</span>
+  </div>
+  <div style="font-size:11px;color:#777;margin-bottom:14px">Calculate the economics of UAV inspection vs traditional manual methods. Adjust your asset parameters.</div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+    <div>
+      <div style="font-size:11px;font-weight:600;color:#1A3A6B;margin-bottom:10px;text-transform:uppercase;letter-spacing:.04em">Asset Parameters</div>
+
+      <div style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:#555;margin-bottom:4px"><span>Number of inspection points</span><b id="uv1">240</b></div>
+        <input type="range" min="50" max="2000" value="240" step="10" id="us1" oninput="uavcalc()" style="width:100%">
+      </div>
+      <div style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:#555;margin-bottom:4px"><span>Manual inspection cost ($/point)</span><b id="uv2">$850</b></div>
+        <input type="range" min="200" max="3000" value="850" step="50" id="us2" oninput="uavcalc()" style="width:100%">
+      </div>
+      <div style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:#555;margin-bottom:4px"><span>Inspection frequency (per year)</span><b id="uv3">4×</b></div>
+        <input type="range" min="1" max="12" value="4" step="1" id="us3" oninput="uavcalc()" style="width:100%">
+      </div>
+      <div style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:#555;margin-bottom:4px"><span>Current inspection delay (days)</span><b id="uv4">45 days</b></div>
+        <input type="range" min="0" max="180" value="45" step="1" id="us4" oninput="uavcalc()" style="width:100%">
+      </div>
+      <div style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:#555;margin-bottom:4px"><span>Daily production value ($M/day)</span><b id="uv5">$12M</b></div>
+        <input type="range" min="1" max="100" value="12" step="1" id="us5" oninput="uavcalc()" style="width:100%">
+      </div>
+    </div>
+
+    <div>
+      <div style="font-size:11px;font-weight:600;color:#1A3A6B;margin-bottom:10px;text-transform:uppercase;letter-spacing:.04em">Value Unlocked by UAV</div>
+
+      <div style="background:#f8f8f8;border-radius:8px;padding:12px;margin-bottom:8px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div><div style="font-size:10px;color:#777;margin-bottom:3px">Manual cost/year</div><div id="uc1" style="font-size:16px;font-weight:700;color:#E24B4A">$81.6M</div></div>
+          <div><div style="font-size:10px;color:#777;margin-bottom:3px">UAV cost/year</div><div id="uc2" style="font-size:16px;font-weight:700;color:#1D9E75">$14.4M</div></div>
+          <div><div style="font-size:10px;color:#777;margin-bottom:3px">Direct savings/year</div><div id="uc3" style="font-size:16px;font-weight:700;color:#1D9E75">$67.2M</div></div>
+          <div><div style="font-size:10px;color:#777;margin-bottom:3px">Delay cost avoided</div><div id="uc4" style="font-size:16px;font-weight:700;color:#378ADD">$540M</div></div>
+        </div>
+      </div>
+      <div style="background:#E3F5EF;border-radius:8px;padding:12px;margin-bottom:8px;border-left:3px solid #1D9E75">
+        <div style="font-size:10px;color:#777;margin-bottom:3px">TOTAL VALUE UNLOCKED / YEAR</div>
+        <div id="uc5" style="font-size:28px;font-weight:700;color:#0F6E56">$607M</div>
+        <div style="font-size:11px;color:#555;margin-top:3px">Direct savings + delay cost reduction + methane detection value</div>
+      </div>
+      <div style="position:relative;height:110px"><canvas id="c-uav"></canvas></div>
+    </div>
+  </div>
+  <div style="background:#f0f4ff;border-radius:8px;padding:10px 14px;margin-top:12px;font-size:11px;color:#185FA5">
+    <b>Inspection Delay Cost Index:</b> Each day of inspection backlog on a Gulf LNG asset risks <span id="idci" style="font-weight:700">$12M</span> in potential undetected defect escalation cost. UAV inspection reduces inspection cycle time by 78%, effectively eliminating the delay cost entirely for covered assets.
+  </div>
+</div>
+
+<!-- MODULE 5: CAREER MARKET FIT INTELLIGENCE -->
+<div class="card" style="margin-bottom:14px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+    <div class="ct" style="margin-bottom:0">Module 5 — Energy Talent Intelligence &amp; Market-Fit Analyser</div>
+    <span style="font-size:10px;background:#EEEDFE;color:#3C3489;padding:3px 10px;border-radius:12px;font-weight:600">CAREER INTELLIGENCE</span>
+  </div>
+  <div style="font-size:11px;color:#777;margin-bottom:14px">Live skills-to-market mapping. Tracks most in-demand Gulf energy credentials, role clusters, and gap analysis for HSE transition professionals.</div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+    <div>
+      <div style="font-size:11px;font-weight:600;color:#1A3A6B;margin-bottom:8px">Most in-demand Gulf energy skills — 2026</div>
+      <div style="position:relative;height:180px"><canvas id="c-skills"></canvas></div>
+    </div>
+    <div>
+      <div style="font-size:11px;font-weight:600;color:#1A3A6B;margin-bottom:8px">Profile market-fit score — Prasad Selvaraj</div>
+      <div style="position:relative;height:180px"><canvas id="c-fit"></canvas></div>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px">
+    <div style="background:#E3F5EF;border-radius:8px;padding:12px;border-left:3px solid #1D9E75">
+      <div style="font-size:10px;font-weight:700;color:#0F6E56;margin-bottom:6px">NEAREST ROLES — HIGH FIT</div>
+      <div style="font-size:11px;color:#1a1a1a;margin-bottom:3px">① HSE Engineer — Offshore Fields (95%)</div>
+      <div style="font-size:11px;color:#1a1a1a;margin-bottom:3px">② Environmental Compliance Analyst (93%)</div>
+      <div style="font-size:11px;color:#1a1a1a;margin-bottom:3px">③ UAV Inspection Coordinator (91%)</div>
+      <div style="font-size:11px;color:#1a1a1a">④ Sr Technical HSE Engineer (88%)</div>
+    </div>
+    <div style="background:#FEF3E2;border-radius:8px;padding:12px;border-left:3px solid #EF9F27">
+      <div style="font-size:10px;font-weight:700;color:#7A4800;margin-bottom:6px">TOP MISSING SKILLS — GAP</div>
+      <div style="font-size:11px;color:#1a1a1a;margin-bottom:3px">① NEBOSH IGC — mentioned in 78% of HSE roles</div>
+      <div style="font-size:11px;color:#1a1a1a;margin-bottom:3px">② BOSIET — required for offshore deployment</div>
+      <div style="font-size:11px;color:#1a1a1a;margin-bottom:3px">③ Direct O&G field title — 3 years preferred</div>
+      <div style="font-size:11px;color:#1a1a1a">④ PTE Academic 65+ — Norway MSc pathway</div>
+    </div>
+    <div style="background:#EEEDFE;border-radius:8px;padding:12px;border-left:3px solid #7F77DD">
+      <div style="font-size:10px;font-weight:700;color:#3C3489;margin-bottom:6px">90-DAY UPSKILLING ROADMAP</div>
+      <div style="font-size:11px;color:#1a1a1a;margin-bottom:3px">Week 1–2: BOSIET booking + ESG cert complete</div>
+      <div style="font-size:11px;color:#1a1a1a;margin-bottom:3px">Week 3–8: NEBOSH IGC online study</div>
+      <div style="font-size:11px;color:#1a1a1a;margin-bottom:3px">Week 8–12: NEBOSH exam + PTE retake prep</div>
+      <div style="font-size:11px;color:#1a1a1a">Week 12: Apply UiS MSc Risk Analysis</div>
+    </div>
+  </div>
+
+  <div style="background:#f0f4ff;border-radius:8px;padding:10px 14px;font-size:11px;color:#185FA5">
+    <b>Recruiter keyword intelligence:</b> Top rising search terms in Gulf energy hiring Q1 2026: OGMP 2.0 (+340% YoY), UAV inspection (+180%), ESG reporting (+220%), emissions compliance (+195%), digital twin (+160%), methane monitoring (+280%). All five appear in this profile. Market-fit score: <b style="color:#0F6E56">91/100</b> against Q2 2026 Gulf energy HSE and emissions roles.
+  </div>
+</div>
+
+<!-- SIGNATURE BOX -->
+<div style="background:#1A3A6B;border-radius:12px;padding:20px 24px;margin-bottom:16px;color:#fff">
+  <div style="font-size:14px;font-weight:700;color:#C8960C;margin-bottom:8px">Methane &amp; Operational Resilience Intelligence Engine — Signature Summary</div>
+  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px">
+    <div style="text-align:center">
+      <div style="font-size:10px;color:rgba(255,255,255,.6);margin-bottom:4px">Methane Compliance</div>
+      <div id="sig1" style="font-size:18px;font-weight:700;color:#E24B4A">Level 1.8</div>
+      <div style="font-size:10px;color:rgba(255,255,255,.5)">Gulf avg OGMP</div>
+    </div>
+    <div style="text-align:center">
+      <div style="font-size:10px;color:rgba(255,255,255,.6);margin-bottom:4px">Disruption Score</div>
+      <div id="sig2" style="font-size:18px;font-weight:700;color:#EF9F27">72/100</div>
+      <div style="font-size:10px;color:rgba(255,255,255,.5)">Operational risk</div>
+    </div>
+    <div style="text-align:center">
+      <div style="font-size:10px;color:rgba(255,255,255,.6);margin-bottom:4px">Inspection Backlog</div>
+      <div id="sig3" style="font-size:18px;font-weight:700;color:#EF9F27">45 days</div>
+      <div style="font-size:10px;color:rgba(255,255,255,.5)">Gulf industry avg</div>
+    </div>
+    <div style="text-align:center">
+      <div style="font-size:10px;color:rgba(255,255,255,.6);margin-bottom:4px">E-UVaR Exposure</div>
+      <div id="sig4" style="font-size:18px;font-weight:700;color:#D4537E">$340M</div>
+      <div style="font-size:10px;color:rgba(255,255,255,.5)">Uncertainty value-at-risk</div>
+    </div>
+    <div style="text-align:center">
+      <div style="font-size:10px;color:rgba(255,255,255,.6);margin-bottom:4px">Recommended Action</div>
+      <div style="font-size:12px;font-weight:700;color:#1D9E75">UAV + SUMIF Deploy</div>
+      <div style="font-size:10px;color:rgba(255,255,255,.5)">Priority mitigation</div>
+    </div>
+  </div>
+</div>
+
+</div>
+<!-- /DECISION INTELLIGENCE PANE -->
+
+<!-- ANALYST BRAND CARD -->
+<div style="background:#fff;border:1px solid #e5e5e5;border-radius:14px;padding:24px 28px;margin-top:20px;display:grid;grid-template-columns:auto 1fr;gap:20px;align-items:start">
+  <div style="width:56px;height:56px;border-radius:50%;background:#1A3A6B;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;color:#C8960C;flex-shrink:0">PS</div>
+  <div>
+    <div style="font-size:16px;font-weight:700;color:#1A3A6B;margin-bottom:2px">Prasad Selvaraj</div>
+    <div style="font-size:13px;font-weight:600;color:#C8960C;margin-bottom:8px">Independent Energy Intelligence Analyst &amp; OGMP 2.0 Researcher · Doha, Qatar</div>
+    <div style="font-size:12px;color:#555;line-height:1.7;margin-bottom:12px">Independent researcher specialising in offshore safety intelligence, OGMP 2.0 methane compliance frameworks, UAV inspection systems, and Gulf energy market analytics. Author of the SAT-UAV Methane Intelligence Framework (SUMIF) — a published OGMP 2.0 Gold Standard compliant architecture integrating satellite sensing, drone inspection and mass-balance ESG modelling. Six published research papers covering offshore platform safety, methane emissions quantification, drone AI in oil and gas, Arctic energy resources, and structural health monitoring. CAP 437 Helicopter Landing Officer · Microsoft Power BI PL-300 · HSE Engineering — Khalifa University · Petroleum Engineering with AI Applications — L&T EduTech · UAS/RPAS Licensed Drone Pilot.</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+      <span style="font-size:11px;background:#E3F5EF;color:#0F6E56;padding:3px 10px;border-radius:12px;font-weight:600">OGMP 2.0 Specialist</span>
+      <span style="font-size:11px;background:#EAF2FB;color:#185FA5;padding:3px 10px;border-radius:12px;font-weight:600">SUMIF Framework Author</span>
+      <span style="font-size:11px;background:#FEF3E2;color:#7A4800;padding:3px 10px;border-radius:12px;font-weight:600">UAV Inspection Expert</span>
+      <span style="font-size:11px;background:#EEEDFE;color:#3C3489;padding:3px 10px;border-radius:12px;font-weight:600">Energy Market Intelligence</span>
+      <span style="font-size:11px;background:#E3F5EF;color:#0F6E56;padding:3px 10px;border-radius:12px;font-weight:600">CAP 437 Certified</span>
+      <span style="font-size:11px;background:#EAF2FB;color:#185FA5;padding:3px 10px;border-radius:12px;font-weight:600">Power BI PL-300</span>
+      <span style="font-size:11px;background:#FEF3E2;color:#7A4800;padding:3px 10px;border-radius:12px;font-weight:600">Petroleum Engineering AI</span>
+      <span style="font-size:11px;background:#EEEDFE;color:#3C3489;padding:3px 10px;border-radius:12px;font-weight:600">ESG Reporting 2026</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px">
+      <div style="background:#f8f8f8;border-radius:8px;padding:8px;text-align:center">
+        <div style="font-size:18px;font-weight:700;color:#1A3A6B">6</div>
+        <div style="font-size:10px;color:#777">Published Papers</div>
+      </div>
+      <div style="background:#f8f8f8;border-radius:8px;padding:8px;text-align:center">
+        <div style="font-size:18px;font-weight:700;color:#1D9E75">331+</div>
+        <div style="font-size:10px;color:#777">Research Views</div>
+      </div>
+      <div style="background:#f8f8f8;border-radius:8px;padding:8px;text-align:center">
+        <div style="font-size:18px;font-weight:700;color:#C8960C">15+</div>
+        <div style="font-size:10px;color:#777">Yrs Safety Exp.</div>
+      </div>
+      <div style="background:#f8f8f8;border-radius:8px;padding:8px;text-align:center">
+        <div style="font-size:18px;font-weight:700;color:#D4537E">ORCID</div>
+        <div style="font-size:10px;color:#777">Verified Researcher</div>
+      </div>
+    </div>
+    <div style="font-size:11px;color:#777;border-top:1px solid #eee;padding-top:10px;line-height:1.8">
+      <b style="color:#1A3A6B">Research DOI:</b> 10.5281/ZENODO.18968721 &nbsp;&nbsp;
+      <b style="color:#1A3A6B">SUMIF App:</b> dig-ahead-44653197.figma.site &nbsp;&nbsp;
+      <b style="color:#1A3A6B">LinkedIn:</b> linkedin.com/in/prasadselvaraj &nbsp;&nbsp;
+      <b style="color:#1A3A6B">ORCID:</b> 0009-0001-4513-3910 &nbsp;&nbsp;
+      <b style="color:#1A3A6B">Contact:</b> <a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="c0b0b2a1b3a1a4f2b480a7ada1a9aceea3afad">[email&#160;protected]</a>
+    </div>
+  </div>
+</div>
+
+<div class="attribution" style="margin-top:12px">
+  <b>Data Sources:</b> IEA Oil Market Report March 2026 · IEA Middle East Energy Markets Update · IEA World Energy Investment 2025 · Rystad Energy Middle East Analysis January 2026 · EIA Qatar Country Brief October 2025 · Mordor Intelligence Qatar O&amp;G Market 2026 · MEED MENA O&amp;G Report · RationalStat Middle East O&amp;G 2030 · Oil &amp; Gas Middle East Outlook 2026<br>
+  <b>Disclaimer:</b> This dashboard represents independent research and analysis. All figures are sourced from publicly available data and modelled estimates. Not investment advice. &copy; 2026 Prasad Selvaraj — Independent Energy Intelligence Research.
+</div>
+
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+function tab(n){
+  ['overview','noc','crisis','future','esg','signal','decision'].forEach(t=>{
+    document.getElementById('pane-'+t).classList.toggle('on',t===n);
+  });
+  document.querySelectorAll('.nb').forEach((b,i)=>{
+    b.classList.toggle('on',['overview','noc','crisis','future','esg','signal','decision'][i]===n);
+  });
+  if(n==='decision')initDI();
+  setTimeout(renderCharts,50);
+}
+function sc(n){
+  document.querySelectorAll('.scenario-content').forEach(s=>s.classList.remove('on'));
+  document.querySelectorAll('.st').forEach(b=>b.classList.remove('on'));
+  document.getElementById('sc-'+n).classList.add('on');
+  event.target.classList.add('on');
+}
+
+const BL='#378ADD',GR='#1D9E75',AM='#EF9F27',RD='#E24B4A',PK='#D4537E',PP='#7F77DD',NV='#185FA5';
+const BASE={responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}}};
+const charts={};
+
+function mk(id,cfg){
+  if(charts[id])return;
+  const el=document.getElementById(id);
+  if(!el||!el.getContext)return;
+  try{charts[id]=new Chart(el,cfg);}catch(e){}
+}
+
+function renderCharts(){
+  mk('c1',{type:'bar',data:{labels:['Qatar','Saudi Arabia','UAE','Iraq','Kuwait','Oman'],datasets:[{data:[28,45,22,18,12,8],backgroundColor:[BL,GR,AM,RD,PK,PP],borderRadius:5}]},options:{...BASE,scales:{x:{ticks:{font:{size:10}}},y:{ticks:{font:{size:10},callback:v=>'$'+v+'B'}}}}});
+  mk('c2',{type:'line',data:{labels:['2019','2020','2021','2022','2023','2024','2025','2026E','2028E','2030E'],datasets:[{label:'Historical',data:[0.95,0.78,0.88,1.05,1.18,1.24,1.31,null,null,null],borderColor:BL,tension:.4,pointRadius:3,fill:false},{label:'Forecast',data:[null,null,null,null,null,null,1.31,1.38,1.40,1.41],borderColor:GR,borderDash:[5,5],tension:.4,pointRadius:3,fill:false}]},options:{...BASE,plugins:{legend:{display:true,position:'top',labels:{font:{size:10},boxWidth:8}}},scales:{x:{ticks:{font:{size:10}}},y:{ticks:{font:{size:10},callback:v=>'$'+v+'T'}}}}});
+  mk('c3',{type:'doughnut',data:{labels:['Saudi Aramco 32%','ADNOC 18%','QatarEnergy 14%','Iraq NOC 20%','Kuwait 9%','Others 7%'],datasets:[{data:[32,18,14,20,9,7],backgroundColor:[GR,AM,BL,RD,PK,PP],borderWidth:0}]},options:{...BASE,cutout:'60%',plugins:{legend:{display:true,position:'bottom',labels:{font:{size:9},boxWidth:8,padding:5}}}}});
+  mk('c4',{type:'bar',data:{labels:['2024 Actual','2026 Target','2027','2030 Target'],datasets:[{label:'Committed',data:[77,110,126,null],backgroundColor:BL,borderRadius:4},{label:'Target',data:[null,null,null,142],backgroundColor:GR,borderRadius:4}]},options:{...BASE,plugins:{legend:{display:true,position:'top',labels:{font:{size:9},boxWidth:8}}},scales:{x:{ticks:{font:{size:10}}},y:{ticks:{font:{size:10},callback:v=>v+'M'}}}}});
+  mk('c5',{type:'radar',data:{labels:['Production','Investment','Digital','ESG','Global Reach','Resilience'],datasets:[{label:'QatarEnergy',data:[85,90,80,75,70,45],borderColor:BL,backgroundColor:BL+'22',pointRadius:3},{label:'Saudi Aramco',data:[95,95,88,70,85,80],borderColor:GR,backgroundColor:GR+'22',pointRadius:3},{label:'ADNOC',data:[75,80,82,78,88,75],borderColor:AM,backgroundColor:AM+'22',pointRadius:3}]},options:{...BASE,plugins:{legend:{display:true,position:'top',labels:{font:{size:10},boxWidth:8}}},scales:{r:{ticks:{display:false},pointLabels:{font:{size:9}},min:0,max:100}}}});
+  mk('c6',{type:'line',data:{labels:['Feb 20','Feb 28','Mar 5','Mar 10','Mar 15','Mar 20','Apr 1'],datasets:[{label:'Brent Crude',data:[75,80,98,115,122,125,121],borderColor:AM,tension:.4,pointRadius:3,fill:false},{label:'TTF Gas',data:[30,32,44,52,58,62,60],borderColor:BL,tension:.4,pointRadius:3,fill:false},{label:'Asian LNG spot',data:[12,13,18,26,32,35,34],borderColor:RD,tension:.4,pointRadius:3,fill:false}]},options:{...BASE,plugins:{legend:{display:true,position:'top',labels:{font:{size:9},boxWidth:8}}},scales:{x:{ticks:{font:{size:9}}},y:{ticks:{font:{size:10}}}}}});
+  mk('c7',{type:'bar',data:{labels:['Saudi Arabia','Iraq','Qatar','Kuwait','UAE','Bahrain'],datasets:[{data:[2.5,3.2,1.8,1.1,1.4,0.3],backgroundColor:[GR,RD,BL,AM,PK,PP],borderRadius:4}]},options:{...BASE,scales:{x:{ticks:{font:{size:10}}},y:{ticks:{font:{size:10},callback:v=>v+'mb/d'}}}}});
+  mk('c8',{type:'line',data:{labels:['2024','2025','2026','2027','2028','2029','2030'],datasets:[{label:'Base case',data:[77,77,80,95,115,128,135],borderColor:BL,tension:.4,fill:false,pointRadius:2},{label:'Bull case',data:[77,77,95,115,130,138,142],borderColor:GR,tension:.4,fill:false,borderDash:[6,3],pointRadius:2},{label:'Bear case',data:[77,77,55,65,80,95,110],borderColor:RD,tension:.4,fill:false,borderDash:[3,3],pointRadius:2}]},options:{...BASE,plugins:{legend:{display:true,position:'top',labels:{font:{size:9},boxWidth:8}}},scales:{x:{ticks:{font:{size:10}}},y:{ticks:{font:{size:10},callback:v=>v+'M'}}}}});
+  mk('c9',{type:'bar',data:{labels:['2024 Actual','2026 Target','2030 Target','2035 Target'],datasets:[{data:[2.5,4,9,11],backgroundColor:[BL,AM,GR,GR+'cc'],borderRadius:4}]},options:{...BASE,scales:{x:{ticks:{font:{size:10}}},y:{ticks:{font:{size:10},callback:v=>v+'M t'}}}}});
+  mk('c10',{type:'bar',data:{labels:['Level 1','Level 2','Level 3','Level 4','Level 5'],datasets:[{data:[55,22,13,7,3],backgroundColor:[RD,AM,AM,GR,GR],borderRadius:4}]},options:{...BASE,scales:{x:{ticks:{font:{size:9}}},y:{max:60,ticks:{font:{size:10},callback:v=>v+'%'}}}}});
+  mk('c11',{type:'line',data:{labels:['2022','2023','2024','2025','2026','2027','2028','2029','2030'],datasets:[{label:'Opex inflation',data:[100,106,113,120,128,135,140,144,147],borderColor:RD,tension:.4,fill:false,pointRadius:2},{label:'Digital savings',data:[100,103,108,115,125,138,155,170,190],borderColor:GR,tension:.4,fill:false,pointRadius:2},{label:'Net trajectory',data:[100,103,105,105,103,97,85,74,57],borderColor:BL,tension:.4,borderDash:[6,3],fill:false,pointRadius:2}]},options:{...BASE,plugins:{legend:{display:true,position:'top',labels:{font:{size:9},boxWidth:8}}},scales:{x:{ticks:{font:{size:10}}},y:{ticks:{font:{size:10}}}}}});
+}
+
+// Decision Intelligence
+let diInit=false;
+function initDI(){if(diInit)return;diInit=true;sim();uavcalc();buildEWS();buildDICharts();}
+
+function sim(){
+  const days=+document.getElementById('s1').value,lng=+document.getElementById('s2').value,
+    ch4=+document.getElementById('s3').value,ins=+document.getElementById('s4').value,
+    co2=+document.getElementById('s5').value,del=+document.getElementById('s6').value;
+  document.getElementById('v1').textContent=days+' days';
+  document.getElementById('v2').textContent=lng+'%';
+  document.getElementById('v3').textContent=ch4+' kt';
+  document.getElementById('v4').textContent=ins+'%';
+  document.getElementById('v5').textContent='$'+co2;
+  document.getElementById('v6').textContent=del+' days';
+  const rev=Math.round((days*0.08+lng*0.12+ins*0.04)*10)/10;
+  const dly=Math.round(days*0.4+lng*0.1+del*0.05);
+  const euvar=Math.round(ch4*co2*0.28+del*7.5+ins*2.2);
+  const contract=Math.min(99,Math.round(days*0.18+lng*0.25+ins*0.12+del*0.08));
+  document.getElementById('o1').textContent='$'+rev+'B';
+  document.getElementById('o2').textContent=dly+' days';
+  document.getElementById('o3').textContent='$'+euvar+'M';
+  document.getElementById('o5').textContent=contract+'/100';
+  if(document.getElementById('sig4'))document.getElementById('sig4').textContent='$'+euvar+'M';
+  if(document.getElementById('sig2'))document.getElementById('sig2').textContent=contract+'/100';
+  if(document.getElementById('sig3'))document.getElementById('sig3').textContent=del+' days';
+  const risk=contract>75?'CRITICAL':contract>50?'HIGH':contract>30?'ELEVATED':'LOW';
+  const riskCol=contract>75||contract>50?{bg:'#FDEAEA',c:'#922828'}:contract>30?{bg:'#FEF3E2',c:'#7A4800'}:{bg:'#E3F5EF',c:'#0F6E56'};
+  const badge=document.getElementById('o4-badge');
+  if(badge){badge.textContent=risk;badge.style.background=riskCol.bg;badge.style.color=riskCol.c;}
+  const actions=['Activate UAV emergency inspection protocol. Deploy satellite methane monitoring. Engage OGMP 2.0 auditor. Initiate bypass logistics via Fujairah.','Prioritise direct methane measurement. Invoke force majeure clauses. Accelerate bypass routing. Commission SUMIF-aligned emissions audit.','Implement inspection surge. Engage third-party HSE auditor. Review EU contract compliance clauses. Deploy UAV for rapid asset assessment.','Maintain heightened monitoring. Schedule precautionary UAV sweep. Prepare response playbook.'];
+  const el=document.getElementById('o6');
+  if(el)el.textContent=actions[contract>75?0:contract>50?1:contract>30?2:3];
+}
+
+const ewsSignals=[{name:'Shipping bottlenecks',score:88,trend:'up',col:'#E24B4A'},{name:'Flaring increase',score:74,trend:'up',col:'#E24B4A'},{name:'Methane event freq.',score:68,trend:'up',col:'#EF9F27'},{name:'Insurance risk index',score:72,trend:'up',col:'#EF9F27'},{name:'Unplanned shutdowns',score:61,trend:'flat',col:'#EF9F27'},{name:'Inspection backlog',score:79,trend:'up',col:'#E24B4A'},{name:'Route geopolitical',score:92,trend:'up',col:'#E24B4A'},{name:'ESG compliance gap',score:65,trend:'up',col:'#EF9F27'}];
+
+function buildEWS(){
+  const g=document.getElementById('ews-grid');
+  if(!g)return;
+  g.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:6px';
+  g.innerHTML=ewsSignals.map(s=>{
+    const bg=s.score>=75?'#FDEAEA':s.score>=55?'#FEF3E2':'#E3F5EF';
+    const lbl=s.score>=75?'RED':s.score>=55?'AMBER':'GREEN';
+    return `<div style="background:${bg};border-radius:6px;padding:8px;border-left:2px solid ${s.col}"><div style="font-size:10px;font-weight:600;color:#1a1a1a;margin-bottom:2px">${s.name}</div><div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:14px;font-weight:700;color:${s.col}">${s.score}</span><span style="font-size:10px;font-weight:700;color:${s.col}">${s.trend==='up'?'↑':s.trend==='dn'?'↓':'→'} ${lbl}</span></div></div>`;
+  }).join('');
+}
+
+function uavcalc(){
+  const pts=+document.getElementById('us1').value,cpt=+document.getElementById('us2').value,
+    freq=+document.getElementById('us3').value,del=+document.getElementById('us4').value,dpv=+document.getElementById('us5').value;
+  document.getElementById('uv1').textContent=pts;
+  document.getElementById('uv2').textContent='$'+cpt;
+  document.getElementById('uv3').textContent=freq+'x';
+  document.getElementById('uv4').textContent=del+' days';
+  document.getElementById('uv5').textContent='$'+dpv+'M';
+  const manual=Math.round(pts*cpt*freq/1e6*10)/10;
+  const uav=Math.round(pts*cpt*freq*0.18/1e6*10)/10;
+  const saving=Math.round((manual-uav)*10)/10;
+  const delayCost=Math.round(del*dpv*0.9);
+  const total=Math.round((saving*1000+delayCost)*10)/10;
+  document.getElementById('uc1').textContent='$'+manual+'M';
+  document.getElementById('uc2').textContent='$'+uav+'M';
+  document.getElementById('uc3').textContent='$'+saving+'M';
+  document.getElementById('uc4').textContent='$'+delayCost+'M';
+  document.getElementById('uc5').textContent='$'+total+'M';
+  if(document.getElementById('idci'))document.getElementById('idci').textContent='$'+dpv+'M';
+  if(charts['c-uav']){charts['c-uav'].destroy();delete charts['c-uav'];}
+  mk('c-uav',{type:'bar',data:{labels:['Manual/yr','UAV/yr','Saving','Delay avoided'],datasets:[{data:[manual,uav,saving,delayCost/1000],backgroundColor:[RD,GR,GR,BL],borderRadius:4}]},options:{...BASE,scales:{x:{ticks:{font:{size:9}}},y:{ticks:{font:{size:9},callback:v=>'$'+v+'M'}}}}});
+}
+
+function buildDICharts(){
+  mk('c-ews',{type:'line',data:{labels:['Mar 1','Mar 5','Mar 10','Mar 15','Mar 20','Mar 25','Apr 1'],datasets:[{label:'Risk index',data:[52,61,70,74,78,75,76],borderColor:RD,tension:.4,fill:true,backgroundColor:'rgba(226,75,74,.08)',pointRadius:2}]},options:{...BASE,scales:{x:{ticks:{font:{size:9}}},y:{min:40,max:100,ticks:{font:{size:9}}}}}});
+  mk('c-ogmp',{type:'doughnut',data:{labels:['Level 1-2 Est.','Level 3','Level 4-5 Direct'],datasets:[{data:[77,13,10],backgroundColor:[RD,AM,GR],borderWidth:0}]},options:{...BASE,cutout:'55%',plugins:{legend:{display:true,position:'bottom',labels:{font:{size:9},boxWidth:8,padding:4}}}}});
+  mk('c-euvar',{type:'bar',data:{labels:['Offshore','LNG Trains','Gas Gathering','Refineries','Shipping'],datasets:[{data:[240,180,95,42,28],backgroundColor:[RD,RD,AM,GR,GR],borderRadius:4}]},options:{...BASE,scales:{x:{ticks:{font:{size:9}}},y:{ticks:{font:{size:9},callback:v=>'$'+v+'M'}}}}});
+  mk('c-skills',{type:'bar',indexAxis:'y',data:{labels:['OGMP 2.0','UAV Inspection','ESG Reporting','Methane Monitor','Digital Twin','Power BI','HSE Offshore','Petroleum AI'],datasets:[{data:[94,88,85,82,78,74,91,72],backgroundColor:[GR,GR,BL,GR,BL,BL,GR,BL],borderRadius:4}]},options:{...BASE,scales:{x:{max:100,ticks:{font:{size:9},callback:v=>v+'%'}},y:{ticks:{font:{size:9}}}}}});
+  mk('c-fit',{type:'radar',data:{labels:['OGMP 2.0','UAV Inspect','HSE Mgmt','Data Analytics','Petroleum Eng','ESG Reporting'],datasets:[{label:'Market demand',data:[94,88,91,74,82,85],borderColor:AM,backgroundColor:AM+'22',pointRadius:2},{label:'Prasad profile',data:[92,95,90,88,78,82],borderColor:GR,backgroundColor:GR+'22',pointRadius:2}]},options:{...BASE,plugins:{legend:{display:true,position:'top',labels:{font:{size:9},boxWidth:8}}},scales:{r:{ticks:{display:false},pointLabels:{font:{size:9}},min:0,max:100}}}});
+  const fr=document.getElementById('facility-rank');
+  if(fr){
+    const facilities=[{name:'Ras Laffan LNG Trains',score:92,col:'#E24B4A'},{name:'North Field Offshore Wells',score:78,col:'#E24B4A'},{name:'Bul Hanine Platform',score:65,col:'#EF9F27'},{name:'Al-Shaheen Complex',score:58,col:'#EF9F27'},{name:'Mesaieed Industrial',score:44,col:'#1D9E75'}];
+    fr.innerHTML=facilities.map((f,i)=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:7px"><div style="font-size:11px;font-weight:700;color:${f.col};min-width:14px">${i+1}</div><div style="flex:1"><div style="font-size:10px;color:#1a1a1a;margin-bottom:2px">${f.name}</div><div style="height:5px;background:#f0f0f0;border-radius:3px;overflow:hidden"><div style="height:100%;width:${f.score}%;background:${f.col}"></div></div></div><div style="font-size:11px;font-weight:700;color:${f.col};min-width:24px;text-align:right">${f.score}</div></div>`).join('');
+  }
+}
+
+window.addEventListener('load',renderCharts);
+</script>
+</body>
+</html>
