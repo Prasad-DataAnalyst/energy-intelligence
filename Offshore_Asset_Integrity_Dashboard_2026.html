@@ -1,0 +1,766 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Offshore Asset Integrity & Predictive Maintenance Intelligence | Prasad Selvaraj</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;background:#F8FAFC;color:#1a1a1a;padding:20px 16px;min-height:100vh}
+.container{max-width:1080px;margin:0 auto}
+
+.hero{background:#0F172A;border-radius:14px;padding:24px 28px;margin-bottom:14px;position:relative;overflow:hidden}
+.hero-stripe{position:absolute;top:0;left:0;width:100%;height:5px;background:linear-gradient(90deg,#7C3AED,#0EA5E9,#10B981,#F59E0B,#EF4444)}
+.hero-row{display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:14px}
+.hero-title{font-size:22px;font-weight:700;color:#F1F5F9}
+.hero-title span{color:#A78BFA}
+.hero-sub{font-size:12px;color:#94A3B8;margin-top:4px}
+.live-badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:4px 12px;border-radius:20px;background:rgba(124,58,237,.2);color:#A78BFA;border:1px solid rgba(124,58,237,.3)}
+.pulse{width:6px;height:6px;border-radius:50%;background:#A78BFA;animation:p 1.5s infinite}
+@keyframes p{0%,100%{opacity:1}50%{opacity:.3}}
+.hero-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.hs-lbl{font-size:10px;color:#64748B;margin-bottom:2px}
+.hs-val{font-size:13px;font-weight:600}
+
+.kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-bottom:14px}
+.kpi{border-radius:12px;padding:14px 12px}
+.k1{background:#1E1B4B;border:1px solid #4C1D95}
+.k2{background:#0C4A6E;border:1px solid #0369A1}
+.k3{background:#064E3B;border:1px solid #047857}
+.k4{background:#451A03;border:1px solid #92400E}
+.k5{background:#3B0764;border:1px solid #7E22CE}
+.kpi-lbl{font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+.kpi-val{font-size:22px;font-weight:700;margin-bottom:2px}
+.kpi-sub{font-size:10px;opacity:.7}
+.kl1{color:#A5B4FC}.kl2{color:#7DD3FC}.kl3{color:#6EE7B7}.kl4{color:#FCD34D}.kl5{color:#D8B4FE}
+
+.nav{display:flex;gap:5px;margin-bottom:14px;flex-wrap:wrap}
+.nb{font-size:11px;font-weight:500;padding:7px 16px;border-radius:20px;border:1px solid #CBD5E1;background:#fff;color:#475569;cursor:pointer}
+.nb.on{background:#7C3AED;color:#fff;border-color:#7C3AED}
+.nb:hover:not(.on){border-color:#7C3AED;color:#7C3AED}
+
+.pane{display:none}.pane.on{display:block}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px}
+
+.card{background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:14px}
+.card-purple{background:#FAF5FF;border:1px solid #E9D5FF;border-radius:12px;padding:14px}
+.card-teal{background:#F0FDF4;border:1px solid #BBF7D0;border-radius:12px;padding:14px}
+.card-blue{background:#EFF6FF;border:1px solid #BFDBFE;border-radius:12px;padding:14px}
+.card-amber{background:#FFFBEB;border:1px solid #FDE68A;border-radius:12px;padding:14px}
+.card-dark{background:#0F172A;border:1px solid #334155;border-radius:12px;padding:14px}
+
+.ct{font-size:12px;font-weight:700;color:#1a1a1a;margin-bottom:10px}
+.tag{font-size:10px;font-weight:700;padding:3px 10px;border-radius:20px;display:inline-block;margin-bottom:8px}
+.tag-p{background:#EDE9FE;color:#5B21B6}
+.tag-t{background:#DCFCE7;color:#166534}
+.tag-b{background:#DBEAFE;color:#1E40AF}
+.tag-a{background:#FEF3C7;color:#92400E}
+
+.br{margin-bottom:8px}
+.bl{display:flex;justify-content:space-between;font-size:11px;color:#64748B;margin-bottom:3px}
+.bl b{color:#1a1a1a;font-weight:600}
+.bt{height:8px;background:#F1F5F9;border-radius:4px;overflow:hidden}
+.bf{height:100%;border-radius:4px}
+
+.note{border-left:3px solid;border-radius:0 8px 8px 0;padding:10px 12px;margin-bottom:8px}
+.np{border-color:#7C3AED;background:#FAF5FF}
+.ng{border-color:#10B981;background:#F0FDF4}
+.na{border-color:#F59E0B;background:#FFFBEB}
+.nb2{border-color:#0EA5E9;background:#EFF6FF}
+.nr{border-color:#EF4444;background:#FFF1F2}
+.ntl{font-size:11px;font-weight:700;margin-bottom:3px}
+.np .ntl{color:#5B21B6}.ng .ntl{color:#065F46}.na .ntl{color:#78350F}.nb2 .ntl{color:#1D4ED8}.nr .ntl{color:#991B1B}
+.ni{font-size:11px;color:#475569;line-height:1.55}
+
+.risk-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px}
+.risk-cell{border-radius:10px;padding:12px;text-align:center}
+.rc-r{background:#FFF1F2;border:1px solid #FECDD3}.rc-r .rc-val{color:#BE123C}
+.rc-a{background:#FFFBEB;border:1px solid #FDE68A}.rc-a .rc-val{color:#B45309}
+.rc-g{background:#F0FDF4;border:1px solid #BBF7D0}.rc-g .rc-val{color:#15803D}
+.rc-val{font-size:24px;font-weight:700;margin-bottom:3px}
+.rc-lbl{font-size:10px;color:#64748B}
+
+.platform-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-bottom:10px}
+.platform{border-radius:8px;padding:10px 6px;text-align:center;border:1px solid}
+.pf-r{background:#FFF1F2;border-color:#FECDD3}
+.pf-a{background:#FFFBEB;border-color:#FDE68A}
+.pf-g{background:#F0FDF4;border-color:#BBF7D0}
+.pf-b{background:#EFF6FF;border-color:#BFDBFE}
+.pf-name{font-size:10px;font-weight:700;margin-bottom:3px}
+.pf-age{font-size:9px;color:#94A3B8;margin-bottom:4px}
+.pf-badge{font-size:9px;font-weight:700;padding:2px 5px;border-radius:6px;display:inline-block}
+.br-r{background:#FFE4E6;color:#9F1239}
+.br-a{background:#FEF3C7;color:#92400E}
+.br-g{background:#DCFCE7;color:#166534}
+.br-b{background:#DBEAFE;color:#1E40AF}
+
+.mat-row{display:flex;align-items:center;gap:10px;margin-bottom:8px;padding:8px;border-radius:8px;background:#F8FAFC}
+.mat-name{font-size:11px;font-weight:600;color:#1a1a1a;width:130px;flex-shrink:0}
+.mat-bar{flex:1;height:8px;background:#E2E8F0;border-radius:4px;overflow:hidden}
+.mat-fill{height:100%;border-radius:4px}
+.mat-score{font-size:11px;font-weight:700;min-width:32px;text-align:right}
+
+.analyst{background:#0F172A;border-radius:14px;padding:20px 24px;margin-top:16px;display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap}
+.av{width:52px;height:52px;border-radius:50%;background:#7C3AED;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:#fff;flex-shrink:0}
+.av-name{font-size:15px;font-weight:700;color:#F1F5F9;margin-bottom:2px}
+.av-title{font-size:12px;color:#94A3B8}
+.av-chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+.av-chip{font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(124,58,237,.2);color:#A78BFA;font-weight:600}
+
+.attr{font-size:10px;color:#94A3B8;margin-top:12px;padding-top:10px;border-top:1px solid #1E293B;line-height:1.7}
+.leg{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:8px}
+.li{display:flex;align-items:center;gap:4px;font-size:10px;color:#64748B}
+.ld{width:9px;height:9px;border-radius:2px;flex-shrink:0}
+
+@media(max-width:640px){
+  .kpis{grid-template-columns:repeat(2,1fr)}
+  .g2,.g3{grid-template-columns:1fr}
+  .platform-grid{grid-template-columns:repeat(3,1fr)}
+  .risk-grid{grid-template-columns:repeat(2,1fr)}
+  .hero-stats{grid-template-columns:1fr}
+}
+
+.filter-bar{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;align-items:center}
+.filter-label{font-size:10px;font-weight:600;color:#64748B;text-transform:uppercase;letter-spacing:.05em;margin-right:4px}
+.fc{font-size:11px;padding:5px 12px;border-radius:16px;border:1px solid #CBD5E1;background:#fff;color:#475569;cursor:pointer;transition:all .15s}
+.fc.on{border-color:#7C3AED;background:#EDE9FE;color:#5B21B6;font-weight:600}
+.fc.red.on{border-color:#EF4444;background:#FFF1F2;color:#BE123C}
+.fc.amber.on{border-color:#F59E0B;background:#FFFBEB;color:#B45309}
+.fc.green.on{border-color:#10B981;background:#F0FDF4;color:#065F46}
+.fc.blue.on{border-color:#0EA5E9;background:#EFF6FF;color:#1D4ED8}
+.last-updated{font-size:10px;color:#94A3B8;margin-left:auto}
+#gulf-map{height:320px;border-radius:10px;border:1px solid #E2E8F0;margin-bottom:12px}
+.map-legend{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px}
+.map-leg-item{display:flex;align-items:center;gap:5px;font-size:10px;color:#64748B}
+.map-leg-dot{width:12px;height:12px;border-radius:50%;border:2px solid rgba(0,0,0,.2)}
+.before-after{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.ba-card{border-radius:10px;padding:14px;border:2px solid}
+.ba-before{background:#FFF1F2;border-color:#FECDD3}
+.ba-after{background:#F0FDF4;border-color:#BBF7D0}
+.ba-title{font-size:12px;font-weight:700;margin-bottom:10px}
+.ba-before .ba-title{color:#BE123C}
+.ba-after .ba-title{color:#15803D}
+.ba-row{display:flex;justify-content:space-between;font-size:11px;padding:5px 0;border-bottom:1px solid rgba(0,0,0,.06)}
+.ba-row:last-child{border-bottom:none}
+.ba-label{color:#64748B}
+.ba-before .ba-val{color:#BE123C;font-weight:600}
+.ba-after .ba-val{color:#15803D;font-weight:600}
+.timeline{position:relative;padding:16px 0;margin-bottom:12px}
+.tl-track{position:absolute;top:28px;left:0;right:0;height:3px;background:#E2E8F0;border-radius:2px}
+.tl-progress{position:absolute;top:28px;left:0;height:3px;background:linear-gradient(90deg,#EF4444,#7C3AED,#10B981);border-radius:2px;width:60%}
+.tl-steps{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;position:relative}
+.tl-step{text-align:center}
+.tl-dot{width:18px;height:18px;border-radius:50%;margin:0 auto 6px;border:3px solid;display:flex;align-items:center;justify-content:center}
+.tl-dot-done{background:#10B981;border-color:#10B981}
+.tl-dot-active{background:#7C3AED;border-color:#7C3AED;animation:pulse2 1.5s infinite}
+.tl-dot-pending{background:#fff;border-color:#CBD5E1}
+@keyframes pulse2{0%,100%{box-shadow:0 0 0 0 rgba(124,58,237,.4)}70%{box-shadow:0 0 0 6px rgba(124,58,237,0)}}
+.tl-label{font-size:9px;color:#64748B;line-height:1.3}
+.tl-date{font-size:9px;color:#94A3B8;margin-top:2px}
+.conf-badge{font-size:9px;padding:1px 6px;border-radius:8px;margin-left:4px;font-weight:600}
+.conf-rep{background:#DBEAFE;color:#1E40AF}
+.conf-est{background:#FEF3C7;color:#92400E}
+.conf-bch{background:#F3F4F6;color:#374151}
+</style>
+</head>
+<body>
+<div class="container">
+
+<div class="hero">
+  <div class="hero-stripe"></div>
+  <div class="hero-row">
+    <div>
+      <div class="hero-title">Offshore Asset Integrity <span>&</span> Predictive Maintenance</div>
+      <div style="font-size:15px;font-weight:700;color:#A78BFA;margin-top:4px">Gulf Region Intelligence Dashboard · Scenario Analysis · April 2026</div>
+      <div class="hero-sub">Independent research by Prasad Selvaraj — AIMS Framework Author · UAV Inspection Specialist · OGMP 2.0 Researcher · Doha, Qatar</div>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+      <span class="live-badge"><span class="pulse"></span>Scenario model</span>
+      <span style="font-size:10px;color:#475569">IEA · Rystad · DNV · Lloyd's Register · Apr 2026</span>
+    </div>
+  </div>
+  <div class="hero-stats">
+    <div><div class="hs-lbl">Gulf offshore platforms</div><div class="hs-val" style="color:#A78BFA">~340 active assets — estimated</div></div>
+    <div><div class="hs-lbl">Inspection backlog estimated</div><div class="hs-val" style="color:#FCD34D">45+ day average delay — scenario</div></div>
+    <div><div class="hs-lbl">Post-conflict damage scope</div><div class="hs-val" style="color:#F87171">40+ assets affected — reported</div></div>
+  </div>
+</div>
+
+<div class="kpis">
+  <div class="kpi k1"><div class="kpi-lbl kl1">Integrity risk index</div><div class="kpi-val kl1">72/100</div><div class="kpi-sub kl1">Elevated — scenario est.</div></div>
+  <div class="kpi k2"><div class="kpi-lbl kl2">UAV coverage gap</div><div class="kpi-val kl2">~68%</div><div class="kpi-sub kl2">Assets without UAV inspection</div></div>
+  <div class="kpi k3"><div class="kpi-lbl kl3">Predictive maintenance</div><div class="kpi-val kl3">Level 2</div><div class="kpi-sub kl3">Gulf industry avg maturity</div></div>
+  <div class="kpi k4"><div class="kpi-lbl kl4">Inspection delay cost</div><div class="kpi-val kl4">$8M+</div><div class="kpi-sub kl4">Per day per major asset est.</div></div>
+  <div class="kpi k5"><div class="kpi-lbl kl5">Digital twin adoption</div><div class="kpi-val kl5">22%</div><div class="kpi-sub kl5">Gulf NOC assets — estimated</div></div>
+</div>
+
+<div class="nav">
+  <button class="nb on" onclick="tab('overview')">Asset overview</button>
+  <button class="nb" onclick="tab('inspection')">Inspection intelligence</button>
+  <button class="nb" onclick="tab('predictor')">Failure predictor</button>
+  <button class="nb" onclick="tab('digital')">Digital twin readiness</button>
+  <button class="nb" onclick="tab('postconflict')">Post-conflict assessment</button>
+  <button class="nb" onclick="tab('research')">Research &amp; career link</button>
+</div>
+
+<div id="p-overview" class="pane on">
+
+  <div class="filter-bar">
+    <span class="filter-label">Country:</span>
+    <button class="fc fc-country on" data-val="all" onclick="filter('all')">All Gulf</button>
+    <button class="fc fc-country" data-val="qa" onclick="filter('qa')">Qatar</button>
+    <button class="fc fc-country" data-val="sa" onclick="filter('sa')">Saudi Arabia</button>
+    <button class="fc fc-country" data-val="ae" onclick="filter('ae')">UAE</button>
+    <button class="fc fc-country" data-val="kw" onclick="filter('kw')">Kuwait</button>
+    <button class="fc fc-country" data-val="iq" onclick="filter('iq')">Iraq</button>
+    <span class="filter-label" style="margin-left:10px">Risk:</span>
+    <button class="fc fc-risk red on" data-val="all" onclick="filterRisk('all')">All</button>
+    <button class="fc fc-risk red" data-val="critical" onclick="filterRisk('critical')">Critical</button>
+    <button class="fc fc-risk amber" data-val="elevated" onclick="filterRisk('elevated')">Elevated</button>
+    <button class="fc fc-risk green" data-val="normal" onclick="filterRisk('normal')">Normal</button>
+    <span class="last-updated">Apr 11 2026 &nbsp;·&nbsp; <span id="kpi-filter-status" style="color:#7C3AED;font-weight:600">15 assets · Avg delay: 48 days · Critical: 5</span></span>
+  </div>
+
+  <div class="card" style="margin-bottom:10px">
+    <div class="ct">Geospatial asset risk map — Gulf offshore platforms <span class="conf-badge conf-est">Illustrative scenario</span></div>
+    <div class="map-legend">
+      <span class="map-leg-item"><span class="map-leg-dot" style="background:#EF4444"></span>Critical risk</span>
+      <span class="map-leg-item"><span class="map-leg-dot" style="background:#F59E0B"></span>Elevated risk</span>
+      <span class="map-leg-item"><span class="map-leg-dot" style="background:#10B981"></span>Normal operation</span>
+      <span class="map-leg-item"><span class="map-leg-dot" style="background:#3B82F6"></span>New / commissioning</span>
+      <span style="font-size:10px;color:#94A3B8;margin-left:8px">Circle size = estimated production capacity</span>
+    </div>
+    <div id="gulf-map"></div>
+    <div id="map-stats" style="font-size:11px;color:#64748B;margin-top:6px">Loading assets...</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-top:8px;padding-top:8px;border-top:1px solid #F1F5F9">
+      <div style="font-size:10px;color:#94A3B8;font-style:italic">Illustrative scenario map — coordinates and asset names are approximate. Not verified operational data.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <span style="font-size:10px;background:#EDE9FE;color:#5B21B6;padding:2px 8px;border-radius:10px;font-weight:600">Last updated: Apr 11 2026</span>
+        <span style="font-size:10px;background:#FEF3C7;color:#92400E;padding:2px 8px;border-radius:10px;font-weight:600">Sources: IEA · Rystad · Bloomberg</span>
+        <span style="font-size:10px;background:#F0FDF4;color:#15803D;padding:2px 8px;border-radius:10px;font-weight:600">Next review: May 2026</span>
+      </div>
+    </div>
+  </div>
+
+
+  <div class="g2">
+    <div class="card"><div class="ct">Gulf offshore asset age distribution — estimated scenario</div><div style="position:relative;height:200px"><canvas id="c1" role="img" aria-label="Bar chart of Gulf offshore asset age distribution">Most assets are in the 10-30 year age range, indicating significant aging infrastructure requiring intensive inspection.</canvas></div></div>
+    <div class="card"><div class="ct">Integrity risk by asset type — scenario index</div><div style="position:relative;height:200px"><canvas id="c2" role="img" aria-label="Horizontal bar chart of integrity risk scores by asset type">Fixed platforms score highest risk at 78, followed by floating production at 71.</canvas></div></div>
+  </div>
+  <div style="margin-bottom:10px">
+    <div class="ct">Illustrative platform fleet — scenario risk status indicators</div>
+    <div class="platform-grid" id="platform-grid-dynamic">
+      <div class="platform pf-r"><div class="pf-name" style="color:#9F1239">NF Alpha</div><div class="pf-age">32 yrs</div><div class="pf-badge br-r">Critical</div></div>
+      <div class="platform pf-a"><div class="pf-name" style="color:#92400E">RasGas B</div><div class="pf-age">24 yrs</div><div class="pf-badge br-a">Elevated</div></div>
+      <div class="platform pf-g"><div class="pf-name" style="color:#166534">NF South</div><div class="pf-age">8 yrs</div><div class="pf-badge br-g">Normal</div></div>
+      <div class="platform pf-r"><div class="pf-name" style="color:#9F1239">Bul Hanine</div><div class="pf-age">38 yrs</div><div class="pf-badge br-r">Critical</div></div>
+      <div class="platform pf-a"><div class="pf-name" style="color:#92400E">Al-Shaheen</div><div class="pf-age">19 yrs</div><div class="pf-badge br-a">Elevated</div></div>
+      <div class="platform pf-b"><div class="pf-name" style="color:#1E40AF">NFE Train</div><div class="pf-age">New</div><div class="pf-badge br-b">Monitoring</div></div>
+      <div class="platform pf-g"><div class="pf-name" style="color:#166534">Idd El-Sh.</div><div class="pf-age">6 yrs</div><div class="pf-badge br-g">Normal</div></div>
+      <div class="platform pf-r"><div class="pf-name" style="color:#9F1239">Nasr Field</div><div class="pf-age">28 yrs</div><div class="pf-badge br-r">Critical</div></div>
+      <div class="platform pf-a"><div class="pf-name" style="color:#92400E">Umm Lulu</div><div class="pf-age">14 yrs</div><div class="pf-badge br-a">Elevated</div></div>
+      <div class="platform pf-g"><div class="pf-name" style="color:#166534">Ghasha</div><div class="pf-age">3 yrs</div><div class="pf-badge br-g">Normal</div></div>
+      <div class="platform pf-a"><div class="pf-name" style="color:#92400E">Rumaila</div><div class="pf-age">21 yrs</div><div class="pf-badge br-a">Elevated</div></div>
+      <div class="platform pf-r"><div class="pf-name" style="color:#9F1239">West Qurna</div><div class="pf-age">35 yrs</div><div class="pf-badge br-r">Critical</div></div>
+    </div>
+    <div class="leg">
+      <span class="li"><span class="ld" style="background:#BE123C"></span>Critical — immediate inspection required</span>
+      <span class="li"><span class="ld" style="background:#B45309"></span>Elevated — schedule within 30 days</span>
+      <span class="li"><span class="ld" style="background:#15803D"></span>Normal — routine monitoring</span>
+      <span class="li"><span class="ld" style="background:#1E40AF"></span>New — commissioning phase</span>
+    </div>
+    <div style="font-size:10px;color:#94A3B8;font-style:italic;margin-top:4px">Illustrative scenario model — asset names used for illustration only. Risk ratings are scenario estimates, not independently verified assessments.</div>
+  </div>
+  <div class="g3">
+    <div class="note ng"><div class="ntl">Why asset age matters</div><div class="ni">Gulf offshore infrastructure was largely built in the 1980s and 1990s. Assets exceeding 25 years require more frequent inspection cycles, specialised corrosion assessment and increasingly AI-assisted anomaly detection to maintain safe operation.</div></div>
+    <div class="note na"><div class="ntl">Inspection frequency gap</div><div class="ni">Industry standard recommends major platform inspection every 5 years. Estimated backlog suggests a significant proportion of Gulf assets are overdue — conflict disruption has compounded pre-existing delays.</div></div>
+    <div class="note np"><div class="ntl">UAV inspection advantage</div><div class="ni">Traditional rope-access inspection of a large offshore platform takes 4-6 weeks. UAV-based inspection with optical gas imaging completes equivalent coverage in 3-5 days with real-time data capture and immediate anomaly flagging.</div></div>
+  </div>
+</div>
+
+<div id="p-inspection" class="pane">
+
+  <div class="card" style="margin-bottom:10px">
+    <div class="ct">Before vs after UAV deployment — illustrative operational comparison</div>
+    <div class="before-after">
+      <div class="ba-card ba-before">
+        <div class="ba-title">Before UAV deployment</div>
+        <div class="ba-row"><span class="ba-label">Inspection duration</span><span class="ba-val">4-6 weeks</span></div>
+        <div class="ba-row"><span class="ba-label">Human rope-access hours</span><span class="ba-val">~480 hrs</span></div>
+        <div class="ba-row"><span class="ba-label">Defects identified per visit</span><span class="ba-val">~12 avg</span></div>
+        <div class="ba-row"><span class="ba-label">Methane leak detection</span><span class="ba-val">Manual only</span></div>
+        <div class="ba-row"><span class="ba-label">Data turnaround time</span><span class="ba-val">2-3 weeks</span></div>
+        <div class="ba-row"><span class="ba-label">Cost per platform</span><span class="ba-val">~$320K</span></div>
+        <div class="ba-row"><span class="ba-label">Safety incidents risk</span><span class="ba-val">Elevated</span></div>
+      </div>
+      <div class="ba-card ba-after">
+        <div class="ba-title">After UAV + AI anomaly detection</div>
+        <div class="ba-row"><span class="ba-label">Inspection duration</span><span class="ba-val">3-5 days</span></div>
+        <div class="ba-row"><span class="ba-label">Human rope-access hours</span><span class="ba-val">~40 hrs</span></div>
+        <div class="ba-row"><span class="ba-label">Defects identified per visit</span><span class="ba-val">~34 avg</span></div>
+        <div class="ba-row"><span class="ba-label">Methane leak detection</span><span class="ba-val">OGI real-time</span></div>
+        <div class="ba-row"><span class="ba-label">Data turnaround time</span><span class="ba-val">Same day</span></div>
+        <div class="ba-row"><span class="ba-label">Cost per platform</span><span class="ba-val">~$110K</span></div>
+        <div class="ba-row"><span class="ba-label">Safety incidents risk</span><span class="ba-val">Significantly lower</span></div>
+      </div>
+    </div>
+    <div style="font-size:10px;color:#94A3B8;font-style:italic">Illustrative comparison based on published industry benchmarks — DNV, Lloyd's Register, IOGP. Actual results vary by asset type and scope.</div>
+  </div>
+
+
+  <div class="g2">
+    <div class="card"><div class="ct">Inspection method comparison — cost &amp; time per platform (illustrative estimates)</div><div style="position:relative;height:200px"><canvas id="c3" role="img" aria-label="Grouped bar chart comparing inspection methods">UAV inspection is significantly cheaper and faster than manual or ROV methods.</canvas></div></div>
+    <div class="card"><div class="ct">Defect escalation probability vs inspection delay — scenario model</div><div style="position:relative;height:200px"><canvas id="c4" role="img" aria-label="Line chart of defect escalation probability vs delay">Probability rises sharply after 30 days delay.</canvas></div></div>
+  </div>
+  <div class="card-purple" style="margin-bottom:10px">
+    <div class="ct">Interactive inspection backlog cost calculator — scenario model</div>
+    <div class="g2">
+      <div>
+        <div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;font-size:11px;color:#4C1D95;margin-bottom:4px"><span>Inspection delay (days)</span><b id="iv1">45</b></div><input type="range" min="0" max="180" value="45" step="1" id="is1" oninput="icalc()" style="width:100%"></div>
+        <div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;font-size:11px;color:#4C1D95;margin-bottom:4px"><span>Daily production value ($M)</span><b id="iv2">$12M</b></div><input type="range" min="1" max="50" value="12" step="1" id="is2" oninput="icalc()" style="width:100%"></div>
+        <div><div style="display:flex;justify-content:space-between;font-size:11px;color:#4C1D95;margin-bottom:4px"><span>Number of platforms</span><b id="iv3">8</b></div><input type="range" min="1" max="30" value="8" step="1" id="is3" oninput="icalc()" style="width:100%"></div>
+      </div>
+      <div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+          <div style="background:#F5F3FF;border:1px solid #DDD6FE;border-radius:8px;padding:10px;text-align:center"><div style="font-size:10px;color:#5B21B6;margin-bottom:3px">Delay cost exposure</div><div id="ic1" style="font-size:22px;font-weight:700;color:#7C3AED">$486M</div></div>
+          <div style="background:#F0FDF4;border:1px solid #A7F3D0;border-radius:8px;padding:10px;text-align:center"><div style="font-size:10px;color:#065F46;margin-bottom:3px">UAV saving vs manual</div><div style="font-size:22px;font-weight:700;color:#059669">78%</div></div>
+        </div>
+        <div style="background:#FEF3C7;border:1px solid #FDE68A;border-radius:8px;padding:10px;text-align:center"><div style="font-size:10px;color:#78350F;margin-bottom:3px">Escalation risk level</div><div id="ic3" style="font-size:16px;font-weight:700;color:#B45309">ELEVATED — ~34% probability</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:10px">
+    <div class="ct">UAV inspection to compliance reporting — process timeline</div>
+    <div class="timeline">
+      <div class="tl-track"></div>
+      <div class="tl-progress"></div>
+      <div class="tl-steps">
+        <div class="tl-step"><div class="tl-dot tl-dot-done"></div><div class="tl-label">Disruption / incident detected</div><div class="tl-date">Day 0</div></div>
+        <div class="tl-step"><div class="tl-dot tl-dot-done"></div><div class="tl-label">UAV standoff scan deployed</div><div class="tl-date">Day 1-3</div></div>
+        <div class="tl-step"><div class="tl-dot tl-dot-done"></div><div class="tl-label">OGI methane screening</div><div class="tl-date">Day 3-5</div></div>
+        <div class="tl-step"><div class="tl-dot tl-dot-active"></div><div class="tl-label">AI anomaly triage</div><div class="tl-date">Day 5-7</div></div>
+        <div class="tl-step"><div class="tl-dot tl-dot-pending"></div><div class="tl-label">Engineering review &amp; repair decision</div><div class="tl-date">Day 7-14</div></div>
+        <div class="tl-step"><div class="tl-dot tl-dot-pending"></div><div class="tl-label">Digital twin update</div><div class="tl-date">Day 14-21</div></div>
+        <div class="tl-step"><div class="tl-dot tl-dot-pending"></div><div class="tl-label">OGMP 2.0 compliance report</div><div class="tl-date">Day 21-30</div></div>
+      </div>
+    </div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:10px;color:#64748B;margin-top:8px">
+      <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:50%;background:#10B981;display:inline-block"></span>Completed</span>
+      <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:50%;background:#7C3AED;display:inline-block"></span>In progress</span>
+      <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:50%;background:#fff;border:2px solid #CBD5E1;display:inline-block"></span>Pending</span>
+    </div>
+  </div>
+
+  <div class="g3">
+    <div class="card-teal"><div class="tag tag-t">UAV advantage</div>
+      <div class="br"><div class="bl"><b>Time saving</b><span style="color:#059669">78% faster</span></div><div class="bt"><div class="bf" style="width:78%;background:#10B981"></div></div></div>
+      <div class="br"><div class="bl"><b>Cost saving</b><span style="color:#059669">65% cheaper</span></div><div class="bt"><div class="bf" style="width:65%;background:#10B981"></div></div></div>
+      <div class="br"><div class="bl"><b>Coverage increase</b><span style="color:#059669">+340% more points</span></div><div class="bt"><div class="bf" style="width:90%;background:#10B981"></div></div></div>
+      <div class="br"><div class="bl"><b>Safety improvement</b><span style="color:#059669">Zero rope access risk</span></div><div class="bt"><div class="bf" style="width:100%;background:#10B981"></div></div></div>
+    </div>
+    <div class="card-blue"><div class="tag tag-b">Optical gas imaging</div><div class="ni" style="color:#1E40AF;line-height:1.65;margin-bottom:8px">OGI-equipped UAVs detect hydrocarbon leaks invisible to the naked eye — methane, VOCs and H₂S — in real time during standard inspection passes.</div>
+      <div class="br"><div class="bl"><b>Detection sensitivity</b><span style="color:#1D4ED8">0.1 g/hr minimum</span></div><div class="bt"><div class="bf" style="width:92%;background:#3B82F6"></div></div></div>
+      <div class="br"><div class="bl"><b>False positive rate</b><span style="color:#1D4ED8">&lt;3% with AI filter</span></div><div class="bt"><div class="bf" style="width:15%;background:#3B82F6"></div></div></div>
+    </div>
+    <div class="card-amber"><div class="tag tag-a">Scenario note</div><div class="ni" style="color:#78350F;line-height:1.65">All inspection cost and time figures are illustrative scenario estimates based on published industry benchmarks from DNV, Lloyd's Register and IOGP guidance documents. Actual costs vary by asset size, location and inspection scope.</div></div>
+  </div>
+</div>
+
+<div id="p-predictor" class="pane">
+  <div class="card-dark" style="margin-bottom:10px">
+    <div style="font-size:13px;font-weight:700;color:#F1F5F9;margin-bottom:4px">Predictive failure simulator — scenario model</div>
+    <div style="font-size:11px;color:#94A3B8;margin-bottom:14px">Adjust asset parameters — failure probability and remaining useful life update in real time. All outputs are illustrative scenario estimates.</div>
+    <div class="g2">
+      <div>
+        <div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;font-size:11px;color:#94A3B8;margin-bottom:4px"><span>Asset age (years)</span><b id="pv1" style="color:#A78BFA">22 yrs</b></div><input type="range" min="1" max="45" value="22" step="1" id="ps1" oninput="pcalc()" style="width:100%"></div>
+        <div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;font-size:11px;color:#94A3B8;margin-bottom:4px"><span>Corrosion rate (mm/year)</span><b id="pv2" style="color:#A78BFA">0.3 mm</b></div><input type="range" min="1" max="20" value="3" step="1" id="ps2" oninput="pcalc()" style="width:100%"></div>
+        <div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;font-size:11px;color:#94A3B8;margin-bottom:4px"><span>Last inspection (months ago)</span><b id="pv3" style="color:#A78BFA">14 months</b></div><input type="range" min="1" max="84" value="14" step="1" id="ps3" oninput="pcalc()" style="width:100%"></div>
+        <div><div style="display:flex;justify-content:space-between;font-size:11px;color:#94A3B8;margin-bottom:4px"><span>Maintenance quality (0-100)</span><b id="pv4" style="color:#A78BFA">65/100</b></div><input type="range" min="10" max="100" value="65" step="1" id="ps4" oninput="pcalc()" style="width:100%"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;align-content:start">
+        <div style="background:#1E1B4B;border:1px solid #4C1D95;border-radius:10px;padding:12px;text-align:center"><div style="font-size:10px;color:#A5B4FC;margin-bottom:4px;text-transform:uppercase;letter-spacing:.04em">Failure probability</div><div id="po1" style="font-size:32px;font-weight:700;color:#A78BFA">28%</div><div style="font-size:10px;color:#6D28D9;margin-top:2px">Next 12 months</div></div>
+        <div style="background:#064E3B;border:1px solid #047857;border-radius:10px;padding:12px;text-align:center"><div style="font-size:10px;color:#6EE7B7;margin-bottom:4px;text-transform:uppercase;letter-spacing:.04em">Remaining useful life</div><div id="po2" style="font-size:32px;font-weight:700;color:#34D399">8.2 yrs</div><div style="font-size:10px;color:#065F46;margin-top:2px">Estimated scenario</div></div>
+        <div style="background:#451A03;border:1px solid #92400E;border-radius:10px;padding:12px;text-align:center"><div style="font-size:10px;color:#FCD34D;margin-bottom:4px;text-transform:uppercase;letter-spacing:.04em">Maintenance window</div><div id="po3" style="font-size:20px;font-weight:700;color:#F59E0B">Q3 2026</div><div style="font-size:10px;color:#92400E;margin-top:2px">Recommended</div></div>
+        <div style="background:#0C4A6E;border:1px solid #0369A1;border-radius:10px;padding:12px;text-align:center"><div style="font-size:10px;color:#7DD3FC;margin-bottom:4px;text-transform:uppercase;letter-spacing:.04em">Inspection priority</div><div id="po4" style="font-size:20px;font-weight:700;color:#38BDF8">MEDIUM</div><div style="font-size:10px;color:#0369A1;margin-top:2px">Scenario classification</div></div>
+        <div style="grid-column:1/-1;background:#1A0533;border:1px solid #6D28D9;border-radius:10px;padding:10px"><div style="font-size:10px;color:#A78BFA;font-weight:700;margin-bottom:4px">Recommended action</div><div id="po5" style="font-size:11px;color:#C4B5FD;line-height:1.5">Schedule UAV inspection within 90 days. Focus on underwater structure and deck corrosion zones. Consider AI-assisted structural monitoring integration.</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="g2">
+    <div class="card"><div class="ct">Failure probability curve — age vs maintenance quality (scenario)</div><div style="position:relative;height:180px"><canvas id="c5" role="img" aria-label="Line chart of failure probability vs asset age">Well-maintained assets show significantly lower failure probability at all ages.</canvas></div></div>
+    <div class="card"><div class="ct">Cost of failure vs cost of prevention — scenario estimate</div><div style="position:relative;height:180px"><canvas id="c6" role="img" aria-label="Bar chart comparing failure and prevention costs">Unplanned failure costs approximately 8 times more than scheduled UAV inspection.</canvas></div></div>
+  </div>
+</div>
+
+<div id="p-digital" class="pane">
+  <div class="g2">
+    <div class="card"><div class="ct">Digital twin maturity — Gulf NOC scenario comparison</div><div style="position:relative;height:220px"><canvas id="c7" role="img" aria-label="Radar chart of digital twin readiness across Gulf NOCs">ADNOC leads in digital readiness, followed by Saudi Aramco.</canvas></div></div>
+    <div class="card-purple">
+      <div class="ct">Digital twin adoption status — Gulf industry average (scenario estimate)</div>
+      <div class="mat-row"><div class="mat-name">Sensor coverage</div><div class="mat-bar"><div class="mat-fill" style="width:45%;background:#7C3AED"></div></div><div class="mat-score" style="color:#7C3AED">45%</div></div>
+      <div class="mat-row"><div class="mat-name">UAV integration</div><div class="mat-bar"><div class="mat-fill" style="width:32%;background:#0EA5E9"></div></div><div class="mat-score" style="color:#0EA5E9">32%</div></div>
+      <div class="mat-row"><div class="mat-name">AI anomaly detection</div><div class="mat-bar"><div class="mat-fill" style="width:28%;background:#10B981"></div></div><div class="mat-score" style="color:#10B981">28%</div></div>
+      <div class="mat-row"><div class="mat-name">Predictive maintenance</div><div class="mat-bar"><div class="mat-fill" style="width:22%;background:#F59E0B"></div></div><div class="mat-score" style="color:#F59E0B">22%</div></div>
+      <div class="mat-row"><div class="mat-name">Data governance</div><div class="mat-bar"><div class="mat-fill" style="width:38%;background:#EF4444"></div></div><div class="mat-score" style="color:#EF4444">38%</div></div>
+      <div class="mat-row"><div class="mat-name">Real-time integration</div><div class="mat-bar"><div class="mat-fill" style="width:19%;background:#8B5CF6"></div></div><div class="mat-score" style="color:#8B5CF6">19%</div></div>
+      <div style="font-size:10px;color:#94A3B8;font-style:italic;margin-top:6px">Scenario estimates — Gulf industry average across operators</div>
+    </div>
+  </div>
+  <div class="card" style="margin-bottom:10px"><div class="ct">Digital twin investment value — scenario ROI by maturity stage</div><div style="position:relative;height:190px"><canvas id="c8" role="img" aria-label="Grouped bar chart of investment versus value at each digital twin maturity stage">Value unlocked grows exponentially with each maturity stage.</canvas></div></div>
+  <div class="g3">
+    <div class="note np"><div class="ntl">AIMS framework connection</div><div class="ni">The AI-Powered Structural Health Monitoring framework published in 2026 addresses the sensor fusion and anomaly detection gap — combining UAV optical data with IoT sensor streams for continuous structural monitoring.</div></div>
+    <div class="note nb2"><div class="ntl">Data pipeline architecture</div><div class="ni">The UAV-to-CMMS data pipeline — connecting inspection output to computerised maintenance management systems — is identified as the critical missing link between data collection and actionable maintenance decisions in Gulf operations.</div></div>
+    <div class="note ng"><div class="ntl">Investment opportunity estimate</div><div class="ni">Full digital twin deployment for a mid-size offshore platform is estimated at $2-4M. Expected value unlock through unplanned shutdown reduction is estimated at $15-25M over 5 years — scenario assumption per published industry benchmarks.</div></div>
+  </div>
+</div>
+
+<div id="p-postconflict" class="pane">
+  <div class="risk-grid">
+    <div class="risk-cell rc-r"><div class="rc-val">40+</div><div class="rc-lbl">Assets affected — reported</div></div>
+    <div class="risk-cell rc-a"><div class="rc-val">$49B+</div><div class="rc-lbl">Rebuild estimate</div></div>
+    <div class="risk-cell rc-g"><div class="rc-val">3–5 yrs</div><div class="rc-lbl">Full recovery scenario</div></div>
+    <div class="risk-cell rc-r"><div class="rc-val">High</div><div class="rc-lbl">Methane leak risk</div></div>
+    <div class="risk-cell rc-a"><div class="rc-val">Significant</div><div class="rc-lbl">UAV demand increase</div></div>
+    <div class="risk-cell rc-g"><div class="rc-val">OGMP 5</div><div class="rc-lbl">Target compliance level</div></div>
+  </div>
+  <div class="g2">
+    <div class="card">
+      <div class="ct">Post-conflict inspection priority queue — asset types (scenario)</div>
+      <div class="br"><div class="bl"><b>Damaged LNG trains (T9, T12)</b><span style="color:#BE123C">Critical — immediate</span></div><div class="bt"><div class="bf" style="width:100%;background:#EF4444"></div></div></div>
+      <div class="br"><div class="bl"><b>Offshore wellhead platforms</b><span style="color:#BE123C">Critical — 0-14 days</span></div><div class="bt"><div class="bf" style="width:95%;background:#EF4444"></div></div></div>
+      <div class="br"><div class="bl"><b>Pipeline infrastructure</b><span style="color:#B45309">High — 14-30 days</span></div><div class="bt"><div class="bf" style="width:80%;background:#F59E0B"></div></div></div>
+      <div class="br"><div class="bl"><b>Compression facilities</b><span style="color:#B45309">High — 14-30 days</span></div><div class="bt"><div class="bf" style="width:75%;background:#F59E0B"></div></div></div>
+      <div class="br"><div class="bl"><b>Storage tanks</b><span style="color:#1D4ED8">Medium — 30-60 days</span></div><div class="bt"><div class="bf" style="width:55%;background:#3B82F6"></div></div></div>
+      <div class="br"><div class="bl"><b>Onshore processing units</b><span style="color:#15803D">Standard — 60-90 days</span></div><div class="bt"><div class="bf" style="width:40%;background:#10B981"></div></div></div>
+    </div>
+    <div class="card"><div class="ct">Repair vs replace scenario — asset age vs damage severity</div><div style="position:relative;height:220px"><canvas id="c9" role="img" aria-label="Scatter chart of repair versus replace decision zones">Assets older than 25 years with high damage severity fall in the replace zone.</canvas></div></div>
+  </div>
+  <div class="note np" style="margin-bottom:8px"><div class="ntl">UAV-first inspection protocol — the correct operational approach</div><div class="ni">For damaged offshore infrastructure, deploying personnel for initial assessment carries significant safety risk. UAV-first inspection — using optical gas imaging, thermal cameras and LiDAR — provides safe standoff damage assessment before any human access is authorised. This is not just more efficient — it is the operationally correct safety sequence. The AIMS framework methodology directly supports this approach.</div></div>
+  <div style="font-size:10px;color:#94A3B8;font-style:italic">Post-conflict section uses reported damage figures from public sources only. Asset-specific assessments require independent professional inspection and verification.</div>
+</div>
+
+<div id="p-research" class="pane">
+  <div class="g2">
+    <div class="card-purple">
+      <div class="tag tag-p">AIMS Framework — Published 2026</div>
+      <div style="font-size:14px;font-weight:700;color:#3B0764;margin-bottom:6px">AI-Powered Structural Health Monitoring of Offshore Drilling Platforms Using UAV and Sensor Fusion</div>
+      <div style="font-size:11px;color:#4C1D95;line-height:1.65;margin-bottom:10px">Published research addressing the three core challenges shown in this dashboard — UAV inspection integration, sensor fusion for structural monitoring, and predictive maintenance framework development for offshore platforms. Directly applicable to Gulf rebuild inspection requirements.</div>
+      <div class="br"><div class="bl"><b>Industry relevance</b><span style="color:#7C3AED">High</span></div><div class="bt"><div class="bf" style="width:92%;background:#7C3AED"></div></div></div>
+      <div class="br"><div class="bl"><b>Post-conflict application fit</b><span style="color:#7C3AED">Very high</span></div><div class="bt"><div class="bf" style="width:96%;background:#7C3AED"></div></div></div>
+      <div class="br"><div class="bl"><b>Uniqueness in Gulf market</b><span style="color:#7C3AED">Rare</span></div><div class="bt"><div class="bf" style="width:88%;background:#7C3AED"></div></div></div>
+    </div>
+    <div class="card"><div class="ct">Skills alignment — integrity &amp; inspection roles</div><div style="position:relative;height:230px"><canvas id="c10" role="img" aria-label="Horizontal bar chart of skills alignment with integrity inspection roles">UAV inspection and CAP 437 show strongest alignment above 95 percent.</canvas></div></div>
+  </div>
+  <div class="g3" style="margin-top:10px">
+    <div style="background:#0F172A;border-radius:10px;padding:14px">
+      <div style="font-size:11px;font-weight:700;color:#A78BFA;margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">Relevant roles — good alignment</div>
+      <div style="font-size:11px;color:#CBD5E1;margin-bottom:5px">Asset Integrity Engineer — offshore platforms</div>
+      <div style="font-size:11px;color:#CBD5E1;margin-bottom:5px">UAV Inspection Coordinator — rebuild phase</div>
+      <div style="font-size:11px;color:#CBD5E1;margin-bottom:5px">Structural Health Monitoring Specialist</div>
+      <div style="font-size:11px;color:#CBD5E1;margin-bottom:5px">Predictive Maintenance Analyst</div>
+      <div style="font-size:11px;color:#CBD5E1">Inspection Data Analyst — Power BI</div>
+    </div>
+    <div style="background:#0F172A;border-radius:10px;padding:14px">
+      <div style="font-size:11px;font-weight:700;color:#34D399;margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">Supporting credentials</div>
+      <div style="font-size:11px;color:#CBD5E1;margin-bottom:5px">AIMS paper — published SHM framework 2026</div>
+      <div style="font-size:11px;color:#CBD5E1;margin-bottom:5px">UAS/RPAS Drone Pilot Licence — active</div>
+      <div style="font-size:11px;color:#CBD5E1;margin-bottom:5px">CAP 437 — offshore platform access certified</div>
+      <div style="font-size:11px;color:#CBD5E1;margin-bottom:5px">Power BI PL-300 — inspection data reporting</div>
+      <div style="font-size:11px;color:#CBD5E1">HSE Engineering — Khalifa University</div>
+    </div>
+    <div style="background:#0F172A;border-radius:10px;padding:14px">
+      <div style="font-size:11px;font-weight:700;color:#FCD34D;margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em">Skills to strengthen fit</div>
+      <div style="font-size:11px;color:#CBD5E1;margin-bottom:5px">NEBOSH IGC — mentioned in ~78% of roles</div>
+      <div style="font-size:11px;color:#CBD5E1;margin-bottom:5px">BOSIET — offshore access certification</div>
+      <div style="font-size:11px;color:#CBD5E1;margin-bottom:5px">ROV pilot basic — subsea inspection</div>
+      <div style="font-size:11px;color:#CBD5E1;margin-bottom:5px">CSWIP 3.4 — structural inspection</div>
+      <div style="font-size:11px;color:#CBD5E1">Python basics — data pipeline work</div>
+    </div>
+  </div>
+</div>
+
+
+<div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:12px;padding:14px 16px;margin-top:10px;margin-bottom:0">
+  <div style="font-size:12px;font-weight:700;color:#1A3A6B;margin-bottom:8px">How data is updated — methodology note</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+    <div>
+      <div style="font-size:10px;font-weight:700;color:#5B21B6;margin-bottom:4px;text-transform:uppercase;letter-spacing:.04em">Data sources</div>
+      <div style="font-size:11px;color:#475569;line-height:1.6">IEA Oil Market Reports · Rystad Energy · DNV Offshore Reports · Lloyd's Register · Bloomberg Energy · QNA · IEEFA</div>
+    </div>
+    <div>
+      <div style="font-size:10px;font-weight:700;color:#065F46;margin-bottom:4px;text-transform:uppercase;letter-spacing:.04em">Update process</div>
+      <div style="font-size:11px;color:#475569;line-height:1.6">Asset data manually reviewed and updated when new source material is published. All figures are scenario estimates unless marked as reported.</div>
+    </div>
+    <div>
+      <div style="font-size:10px;font-weight:700;color:#92400E;margin-bottom:4px;text-transform:uppercase;letter-spacing:.04em">Data confidence labels</div>
+      <div style="font-size:11px;color:#475569;line-height:1.6">
+        <span style="background:#DBEAFE;color:#1E40AF;padding:1px 6px;border-radius:6px;font-size:10px;font-weight:600">Reported</span> — from public news sources<br>
+        <span style="background:#FEF3C7;color:#92400E;padding:1px 6px;border-radius:6px;font-size:10px;font-weight:600">Estimated</span> — analyst scenario model<br>
+        <span style="background:#F3F4F6;color:#374151;padding:1px 6px;border-radius:6px;font-size:10px;font-weight:600">Benchmark</span> — industry published data
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="analyst">
+  <div class="av">PS</div>
+  <div style="flex:1">
+    <div class="av-name">Prasad Selvaraj</div>
+    <div class="av-title">Independent Energy Intelligence Researcher · AIMS Framework Author · UAV Inspection Specialist · OGMP 2.0 Analyst · Doha, Qatar</div>
+    <div class="av-chips">
+      <span class="av-chip">AIMS SHM Framework</span>
+      <span class="av-chip">UAV Inspection</span>
+      <span class="av-chip">OGMP 2.0</span>
+      <span class="av-chip">CAP 437</span>
+      <span class="av-chip">Power BI PL-300</span>
+      <span class="av-chip">6 Published Papers</span>
+      <span class="av-chip">HSE Engineering</span>
+    </div>
+  </div>
+  <div style="font-size:10px;color:#475569;text-align:right">
+    DOI: 10.5281/ZENODO.18968721<br>
+    linkedin.com/in/prasadselvaraj<br>
+    ORCID: 0009-0001-4513-3910
+  </div>
+</div>
+
+<div class="attr">
+  <b style="color:#64748B">Sources &amp; references:</b> DNV GL Offshore Structural Integrity Guidelines · Lloyd's Register Inspection Technology Report · IOGP Asset Integrity Management Report · IEA Oil Market Report March 2026 · IEEFA Gulf Energy Infrastructure Assessment · Rystad Energy Offshore Data 2025<br>
+  <b style="color:#64748B">Disclaimer:</b> This dashboard is independent scenario-based research analysis. All figures are illustrative estimates derived from publicly available industry benchmarks. Asset names used for illustrative purposes only — not verified operational data. Not engineering advice. Not investment advice. &copy; 2026 Prasad Selvaraj — Independent Energy Intelligence Research.
+</div>
+
+</div>
+<script>
+const P='#7C3AED',T='#10B981',B='#0EA5E9',A='#F59E0B',R='#EF4444',K='#EC4899';
+const BASE={responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}}};
+const ch={};
+
+
+// ── SHARED ASSET DATA ────────────────────────────────────────────────────────
+const ASSETS = [
+  {name:'North Field Alpha',lat:25.8,lng:51.6,risk:'critical',cap:320,country:'qa',age:32,delay:62},
+  {name:'RasGas Complex B',lat:25.4,lng:51.8,risk:'elevated',cap:280,country:'qa',age:24,delay:38},
+  {name:'North Field South',lat:25.2,lng:52.0,risk:'normal',cap:200,country:'qa',age:8,delay:12},
+  {name:'Al-Shaheen Field',lat:25.9,lng:52.8,risk:'elevated',cap:180,country:'qa',age:19,delay:45},
+  {name:'Bul Hanine Platform',lat:25.5,lng:52.5,risk:'critical',cap:120,country:'qa',age:38,delay:78},
+  {name:'Safaniyah Field',lat:27.8,lng:48.8,risk:'critical',cap:420,country:'sa',age:35,delay:90},
+  {name:'Manifa Offshore',lat:27.5,lng:48.5,risk:'elevated',cap:380,country:'sa',age:12,delay:30},
+  {name:'Khurais Extension',lat:24.9,lng:48.2,risk:'normal',cap:290,country:'sa',age:10,delay:15},
+  {name:'Upper Zakum',lat:24.8,lng:53.6,risk:'elevated',cap:340,country:'ae',age:20,delay:42},
+  {name:'Umm Lulu Field',lat:24.5,lng:53.2,risk:'elevated',cap:150,country:'ae',age:14,delay:35},
+  {name:'Ghasha Complex',lat:24.2,lng:52.8,risk:'normal',cap:220,country:'ae',age:3,delay:8},
+  {name:'Burgan Field',lat:29.1,lng:47.9,risk:'critical',cap:390,country:'kw',age:40,delay:95},
+  {name:'Minagish Field',lat:29.3,lng:47.2,risk:'elevated',cap:180,country:'kw',age:28,delay:55},
+  {name:'Rumaila North',lat:30.5,lng:47.8,risk:'elevated',cap:350,country:'iq',age:22,delay:48},
+  {name:'West Qurna 2',lat:30.2,lng:47.5,risk:'critical',cap:420,country:'iq',age:35,delay:82},
+];
+const COLORS = {critical:'#EF4444',elevated:'#F59E0B',normal:'#10B981',new:'#3B82F6'};
+
+let activeCountry = 'all';
+let activeRisk = 'all';
+let mapRef = null;
+let mapMarkers = [];
+let mapInit = false;
+
+// ── LEAFLET MAP ──────────────────────────────────────────────────────────────
+function initMap(){
+  if(mapInit || !document.getElementById('gulf-map')) return;
+  mapInit = true;
+  mapRef = L.map('gulf-map',{zoomControl:true,scrollWheelZoom:false}).setView([26.5,51.0],5);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    attribution:'© OpenStreetMap',maxZoom:10
+  }).addTo(mapRef);
+  renderMarkers();
+}
+
+function renderMarkers(){
+  if(!mapRef) return;
+  mapMarkers.forEach(m=>mapRef.removeLayer(m));
+  mapMarkers=[];
+  const filtered = ASSETS.filter(a=>{
+    const cOk = activeCountry==='all' || a.country===activeCountry;
+    const rOk = activeRisk==='all' || a.risk===activeRisk;
+    return cOk && rOk;
+  });
+  filtered.forEach(a=>{
+    const r=Math.max(10,Math.min(35,a.cap/14));
+    const c=COLORS[a.risk];
+    const weight = a.risk==='critical'?3:2;
+    const m=L.circleMarker([a.lat,a.lng],{
+      radius:r,
+      fillColor:c,
+      color: a.risk==='critical'?'#7F1D1D': a.risk==='elevated'?'#78350F':'#14532D',
+      weight:weight,
+      opacity:1,
+      fillOpacity:0.88
+    }).bindPopup(`<div style="font-family:sans-serif;font-size:12px;min-width:170px">
+      <div style="font-weight:700;color:#0F172A;margin-bottom:8px;font-size:13px">${a.name}</div>
+      <table style="width:100%;border-collapse:collapse">
+        <tr><td style="color:#64748B;padding:3px 0;font-size:11px">Country</td><td style="font-weight:600;text-align:right;font-size:11px">${a.country.toUpperCase()}</td></tr>
+        <tr><td style="color:#64748B;padding:3px 0;font-size:11px">Asset age</td><td style="font-weight:600;text-align:right;font-size:11px">${a.age} years</td></tr>
+        <tr><td style="color:#64748B;padding:3px 0;font-size:11px">Risk level</td><td style="font-weight:700;text-align:right;color:${c};font-size:11px">${a.risk.charAt(0).toUpperCase()+a.risk.slice(1)}</td></tr>
+        <tr><td style="color:#64748B;padding:3px 0;font-size:11px">Capacity est.</td><td style="font-weight:600;text-align:right;font-size:11px">${a.cap}K bpd</td></tr>
+        <tr><td style="color:#64748B;padding:3px 0;font-size:11px">Insp. delay</td><td style="font-weight:600;text-align:right;font-size:11px;color:${a.delay>60?'#EF4444':a.delay>30?'#F59E0B':'#10B981'}">${a.delay} days</td></tr>
+      </table>
+      <div style="font-size:9px;color:#94A3B8;margin-top:8px;font-style:italic">Illustrative scenario — not verified data</div>
+    </div>`).addTo(mapRef);
+    mapMarkers.push(m);
+  });
+  updateMapStats(filtered);
+}
+
+function updateMapStats(filtered){
+  const el=document.getElementById('map-stats');
+  if(!el) return;
+  const crit=filtered.filter(a=>a.risk==='critical').length;
+  const elev=filtered.filter(a=>a.risk==='elevated').length;
+  const norm=filtered.filter(a=>a.risk==='normal').length;
+  el.innerHTML=`Showing <b>${filtered.length}</b> of ${ASSETS.length} assets &nbsp;·&nbsp; `+
+    `<span style="color:#EF4444;font-weight:600">${crit} critical</span> &nbsp;·&nbsp; `+
+    `<span style="color:#F59E0B;font-weight:600">${elev} elevated</span> &nbsp;·&nbsp; `+
+    `<span style="color:#10B981;font-weight:600">${norm} normal</span>`;
+}
+
+// ── PLATFORM GRID FILTER ─────────────────────────────────────────────────────
+function renderPlatformGrid(){
+  const grid=document.getElementById('platform-grid-dynamic');
+  if(!grid) return;
+  const filtered=ASSETS.filter(a=>{
+    const cOk=activeCountry==='all'||a.country===activeCountry;
+    const rOk=activeRisk==='all'||a.risk===activeRisk;
+    return cOk&&rOk;
+  });
+  const riskClass={critical:'pf-r',elevated:'pf-a',normal:'pf-g',new:'pf-b'};
+  const badgeClass={critical:'br-r',elevated:'br-a',normal:'br-g',new:'br-b'};
+  const nameColor={critical:'#9F1239',elevated:'#92400E',normal:'#166534',new:'#1E40AF'};
+  grid.innerHTML = filtered.length===0
+    ? `<div style="grid-column:1/-1;text-align:center;padding:20px;color:#94A3B8;font-size:12px">No assets match current filters</div>`
+    : filtered.map(a=>`
+      <div class="platform ${riskClass[a.risk]||'pf-b'}">
+        <div class="pf-name" style="color:${nameColor[a.risk]||'#1E40AF'}">${a.name.split(' ').slice(0,2).join(' ')}</div>
+        <div class="pf-age">${a.age} yrs · ${a.country.toUpperCase()}</div>
+        <div class="pf-badge ${badgeClass[a.risk]||'br-b'}">${a.risk.charAt(0).toUpperCase()+a.risk.slice(1)}</div>
+        <div style="font-size:9px;color:#94A3B8;margin-top:3px">${a.delay}d delay</div>
+      </div>`).join('');
+}
+
+// ── FILTER CONTROLS ──────────────────────────────────────────────────────────
+function filter(country){
+  activeCountry = country;
+  document.querySelectorAll('.fc-country').forEach(b=>{
+    b.classList.toggle('on', b.dataset.val===country);
+  });
+  renderMarkers();
+  renderPlatformGrid();
+  updateKpiStrip();
+}
+
+function filterRisk(level){
+  activeRisk = level==='all' ? 'all' : level;
+  document.querySelectorAll('.fc-risk').forEach(b=>{
+    b.classList.toggle('on', b.dataset.val===level);
+  });
+  renderMarkers();
+  renderPlatformGrid();
+  updateKpiStrip();
+}
+
+function updateKpiStrip(){
+  const filtered=ASSETS.filter(a=>{
+    const cOk=activeCountry==='all'||a.country===activeCountry;
+    const rOk=activeRisk==='all'||a.risk===activeRisk;
+    return cOk&&rOk;
+  });
+  const avgDelay=filtered.length?Math.round(filtered.reduce((s,a)=>s+a.delay,0)/filtered.length):0;
+  const critCount=filtered.filter(a=>a.risk==='critical').length;
+  const el=document.getElementById('kpi-filter-status');
+  if(el) el.textContent=`Filtered: ${filtered.length} assets · Avg delay: ${avgDelay} days · Critical: ${critCount}`;
+}
+
+function tab(n){
+  ['overview','inspection','predictor','digital','postconflict','research'].forEach(i=>document.getElementById('p-'+i).classList.toggle('on',i===n));
+  document.querySelectorAll('.nb').forEach((b,i)=>b.classList.toggle('on',['overview','inspection','predictor','digital','postconflict','research'][i]===n));
+  setTimeout(draw,60);
+}
+
+function mk(id,cfg){
+  if(ch[id])return;
+  const el=document.getElementById(id);
+  if(!el||!el.getContext)return;
+  try{ch[id]=new Chart(el,cfg);}catch(e){}
+}
+
+function icalc(){
+  const d=+document.getElementById('is1').value,v=+document.getElementById('is2').value,n=+document.getElementById('is3').value;
+  document.getElementById('iv1').textContent=d;
+  document.getElementById('iv2').textContent='$'+v+'M';
+  document.getElementById('iv3').textContent=n;
+  document.getElementById('ic1').textContent='$'+Math.round(d*v*n*0.45)+'M';
+  const esc=d>90?'CRITICAL — >60% probability':d>60?'HIGH — ~45% probability':d>30?'ELEVATED — ~34% probability':'MODERATE — ~15% probability';
+  document.getElementById('ic3').textContent=esc;
+}
+
+function pcalc(){
+  const age=+document.getElementById('ps1').value,cor=+document.getElementById('ps2').value,ins=+document.getElementById('ps3').value,mq=+document.getElementById('ps4').value;
+  document.getElementById('pv1').textContent=age+' yrs';
+  document.getElementById('pv2').textContent=(cor*0.1).toFixed(1)+' mm';
+  document.getElementById('pv3').textContent=ins+' months';
+  document.getElementById('pv4').textContent=mq+'/100';
+  const fp=Math.min(95,Math.max(5,Math.round(age*1.2+cor*4+ins*0.4-(mq*0.3))));
+  const rul=Math.max(0.5,Math.round((100-fp)*0.12*10)/10);
+  document.getElementById('po1').textContent=fp+'%';
+  document.getElementById('po2').textContent=rul+' yrs';
+  const q=new Date();q.setMonth(q.getMonth()+Math.round(rul*3));
+  document.getElementById('po3').textContent='Q'+(Math.floor(q.getMonth()/3)+1)+' '+q.getFullYear();
+  const pri=fp>70?'CRITICAL':fp>50?'HIGH':fp>30?'MEDIUM':'LOW';
+  document.getElementById('po4').textContent=pri;
+  const acts={CRITICAL:'Deploy UAV inspection immediately. Halt non-essential operations. Engage structural engineer. Consider temporary shutdown for assessment.',HIGH:'Schedule UAV and manual inspection within 30 days. Increase monitoring frequency. Review full maintenance records.',MEDIUM:'Schedule UAV inspection within 90 days. Focus on corrosion-prone zones. Consider AI monitoring integration.',LOW:'Maintain standard inspection schedule. Monitor corrosion indicators quarterly. Document baseline readings.'};
+  document.getElementById('po5').textContent=acts[pri];
+}
+
+function draw(){
+  mk('c1',{type:'bar',data:{labels:['0-10yr','10-15yr','15-20yr','20-25yr','25-30yr','30-35yr','35+yr'],datasets:[{data:[42,58,72,65,48,35,20],backgroundColor:[T,T,A,A,R,R,R],borderRadius:5}]},options:{...BASE,scales:{x:{ticks:{font:{size:9}}},y:{ticks:{font:{size:9}}}}}});
+  mk('c2',{type:'bar',indexAxis:'y',data:{labels:['Fixed platforms','Floating prod.','Subsea systems','Pipeline networks','Compression','LNG facilities'],datasets:[{data:[78,71,65,58,52,48],backgroundColor:[R,R,A,A,A,B],borderRadius:4}]},options:{...BASE,scales:{x:{max:100,ticks:{font:{size:9}}},y:{ticks:{font:{size:10}}}}}});
+  mk('c3',{type:'bar',data:{labels:['Manual rope access','ROV inspection','UAV inspection'],datasets:[{label:'Cost $K',data:[320,280,110],backgroundColor:[R,A,T],borderRadius:5},{label:'Time days',data:[35,28,5],backgroundColor:[R+'88',A+'88',T+'88'],borderRadius:5}]},options:{...BASE,plugins:{legend:{display:true,position:'top',labels:{font:{size:9},boxWidth:8}}},scales:{x:{ticks:{font:{size:10}}},y:{ticks:{font:{size:9}}}}}});
+  mk('c4',{type:'line',data:{labels:['0','15','30','45','60','75','90','120','150','180'],datasets:[{label:'Escalation %',data:[2,8,18,34,52,68,78,88,93,95],borderColor:R,tension:.4,pointRadius:3,fill:true,backgroundColor:'rgba(239,68,68,.08)'}]},options:{...BASE,scales:{x:{title:{display:true,text:'Days delayed',font:{size:9}},ticks:{font:{size:9}}},y:{max:100,ticks:{font:{size:9},callback:v=>v+'%'}}}}});
+  mk('c5',{type:'line',data:{labels:['5yr','10yr','15yr','20yr','25yr','30yr','35yr','40yr'],datasets:[{label:'Low maintenance',data:[5,12,22,38,55,68,78,88],borderColor:R,tension:.4,fill:false,pointRadius:2},{label:'High maintenance',data:[2,5,10,18,28,38,48,58],borderColor:T,tension:.4,fill:false,borderDash:[5,3],pointRadius:2}]},options:{...BASE,plugins:{legend:{display:true,position:'top',labels:{font:{size:9},boxWidth:8}}},scales:{x:{ticks:{font:{size:9}}},y:{max:100,ticks:{font:{size:9},callback:v=>v+'%'}}}}});
+  mk('c6',{type:'bar',data:{labels:['Unplanned failure','Corrective maint.','Preventive maint.','UAV inspection'],datasets:[{data:[48,22,8,3],backgroundColor:[R,A,T,B],borderRadius:5}]},options:{...BASE,scales:{x:{ticks:{font:{size:9}}},y:{ticks:{font:{size:9},callback:v=>'$'+v+'M'}}}}});
+  mk('c7',{type:'radar',data:{labels:['Sensor coverage','UAV integration','AI anomaly det.','Predictive maint.','Data governance','Real-time ops'],datasets:[{label:'ADNOC',data:[72,65,68,58,70,52],borderColor:B,backgroundColor:B+'22',pointRadius:2},{label:'Saudi Aramco',data:[68,60,72,62,65,55],borderColor:A,backgroundColor:A+'22',pointRadius:2},{label:'QatarEnergy',data:[60,55,58,50,62,45],borderColor:P,backgroundColor:P+'22',pointRadius:2},{label:'Kuwait OC',data:[45,38,40,35,48,32],borderColor:T,backgroundColor:T+'22',pointRadius:2}]},options:{...BASE,plugins:{legend:{display:true,position:'top',labels:{font:{size:9},boxWidth:8}}},scales:{r:{ticks:{display:false},pointLabels:{font:{size:9}},min:0,max:100}}}});
+  mk('c8',{type:'bar',data:{labels:['Level 1 Basic','Level 2 Connected','Level 3 Analytics','Level 4 Predictive','Level 5 Autonomous'],datasets:[{label:'Investment $M',data:[0.5,1.2,2.5,4.0,7.0],backgroundColor:P+'88',borderRadius:4},{label:'Value unlocked $M',data:[1.5,4.8,12,28,55],backgroundColor:T,borderRadius:4}]},options:{...BASE,plugins:{legend:{display:true,position:'top',labels:{font:{size:9},boxWidth:8}}},scales:{x:{ticks:{font:{size:9},maxRotation:20}},y:{ticks:{font:{size:9},callback:v=>'$'+v+'M'}}}}});
+  mk('c9',{type:'scatter',data:{datasets:[{label:'Replace zone',data:[{x:32,y:85},{x:38,y:90},{x:28,y:78},{x:35,y:88}],backgroundColor:R,pointRadius:8},{label:'Assess zone',data:[{x:20,y:55},{x:25,y:65},{x:22,y:48},{x:18,y:70}],backgroundColor:A,pointRadius:8},{label:'Repair zone',data:[{x:8,y:40},{x:12,y:30},{x:15,y:55},{x:5,y:25}],backgroundColor:T,pointRadius:8}]},options:{...BASE,plugins:{legend:{display:true,position:'top',labels:{font:{size:9},boxWidth:8}}},scales:{x:{title:{display:true,text:'Asset age (years)',font:{size:9}},min:0,max:45,ticks:{font:{size:9}}},y:{title:{display:true,text:'Damage severity %',font:{size:9}},min:0,max:100,ticks:{font:{size:9}}}}}});
+
+  mk('c-bubble',{type:'bubble',
+    data:{datasets:[
+      {label:'Critical',data:[
+        {x:32,y:78,r:18},{x:38,y:82,r:22},{x:35,y:80,r:20},{x:40,y:85,r:24},{x:28,y:72,r:16}
+      ],backgroundColor:'rgba(239,68,68,.7)',borderColor:'#EF4444',borderWidth:1},
+      {label:'Elevated',data:[
+        {x:19,y:58,r:15},{x:24,y:65,r:17},{x:21,y:62,r:14},{x:26,y:68,r:16},{x:14,y:52,r:12}
+      ],backgroundColor:'rgba(245,158,11,.7)',borderColor:'#F59E0B',borderWidth:1},
+      {label:'Normal',data:[
+        {x:8,y:32,r:12},{x:6,y:28,r:10},{x:3,y:22,r:8},{x:10,y:35,r:13},{x:12,y:38,r:11}
+      ],backgroundColor:'rgba(16,185,129,.7)',borderColor:'#10B981',borderWidth:1},
+      {label:'New',data:[
+        {x:2,y:18,r:9},{x:1,y:15,r:8}
+      ],backgroundColor:'rgba(59,130,246,.7)',borderColor:'#3B82F6',borderWidth:1},
+    ]},
+    options:{...BASE,layout:{padding:10},
+      plugins:{legend:{display:true,position:'top',labels:{font:{size:9},boxWidth:8}}},
+      scales:{
+        x:{title:{display:true,text:'Asset age (years)',font:{size:9}},min:0,max:45,ticks:{font:{size:9}}},
+        y:{title:{display:true,text:'Integrity risk score',font:{size:9}},min:0,max:100,ticks:{font:{size:9}}}
+      }
+    }
+  });
+  mk('c10',{type:'bar',indexAxis:'y',data:{labels:['UAV inspection','CAP 437 offshore','HSE management','AIMS framework','Power BI analytics','OGMP 2.0 research','Petroleum engineering'],datasets:[{data:[95,98,90,92,88,85,78],backgroundColor:[P,P,B,P,B,T,T],borderRadius:4}]},options:{...BASE,scales:{x:{max:100,ticks:{font:{size:9},callback:v=>v+'%'}},y:{ticks:{font:{size:10}}}}}});
+}
+
+window.addEventListener('load',()=>{draw();icalc();pcalc();setTimeout(()=>{initMap();renderPlatformGrid();updateKpiStrip();},200);});
+</script>
+</body>
+</html>
