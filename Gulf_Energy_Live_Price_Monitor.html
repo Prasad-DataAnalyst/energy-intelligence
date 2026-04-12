@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Gulf Energy Live Intelligence | Prasad Selvaraj</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap');
+:root{--bg:#050C1A;--s1:#081422;--s2:#0C1C30;--s3:#11253D;--s4:#16304E;--b1:#1C3A5A;--b2:#0EA5E9;--t1:#EFF6FF;--t2:#94A3B8;--t3:#475569;--t4:#2D4A6B;--G:#10B981;--Gl:#34D399;--A:#F59E0B;--R:#EF4444;--P:#8B5CF6;--C:#06B6D4;--mono:"IBM Plex Mono",monospace;--sans:"Inter",system-ui,sans-serif}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--sans);background:var(--bg);color:var(--t1);min-height:100vh;line-height:1.4}
+.ticker{height:28px;background:#03080F;border-bottom:1px solid var(--b1);overflow:hidden;display:flex;align-items:center}
+.tk-track{display:inline-flex;white-space:nowrap;animation:scroll 45s linear infinite}
+@keyframes scroll{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
+.tk-seg{display:inline-flex;align-items:center;gap:6px;padding:0 20px;border-right:1px solid var(--b1);font-family:var(--mono);font-size:10.5px;color:var(--t3);height:28px}
+.tk-seg b{color:var(--t2);font-weight:500;letter-spacing:.04em}
+.up{color:#34D399}.dn{color:#FCA5A5}.neu{color:#FCD34D}
+.topbar{background:var(--s1);border-bottom:1px solid var(--b1);padding:10px 20px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.topbar h1{font-size:17px;font-weight:700;letter-spacing:-.3px;color:var(--t1)}
+.topbar h1 em{color:var(--b2);font-style:normal}
+.topbar p{font-size:10.5px;color:var(--t3);margin-top:1px}
+.topbar-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.badge{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10px;font-weight:500;padding:4px 10px;border-radius:3px;letter-spacing:.03em;border:1px solid}
+.b-live{background:rgba(16,185,129,.1);color:#10B981;border-color:rgba(16,185,129,.25)}
+.b-load{background:rgba(245,158,11,.1);color:#F59E0B;border-color:rgba(245,158,11,.25)}
+.b-err{background:rgba(239,68,68,.1);color:#EF4444;border-color:rgba(239,68,68,.25)}
+.dot{width:5px;height:5px;border-radius:50%;animation:blink 1.4s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+.d-g{background:#10B981}.d-a{background:#F59E0B}.d-r{background:#EF4444}
+.rbtn{font-family:var(--mono);font-size:10px;padding:4px 10px;border-radius:3px;border:1px solid var(--b1);background:transparent;color:var(--t3);cursor:pointer}
+.rbtn:hover{border-color:var(--b2);color:var(--b2)}
+.ts-txt{font-family:var(--mono);font-size:10px;color:var(--t4)}
+.rstrip{background:#040B17;border-bottom:1px solid var(--b1);padding:5px 20px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-family:var(--mono);font-size:10px}
+.rl{color:var(--t4);text-transform:uppercase;letter-spacing:.07em}
+.rv{color:var(--t2);margin-right:8px}
+.rbadge{padding:2px 8px;border-radius:2px;font-weight:600;font-size:10px}
+.div1{width:1px;height:12px;background:var(--b1);margin:0 2px}
+.kpi-strip{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid var(--b1)}
+.kpi{background:var(--s1);padding:12px 16px 10px;border-right:1px solid var(--b1);position:relative;overflow:hidden}
+.kpi::before{content:"";position:absolute;top:0;left:0;right:0;height:2px}
+.kpi-b::before{background:var(--b2)}.kpi-w::before{background:#10B981}.kpi-g::before{background:#F59E0B}.kpi-s::before{background:#8B5CF6}
+.kpi-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px}
+.kpi-name{font-size:9.5px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:.09em}
+.kpi-regime{font-size:9px;font-weight:600;padding:1px 6px;border-radius:2px}
+.kr-bull{background:rgba(16,185,129,.12);color:#10B981}.kr-bear{background:rgba(239,68,68,.12);color:#EF4444}.kr-neut{background:rgba(245,158,11,.12);color:#F59E0B}
+.kpi-price{font-family:var(--mono);font-size:26px;font-weight:600;color:var(--t1);line-height:1;margin-bottom:2px;min-height:30px}
+.kpi-unit{font-size:9px;color:var(--t4);margin-bottom:4px}
+.kpi-chg{font-family:var(--mono);font-size:11px;font-weight:500}
+.kpi-chg.up{color:#10B981}.kpi-chg.dn{color:#EF4444}.kpi-chg.fl{color:var(--t3)}
+.kpi-src{font-size:9px;color:var(--t4);margin-top:2px}
+.spk-wrap{height:24px;margin-top:5px}
+.skel{border-radius:2px;background:linear-gradient(90deg,var(--s2) 25%,var(--s3) 50%,var(--s2) 75%);background-size:200%;animation:sk 1.4s infinite}
+@keyframes sk{0%{background-position:200%}100%{background-position:-200%}}
+.main{display:grid;grid-template-columns:1fr 292px;min-height:calc(100vh - 165px)}
+.center{padding:12px 14px;border-right:1px solid var(--b1)}
+.sidebar{padding:12px;background:var(--s1);overflow-y:auto}
+.tabs{display:flex;gap:2px;margin-bottom:10px;padding:3px;background:var(--s2);border:1px solid var(--b1);border-radius:4px;width:fit-content}
+.tab{font-size:11px;font-weight:500;padding:5px 13px;border-radius:3px;border:none;background:transparent;color:var(--t3);cursor:pointer;white-space:nowrap}
+.tab.on{background:var(--s3);color:var(--t1);border:1px solid var(--b1)}
+.pane{display:none}.pane.on{display:block}
+.card{background:var(--s2);border:1px solid var(--b1);border-radius:5px;padding:10px 12px;margin-bottom:8px}
+.card-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.card-title{font-size:9.5px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:.07em;display:flex;align-items:center;gap:5px}
+.ct-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0}
+.card-meta{font-family:var(--mono);font-size:9px;color:var(--t4)}
+.ch2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
+.ch3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px}
+.ch-box{background:var(--s2);border:1px solid var(--b1);border-radius:5px;padding:8px 10px}
+.ch-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.ch-title{font-size:9.5px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:.07em;display:flex;align-items:center;gap:4px}
+.ch-tag{font-family:var(--mono);font-size:8.5px;padding:1px 5px;border-radius:2px}
+.intel{border-radius:4px;padding:9px 10px;margin-bottom:6px;border-left:2px solid}
+.i-b{background:rgba(14,165,233,.05);border-color:var(--b2)}.i-b .it{color:var(--b2)}
+.i-g{background:rgba(16,185,129,.05);border-color:#10B981}.i-g .it{color:#10B981}
+.i-a{background:rgba(245,158,11,.05);border-color:#F59E0B}.i-a .it{color:#F59E0B}
+.i-r{background:rgba(239,68,68,.05);border-color:#EF4444}.i-r .it{color:#EF4444}
+.i-p{background:rgba(139,92,246,.05);border-color:#8B5CF6}.i-p .it{color:#8B5CF6}
+.it{font-size:10.5px;font-weight:600;margin-bottom:2px}
+.ib{font-size:10.5px;color:var(--t2);line-height:1.55}
+.sb-sec{font-size:9px;font-weight:600;color:var(--t4);text-transform:uppercase;letter-spacing:.08em;margin:10px 0 6px;display:flex;align-items:center;gap:4px}
+.sb-sec:first-child{margin-top:0}
+.kpm{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:8px}
+.km{background:var(--s3);border:1px solid var(--b1);border-radius:4px;padding:8px 10px}
+.km-l{font-size:8.5px;color:var(--t3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px}
+.km-v{font-family:var(--mono);font-size:15px;font-weight:600;color:var(--t1)}
+.km-s{font-size:8.5px;color:var(--t4);margin-top:1px}
+.sig-row{display:flex;align-items:center;gap:6px;margin-bottom:5px}
+.sl{font-size:10px;color:var(--t2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.st{flex:2;height:4px;background:var(--s3);border-radius:2px;overflow:hidden}
+.sf{height:100%;border-radius:2px;transition:width .7s ease}
+.sn{font-family:var(--mono);font-size:9.5px;font-weight:500;min-width:22px;text-align:right}
+.slv{font-size:8.5px;color:var(--t4);min-width:24px;text-align:right;font-family:var(--mono)}
+.wow-row{display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #0C1C30;font-size:10.5px}
+.wow-row:last-child{border-bottom:none}
+.ni{padding:7px 0;border-bottom:1px solid var(--b1)}
+.ni:last-child{border-bottom:none;padding-bottom:0}
+.ni-h{font-size:10.5px;font-weight:500;color:var(--t1);margin-bottom:1px;line-height:1.3}
+.ni-m{font-size:9.5px;color:var(--t3)}
+.ni-tag{display:inline-block;font-size:8.5px;font-weight:600;padding:1px 5px;border-radius:2px;margin-right:3px;text-transform:uppercase}
+.nt-up{background:rgba(16,185,129,.12);color:#10B981}.nt-dn{background:rgba(239,68,68,.12);color:#EF4444}.nt-n{background:rgba(245,158,11,.12);color:#F59E0B}
+.analyst{background:var(--s3);border:1px solid var(--b1);border-radius:5px;padding:10px 12px;margin-top:8px;display:flex;gap:9px}
+.av{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#8B5CF6,#0EA5E9);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;flex-shrink:0}
+.chip{font-size:8.5px;font-weight:600;padding:1px 5px;border-radius:2px;background:rgba(14,165,233,.08);color:var(--b2);border:1px solid rgba(14,165,233,.15);text-transform:uppercase;margin:2px 2px 0 0;display:inline-block}
+.price-tbl{width:100%;border-collapse:collapse;font-size:10.5px}
+.price-tbl th{font-size:9px;font-weight:600;color:var(--t4);text-transform:uppercase;letter-spacing:.07em;padding:4px 6px;border-bottom:1px solid var(--b1);text-align:left}
+.price-tbl td{padding:5px 6px;border-bottom:1px solid #0C1C30;color:var(--t2);font-family:var(--mono);font-size:10.5px}
+.price-tbl tr:last-child td{border-bottom:none}
+.price-tbl tr:hover td{background:var(--s3)}
+.tbl-price{color:var(--t1);font-weight:500}
+.tbl-up{color:#10B981}.tbl-dn{color:#EF4444}.tbl-neu{color:#F59E0B}
+.tbl-bull{color:#10B981}.tbl-bear{color:#EF4444}.tbl-rng{color:#F59E0B}
+.footer{font-family:var(--mono);font-size:9.5px;color:var(--t4);text-align:center;padding:8px;border-top:1px solid var(--b1);background:var(--s1);line-height:1.7}
+.footer a{color:var(--b2);text-decoration:none}
+@media(max-width:960px){.main{grid-template-columns:1fr}.sidebar{border-top:1px solid var(--b1)}}
+@media(max-width:600px){.kpi-strip{grid-template-columns:1fr 1fr}.tabs{flex-wrap:wrap}}
+</style>
+</head>
+<body>
+
+<div class="ticker">
+  <div class="tk-track">
+    <span class="tk-seg"><b>BRENT</b><span id="tk1" class="neu">—</span></span>
+    <span class="tk-seg"><b>WTI</b><span id="tk2" class="neu">—</span></span>
+    <span class="tk-seg"><b>HENRY HUB</b><span id="tk3" class="neu">—</span></span>
+    <span class="tk-seg"><b>B/W SPREAD</b><span id="tk4" class="neu">—</span></span>
+    <span class="tk-seg"><b>DATA</b><span>EIA Open Data API v2 · US Government Public Domain</span></span>
+    <span class="tk-seg"><b>ANALYST</b><span>Prasad Selvaraj · Independent Energy Intelligence Researcher · Doha, Qatar</span></span>
+    <span class="tk-seg"><b>BRENT</b><span id="tk1b" class="neu">—</span></span>
+    <span class="tk-seg"><b>WTI</b><span id="tk2b" class="neu">—</span></span>
+    <span class="tk-seg"><b>HENRY HUB</b><span id="tk3b" class="neu">—</span></span>
+    <span class="tk-seg"><b>B/W SPREAD</b><span id="tk4b" class="neu">—</span></span>
+    <span class="tk-seg"><b>DATA</b><span>EIA Open Data API v2 · US Government Public Domain</span></span>
+    <span class="tk-seg"><b>ANALYST</b><span>Prasad Selvaraj · Independent Energy Intelligence Researcher · Doha, Qatar</span></span>
+  </div>
+</div>
+
+<div class="topbar">
+  <div>
+    <h1>Gulf Energy <em>Live</em> Intelligence</h1>
+    <p>Real-time EIA weekly data · Post-ceasefire market monitor · April 2026 · Prasad Selvaraj</p>
+  </div>
+  <div class="topbar-right">
+    <span class="badge b-load" id="badge"><span class="dot d-a"></span>Connecting...</span>
+    <span class="ts-txt" id="ts">—</span>
+    <button class="rbtn" id="rbtn" onclick="refreshDashboard()">&#8635; Refresh</button>
+  </div>
+</div>
+
+<div class="rstrip">
+  <span class="rl">Regime</span>
+  <span class="rbadge" id="reg-badge" style="background:rgba(245,158,11,.12);color:#F59E0B">Loading...</span>
+  <span class="div1"></span>
+  <span class="rl">1W</span><span class="rv" id="rs-1w">—</span>
+  <span class="rl">4W</span><span class="rv" id="rs-4w">—</span>
+  <span class="rl">Vol</span><span class="rv" id="rs-vol">—</span>
+  <span class="rl">Mom</span><span class="rv" id="rs-mom">—</span>
+  <span class="rl">Drawdown</span><span class="rv" id="rs-dd">—</span>
+  <span class="div1"></span>
+  <span class="rl">EIA</span>
+  <span style="display:inline-flex;align-items:center;gap:4px">
+    <span class="dot d-a" id="src-dot"></span>
+    <span id="src-txt" style="color:#F59E0B;font-family:var(--mono);font-size:10px">Connecting...</span>
+  </span>
+</div>
+
+<div class="kpi-strip">
+  <div class="kpi kpi-b">
+    <div class="kpi-header"><span class="kpi-name">Brent Crude FOB</span><span class="kpi-regime kr-neut" id="brent-regime">—</span></div>
+    <div class="kpi-price skel" id="bv" style="height:30px;width:110px"></div>
+    <div class="kpi-unit">USD / barrel · Weekly EIA spot</div>
+    <div class="kpi-chg fl" id="bc">—</div>
+    <div class="kpi-src" id="bd">EIA RBRTE · fetching...</div>
+    <div class="spk-wrap"><canvas id="spk-b" role="img" aria-label="Brent sparkline"></canvas></div>
+  </div>
+  <div class="kpi kpi-w">
+    <div class="kpi-header"><span class="kpi-name">WTI Crude Cushing</span><span class="kpi-regime kr-neut" id="wti-regime">—</span></div>
+    <div class="kpi-price skel" id="wv" style="height:30px;width:110px"></div>
+    <div class="kpi-unit">USD / barrel · Weekly EIA spot</div>
+    <div class="kpi-chg fl" id="wc">—</div>
+    <div class="kpi-src" id="wd">EIA RWTC · fetching...</div>
+    <div class="spk-wrap"><canvas id="spk-w" role="img" aria-label="WTI sparkline"></canvas></div>
+  </div>
+  <div class="kpi kpi-g">
+    <div class="kpi-header"><span class="kpi-name">Henry Hub Gas</span><span class="kpi-regime kr-neut" id="gas-regime">—</span></div>
+    <div class="kpi-price skel" id="gv" style="height:30px;width:110px"></div>
+    <div class="kpi-unit">USD / MMBtu · Weekly EIA spot</div>
+    <div class="kpi-chg fl" id="gc">—</div>
+    <div class="kpi-src" id="gd">EIA PG4 · fetching...</div>
+    <div class="spk-wrap"><canvas id="spk-g" role="img" aria-label="Gas sparkline"></canvas></div>
+  </div>
+  <div class="kpi kpi-s">
+    <div class="kpi-header"><span class="kpi-name">Brent-WTI Spread</span><span class="kpi-regime kr-neut" id="spr-regime">—</span></div>
+    <div class="kpi-price skel" id="spv" style="height:30px;width:110px"></div>
+    <div class="kpi-unit">USD / barrel · Gulf risk indicator</div>
+    <div class="kpi-chg fl" id="spc">—</div>
+    <div class="kpi-src">Brent FOB minus WTI Cushing</div>
+    <div class="spk-wrap"><canvas id="spk-s" role="img" aria-label="Spread sparkline"></canvas></div>
+  </div>
+</div>
+
+<div class="main">
+<div class="center">
+  <div class="tabs">
+    <button class="tab on" onclick="tab('charts')">Price charts</button>
+    <button class="tab" onclick="tab('exec')">Executive</button>
+    <button class="tab" onclick="tab('ops')">Operations</button>
+    <button class="tab" onclick="tab('gulf')">Gulf context</button>
+  </div>
+
+  <div id="p-charts" class="pane on">
+    <div class="ch2">
+      <div class="ch-box"><div class="ch-hdr"><span class="ch-title"><span class="ct-dot" style="background:#0EA5E9"></span>Brent crude</span><span class="ch-tag" id="btag" style="background:rgba(14,165,233,.12);color:#0EA5E9">—</span></div><div style="position:relative;height:148px"><canvas id="c-b" role="img" aria-label="Brent 12-week">Brent prices.</canvas></div></div>
+      <div class="ch-box"><div class="ch-hdr"><span class="ch-title"><span class="ct-dot" style="background:#10B981"></span>WTI crude</span><span class="ch-tag" id="wtag" style="background:rgba(16,185,129,.12);color:#10B981">—</span></div><div style="position:relative;height:148px"><canvas id="c-w" role="img" aria-label="WTI 12-week">WTI prices.</canvas></div></div>
+    </div>
+    <div class="ch2">
+      <div class="ch-box"><div class="ch-hdr"><span class="ch-title"><span class="ct-dot" style="background:#F59E0B"></span>Henry Hub gas</span><span class="ch-tag" id="gtag" style="background:rgba(245,158,11,.12);color:#F59E0B">—</span></div><div style="position:relative;height:128px"><canvas id="c-g" role="img" aria-label="Gas 12-week">Gas prices.</canvas></div></div>
+      <div class="ch-box"><div class="ch-hdr"><span class="ch-title"><span class="ct-dot" style="background:#8B5CF6"></span>Brent-WTI spread</span><span class="ch-tag" id="stag" style="background:rgba(139,92,246,.12);color:#8B5CF6">—</span></div><div style="position:relative;height:128px"><canvas id="c-sp" role="img" aria-label="Spread chart">Spread bars.</canvas></div></div>
+    </div>
+    <div class="card" style="margin-bottom:0">
+      <div class="card-hdr"><span class="card-title"><span class="ct-dot" style="background:#06B6D4"></span>Market summary table</span><span class="card-meta" id="tbl-ts">—</span></div>
+      <table class="price-tbl"><thead><tr><th>Asset</th><th>Price</th><th>1W</th><th>4W</th><th>Trend</th><th>Signal</th></tr></thead>
+      <tbody id="tbl-body"><tr><td colspan="6" style="color:var(--t4);text-align:center;padding:12px">Loading...</td></tr></tbody></table>
+    </div>
+  </div>
+
+  <div id="p-exec" class="pane">
+    <div class="ch3">
+      <div class="ch-box"><div class="ch-hdr"><span class="ch-title"><span class="ct-dot" style="background:#0EA5E9"></span>Brent 12-wk range</span></div><div style="position:relative;height:120px"><canvas id="c-rng" role="img" aria-label="Range">Range.</canvas></div></div>
+      <div class="ch-box"><div class="ch-hdr"><span class="ch-title"><span class="ct-dot" style="background:#10B981"></span>Normalised comparison</span></div><div style="position:relative;height:120px"><canvas id="c-nrm" role="img" aria-label="Normalised">Norm.</canvas></div></div>
+      <div class="ch-box"><div class="ch-hdr"><span class="ch-title"><span class="ct-dot" style="background:#F59E0B"></span>Bull/base/bear scenarios</span></div><div style="position:relative;height:120px"><canvas id="c-scn" role="img" aria-label="Scenarios">Scenarios.</canvas></div></div>
+    </div>
+    <div class="card"><div class="card-hdr"><span class="card-title"><span class="ct-dot" style="background:#8B5CF6"></span>Board summary — auto-generated from live prices</span><span class="card-meta" id="ceo-ts">—</span></div><div id="ceo" style="font-size:11px;color:var(--t2);line-height:1.75">Loading...</div></div>
+    <div class="intel i-b"><div class="it">Contract reinstatement trigger</div><div class="ib" id="ctrig">Evaluating...</div></div>
+    <div class="card" style="margin-bottom:0"><div class="card-hdr"><span class="card-title"><span class="ct-dot" style="background:#06B6D4"></span>Near-term probabilistic bias</span></div><div id="bias" style="font-size:10.5px;color:var(--t2);line-height:1.7">Loading...</div></div>
+  </div>
+
+  <div id="p-ops" class="pane">
+    <div class="ch2">
+      <div class="ch-box"><div class="ch-hdr"><span class="ch-title"><span class="ct-dot" style="background:#EF4444"></span>Inspection urgency — price-derived</span></div><div style="position:relative;height:145px"><canvas id="c-ops" role="img" aria-label="Urgency">Urgency.</canvas></div></div>
+      <div class="ch-box"><div class="ch-hdr"><span class="ch-title"><span class="ct-dot" style="background:#06B6D4"></span>UAV vs manual ROI at live prices</span></div><div style="position:relative;height:145px"><canvas id="c-roi" role="img" aria-label="ROI">ROI.</canvas></div></div>
+    </div>
+    <div class="intel i-g"><div class="it">Operational financial justification</div><div class="ib" id="opsd">Loading...</div></div>
+    <div class="ch3">
+      <div class="intel i-b" style="margin-bottom:0"><div class="it">EPC contractor signal</div><div class="ib">At Brent above $90 — Worley, Wood, McDermott expanding HSE headcount. Rebuild phase active.</div></div>
+      <div class="intel i-a" style="margin-bottom:0"><div class="it">OGMP 2.0 compliance</div><div class="ib">EU methane regulation active 2025. Each dollar above $85 Brent raises EU buyer compliance pressure.</div></div>
+      <div class="intel i-p" style="margin-bottom:0"><div class="it">Digital twin threshold</div><div class="ib">At current prices, $2-4M digital twin deployment pays back in 18-24 months via shutdown reduction.</div></div>
+    </div>
+  </div>
+
+  <div id="p-gulf" class="pane">
+    <div class="ch2">
+      <div class="ch-box"><div class="ch-hdr"><span class="ch-title"><span class="ct-dot" style="background:#0EA5E9"></span>Ceasefire — Brent recovery scenarios</span></div><div style="position:relative;height:150px"><canvas id="c-pth" role="img" aria-label="Pathway">Pathway.</canvas></div></div>
+      <div class="ch-box"><div class="ch-hdr"><span class="ch-title"><span class="ct-dot" style="background:#F59E0B"></span>LNG supply gap — substitution</span></div><div style="position:relative;height:150px"><canvas id="c-gap" role="img" aria-label="Gap">Gap.</canvas></div></div>
+    </div>
+    <div class="ch2">
+      <div class="intel i-r" style="margin-bottom:0"><div class="it">Hormuz risk premium — live estimate</div><div class="ib" id="horm">Loading...</div></div>
+      <div class="intel i-g" style="margin-bottom:0"><div class="it">Ceasefire market signal</div><div class="ib">Ceasefire Apr 8 caused ~20% Brent decline. LNG restart requires Hormuz + OGMP 2.0 — weeks to months. Current price = partial confidence only.</div></div>
+    </div>
+  </div>
+</div>
+
+<div class="sidebar">
+  <div class="sb-sec"><span class="ct-dot" style="background:#06B6D4"></span>What changed this week</div>
+  <div id="wow" style="margin-bottom:8px"><div style="font-size:10.5px;color:var(--t4)">Loading...</div></div>
+  <div class="sb-sec"><span class="ct-dot" style="background:#10B981"></span>Brent 12-week statistics</div>
+  <div class="kpm">
+    <div class="km"><div class="km-l">12-wk high</div><div class="km-v" id="bhi">—</div><div class="km-s">USD/bbl</div></div>
+    <div class="km"><div class="km-l">12-wk low</div><div class="km-v" id="blo">—</div><div class="km-s">USD/bbl</div></div>
+    <div class="km"><div class="km-l">12-wk avg</div><div class="km-v" id="bavg">—</div><div class="km-s">USD/bbl</div></div>
+    <div class="km"><div class="km-l">12-wk chg</div><div class="km-v" id="bchg">—</div><div class="km-s">Brent trend</div></div>
+  </div>
+  <div class="sb-sec"><span class="ct-dot" style="background:#8B5CF6"></span>Derived market signals</div>
+  <div style="margin-bottom:8px">
+    <div class="sig-row"><span class="sl">Geopolitical premium</span><div class="st"><div class="sf" id="sf1" style="background:#EF4444"></div></div><span class="sn" id="sv1" style="color:#EF4444">—</span><span class="slv" id="sl1">—</span></div>
+    <div class="sig-row"><span class="sl">LNG contract pressure</span><div class="st"><div class="sf" id="sf2" style="background:#F59E0B"></div></div><span class="sn" id="sv2" style="color:#F59E0B">—</span><span class="slv" id="sl2">—</span></div>
+    <div class="sig-row"><span class="sl">OGMP 2.0 urgency</span><div class="st"><div class="sf" id="sf3" style="background:#8B5CF6"></div></div><span class="sn" id="sv3" style="color:#8B5CF6">—</span><span class="slv" id="sl3">—</span></div>
+    <div class="sig-row"><span class="sl">Inspection urgency</span><div class="st"><div class="sf" id="sf4" style="background:#0EA5E9"></div></div><span class="sn" id="sv4" style="color:#0EA5E9">—</span><span class="slv" id="sl4">—</span></div>
+    <div class="sig-row"><span class="sl">Restoration confidence</span><div class="st"><div class="sf" id="sf5" style="background:#10B981"></div></div><span class="sn" id="sv5" style="color:#10B981">—</span><span class="slv" id="sl5">—</span></div>
+  </div>
+  <div class="sb-sec"><span class="ct-dot" style="background:#F59E0B"></span>Price-driven alerts</div>
+  <div id="alerts" style="margin-bottom:8px"><div class="intel i-a"><div class="it">Loading...</div><div class="ib">Waiting for data</div></div></div>
+  <div class="sb-sec"><span class="ct-dot" style="background:#06B6D4"></span>Intelligence feed</div>
+  <div style="margin-bottom:8px">
+    <div class="ni"><div class="ni-h">Ceasefire reported — Ras Laffan engineers mobilised</div><div class="ni-m"><span class="ni-tag nt-up">Positive</span>Apr 8 2026 · QNA/Bloomberg</div></div>
+    <div class="ni"><div class="ni-h">QatarEnergy force majeure on LNG contracts</div><div class="ni-m"><span class="ni-tag nt-dn">Risk</span>Mar 2 2026 · Reuters</div></div>
+    <div class="ni"><div class="ni-h">EU buyers require OGMP 2.0 before reinstatement</div><div class="ni-m"><span class="ni-tag nt-n">Compliance</span>Mar 2026 · IEEFA</div></div>
+    <div class="ni"><div class="ni-h">Hormuz shipping resuming post-ceasefire</div><div class="ni-m"><span class="ni-tag nt-up">Positive</span>Apr 8 2026 · Bloomberg</div></div>
+    <div class="ni"><div class="ni-h">US LNG exports surge — Qatari market share</div><div class="ni-m"><span class="ni-tag nt-n">Watch</span>Apr 2026 · IEA</div></div>
+  </div>
+  <div class="analyst">
+    <div class="av">PS</div>
+    <div style="flex:1">
+      <div style="font-size:11.5px;font-weight:600;color:var(--t1)">Prasad Selvaraj</div>
+      <div style="font-size:9.5px;color:var(--t3);margin-bottom:4px">Independent Energy Intelligence Researcher · Doha, Qatar</div>
+      <div><span class="chip">SUMIF</span><span class="chip">AIMS</span><span class="chip">OGMP 2.0</span><span class="chip">CAP 437</span><span class="chip">UAV</span><span class="chip">EIA Live</span></div>
+      <div style="font-size:9px;color:#0EA5E9;margin-top:4px"><a href="https://prasad-dataanalyst.github.io/energy-intelligence/" style="color:#0EA5E9">Portfolio &#8594;</a> · ORCID 0009-0001-4513-3910</div>
+    </div>
+  </div>
+</div>
+</div>
+
+<div class="footer">
+  <b style="color:var(--t2)">Data:</b> EIA Open Data API v2 · US public domain · RBRTE (Brent) · RWTC (WTI) · Henry Hub PG4 ·
+  <b style="color:var(--t2)">Disclaimer:</b> Independent scenario analysis — not investment advice<br>
+  &copy; 2026 Prasad Selvaraj ·
+  <a href="https://prasad-dataanalyst.github.io/energy-intelligence/">Portfolio</a> ·
+  <a href="https://doi.org/10.5281/zenodo.18968721">Research DOI</a> ·
+  <a href="https://www.linkedin.com/in/prasadselvaraj">LinkedIn</a>
+</div>
+
+<script>
+/**
+ * GULF ENERGY LIVE INTELLIGENCE DASHBOARD v4.0
+ * =============================================
+ * KEY BUG FIXED: URLSearchParams encodes [] to %5B%5D which EIA rejects.
+ * SOLUTION: Build URL as raw string to keep literal brackets.
+ *
+ * Architecture:
+ *   fetchMarketData()   — EIA API fetch with CORS proxy fallback
+ *   validateApiResponse() — parse and clean EIA response
+ *   renderTopCards()    — KPI strip with price + sparklines
+ *   renderCharts()      — all Chart.js charts
+ *   renderIntelligence() — regime strip, signals, alerts, text panels
+ *   showErrorState()    — error badge + health indicator
+ *   loadFallbackData()  — confirmed Apr 2026 fallback values
+ *   refreshDashboard()  — main orchestrator with retry logic
+ */
+
+const EIA_KEY  = "krUbZAvrIRRXOYhCswAogLiNlyMgMyxOKYWGvbNH";
+const EIA_BASE = "https://api.eia.gov/v2";
+const CBO = {
+  responsive: true, maintainAspectRatio: false, animation: { duration: 350 },
+  plugins: { legend: { display: false }, tooltip: { enabled: true } },
+  scales: {
+    x: { ticks: { font: { size: 8 }, color: "#475569", maxRotation: 35 }, grid: { color: "rgba(255,255,255,.03)" } },
+    y: { ticks: { font: { size: 8 }, color: "#475569" }, grid: { color: "rgba(255,255,255,.05)" } }
+  }
+};
+const CH = {};
+let BD = [], WD = [], GD = [];
+let retryCount = 0;
+const MAX_RETRY = 3;
+
+// ── TAB ──────────────────────────────────────────────────────────────────────
+function tab(n) {
+  ["charts","exec","ops","gulf"].forEach(t => document.getElementById("p-"+t).classList.toggle("on", t===n));
+  document.querySelectorAll(".tab").forEach((b,i) => b.classList.toggle("on", ["charts","exec","ops","gulf"][i]===n));
+  setTimeout(renderCharts, 60);
+}
+
+// ── fetchMarketData ───────────────────────────────────────────────────────────
+// CRITICAL FIX: Do NOT use URLSearchParams — it encodes [] to %5B%5D
+// EIA API requires literal square brackets: facets[series][]=RBRTE
+async function fetchMarketData(route, facetKey, facetVal) {
+  const url = EIA_BASE + route
+    + "?api_key=" + EIA_KEY
+    + "&frequency=weekly"
+    + "&data[0]=value"
+    + "&facets[" + facetKey + "][]=" + facetVal
+    + "&sort[0][column]=period"
+    + "&sort[0][direction]=desc"
+    + "&length=14";
+
+  console.log("[EIA] Fetching", facetVal, "from", route);
+  let json;
+
+  try {
+    const r = await fetch(url, { headers: { "Accept": "application/json" } });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    json = await r.json();
+    console.log("[EIA] Direct OK:", facetVal);
+  } catch (e) {
+    console.warn("[EIA] Direct failed:", e.message, "— proxy fallback");
+    try {
+      const r2 = await fetch("https://api.allorigins.win/get?url=" + encodeURIComponent(url));
+      if (!r2.ok) throw new Error("Proxy HTTP " + r2.status);
+      json = JSON.parse((await r2.json()).contents);
+      console.log("[EIA] Proxy OK:", facetVal);
+    } catch (e2) {
+      throw new Error("Both EIA fetches failed: " + e2.message);
+    }
+  }
+  return validateApiResponse(json, facetVal);
+}
+
+// ── validateApiResponse ───────────────────────────────────────────────────────
+function validateApiResponse(json, label) {
+  if (json && json.error) throw new Error("EIA error: " + JSON.stringify(json.error));
+  const raw = (json && json.response && json.response.data) ? json.response.data : [];
+  if (!raw.length) { console.warn("[EIA] Zero records for", label); return []; }
+  return raw
+    .filter(d => d.value !== null && d.value !== "-" && d.value !== "" && !isNaN(parseFloat(d.value)))
+    .map(d => ({ period: d.period, value: parseFloat(d.value) }))
+    .sort((a, b) => b.period.localeCompare(a.period));
+}
+
+// ── renderTopCards ────────────────────────────────────────────────────────────
+function renderTopCards(brent, wti, gas) {
+  const chgFmt = (c, p) => {
+    if (!p) return ["—", "fl"];
+    const d = c - p, pct = (d/p*100).toFixed(1);
+    return [(d>=0?"▲ +":"▼ ")+"$"+Math.abs(d).toFixed(2)+" ("+(d>=0?"+":"")+pct+"%)", d>=0?"up":"dn"];
+  };
+  const regimeFmt = (c, p) => {
+    if (!p) return ["—","kr-neut"];
+    const d = (c-p)/p;
+    if (d > 0.015) return ["Bullish","kr-bull"];
+    if (d < -0.015) return ["Bearish","kr-bear"];
+    return ["Neutral","kr-neut"];
+  };
+  const setKpi = (pid, cid, sid, rid, cur, prev, period, label) => {
+    const pe = document.getElementById(pid);
+    if (pe) { pe.textContent = "$"+cur.toFixed(2); pe.className = "kpi-price"; }
+    const [ct, cc] = chgFmt(cur, prev);
+    const ce = document.getElementById(cid);
+    if (ce) { ce.textContent = ct; ce.className = "kpi-chg "+cc; }
+    const se = document.getElementById(sid);
+    if (se) se.textContent = "EIA · "+label+" · wk "+period;
+    const [rt, rc] = regimeFmt(cur, prev);
+    const re = document.getElementById(rid);
+    if (re) { re.textContent = rt; re.className = "kpi-regime "+rc; }
+  };
+  if (BD.length) setKpi("bv","bc","bd","brent-regime", brent, BD.length>=2?BD[1].value:null, BD[0].period, "RBRTE");
+  if (WD.length) setKpi("wv","wc","wd","wti-regime", wti, WD.length>=2?WD[1].value:null, WD[0].period, "RWTC");
+  if (GD.length) setKpi("gv","gc","gd","gas-regime", gas, GD.length>=2?GD[1].value:null, GD[0].period, "Henry Hub");
+  if (BD.length && WD.length) {
+    const sp = brent - wti, psp = BD.length>=2&&WD.length>=2 ? BD[1].value-WD[1].value : null;
+    const se = document.getElementById("spv"); if (se) { se.textContent = "$"+sp.toFixed(2); se.className = "kpi-price"; }
+    const [ct, cc] = chgFmt(sp, psp);
+    const ce = document.getElementById("spc"); if (ce) { ce.textContent = ct; ce.className = "kpi-chg "+cc; }
+    const re = document.getElementById("spr-regime"); if (re) { re.textContent = sp>5?"Wide":sp>2?"Normal":"Narrow"; re.className = "kpi-regime "+(sp>5?"kr-bear":sp>2?"kr-neut":"kr-bull"); }
+  }
+}
+
+// ── renderCharts ──────────────────────────────────────────────────────────────
+function renderCharts() {
+  if (!BD.length) { console.warn("[Charts] No data"); return; }
+  const bl = BD.slice(0,12).map(d=>d.period).reverse();
+  const bv = BD.slice(0,12).map(d=>d.value).reverse();
+  const wl = WD.slice(0,12).map(d=>d.period).reverse();
+  const wv = WD.slice(0,12).map(d=>d.value).reverse();
+  const gl = GD.slice(0,12).map(d=>d.period).reverse();
+  const gv = GD.slice(0,12).map(d=>d.value).reverse();
+
+  const mk = (id, cfg) => {
+    if (CH[id]) return;
+    const el = document.getElementById(id); if (!el) return;
+    try { CH[id] = new Chart(el, cfg); } catch(e) { console.error("[Chart]",id,e); }
+  };
+  const mkF = (id, cfg) => {
+    if (CH[id]) { CH[id].destroy(); delete CH[id]; }
+    const el = document.getElementById(id); if (!el) return;
+    try { CH[id] = new Chart(el, cfg); } catch(e) { console.error("[Chart]",id,e); }
+  };
+
+  // Sparklines
+  const spkOpts = { responsive:true, maintainAspectRatio:false, animation:false, plugins:{legend:{display:false},tooltip:{enabled:false}}, scales:{x:{display:false},y:{display:false}} };
+  const spk = (vals, col) => ({ type:"line", data:{ labels:vals.map((_,i)=>i), datasets:[{ data:vals, borderColor:col, borderWidth:1.5, tension:0.4, pointRadius:0, fill:true, backgroundColor:col+"18" }] }, options:spkOpts });
+  mk("spk-b", spk(bv,"#0EA5E9")); mk("spk-w", spk(wv,"#10B981"));
+  if (gv.length) mk("spk-g", spk(gv,"#F59E0B"));
+  if (bv.length && wv.length) { const ml=Math.min(bv.length,wv.length); mk("spk-s", spk(bv.slice(0,ml).map((b,i)=>+(b-wv[i]).toFixed(2)),"#8B5CF6")); }
+
+  // Line charts
+  const line = (labels,vals,col,lbl) => ({ type:"line", data:{ labels, datasets:[{ label:lbl, data:vals, borderColor:col, tension:0.35, pointRadius:2, pointBackgroundColor:col, fill:true, backgroundColor:col+"10", borderWidth:1.5 }] }, options:{...CBO} });
+  mk("c-b", line(bl,bv,"#0EA5E9","Brent")); mk("c-w", line(wl,wv,"#10B981","WTI"));
+  if (gv.length) mk("c-g", line(gl,gv,"#F59E0B","Gas"));
+
+  // Spread
+  if (!CH["c-sp"] && bv.length && wv.length) {
+    const ml=Math.min(bv.length,wv.length), sp=bv.slice(0,ml).map((b,i)=>+(b-wv[i]).toFixed(2));
+    mk("c-sp",{ type:"bar", data:{ labels:bl.slice(0,ml), datasets:[{ data:sp, backgroundColor:sp.map(s=>s>=0?"rgba(14,165,233,.6)":"rgba(239,68,68,.6)"), borderRadius:2 }] },
+      options:{...CBO, scales:{x:{...CBO.scales.x},y:{...CBO.scales.y,ticks:{font:{size:8},color:"#475569",callback:function(v){return"$"+v.toFixed(1);}}}}} });
+  }
+
+  // Chart header tags
+  const bw = bv.length>=2?((bv[bv.length-1]-bv[bv.length-2])/bv[bv.length-2]*100):null;
+  const tag=(id,txt)=>{ const e=document.getElementById(id); if(e) e.textContent=txt; };
+  tag("btag", bw!==null?(bw>=0?"▲ +":"▼ ")+bw.toFixed(1)+"%":"—");
+  tag("wtag", wv.length?"$"+wv[wv.length-1].toFixed(2)+"/bbl":"—");
+  tag("gtag", gv.length?"$"+gv[gv.length-1].toFixed(2)+"/MMBtu":"—");
+  if (bv.length&&wv.length) tag("stag","$"+(bv[bv.length-1]-wv[wv.length-1]).toFixed(2)+"/bbl");
+
+  const cur = BD[0].value;
+  const hi=Math.max(...bv), lo=Math.min(...bv), avg=+(bv.reduce((a,b)=>a+b)/bv.length).toFixed(2);
+  const cbk = (suffix) => ({ font:{size:8}, color:"#475569", callback:function(v){return"$"+v.toFixed(0)+suffix;} });
+
+  // Exec charts
+  mkF("c-rng",{ type:"bar", data:{ labels:["High","Now","Avg","Low"], datasets:[{data:[hi,cur,avg,lo],backgroundColor:["rgba(16,185,129,.65)","rgba(14,165,233,.85)","rgba(245,158,11,.65)","rgba(239,68,68,.65)"],borderRadius:3}] },
+    options:{...CBO,scales:{x:{...CBO.scales.x},y:{...CBO.scales.y,ticks:cbk("")}}} });
+
+  if (bv.length&&wv.length&&gv.length) {
+    const n=a=>{const b=a[0];return a.map(v=>+((v/b)*100).toFixed(1));};
+    const ml=Math.min(bv.length,wv.length,gv.length);
+    mkF("c-nrm",{ type:"line", data:{ labels:bl.slice(0,ml), datasets:[
+      {label:"Brent",data:n(bv.slice(0,ml)),borderColor:"#0EA5E9",tension:0.3,fill:false,pointRadius:1,borderWidth:1.5},
+      {label:"WTI",data:n(wv.slice(0,ml)),borderColor:"#10B981",borderDash:[4,2],tension:0.3,fill:false,pointRadius:1,borderWidth:1.5},
+      {label:"Gas",data:n(gv.slice(0,ml)),borderColor:"#F59E0B",borderDash:[2,2],tension:0.3,fill:false,pointRadius:1,borderWidth:1.5}
+    ]}, options:{...CBO,plugins:{legend:{display:true,position:"top",labels:{font:{size:8},color:"#94A3B8",boxWidth:6,padding:5}}}} });
+  }
+
+  mkF("c-scn",{ type:"bar", data:{ labels:["Bear","Base","Bull"], datasets:[{data:[+(cur*.78).toFixed(1),+(cur*.88).toFixed(1),+(cur*1.08).toFixed(1)],backgroundColor:["rgba(239,68,68,.65)","rgba(245,158,11,.65)","rgba(16,185,129,.65)"],borderRadius:3}] },
+    options:{...CBO,scales:{x:{...CBO.scales.x},y:{...CBO.scales.y,ticks:cbk("")}}} });
+
+  // Ops charts
+  const urg=[Math.min(100,Math.round(55+cur*.1)),Math.min(100,Math.round(48+cur*.09)),Math.min(100,Math.round(40+cur*.08)),Math.min(100,Math.round(35+cur*.07)),Math.min(100,Math.round(28+cur*.06))];
+  mkF("c-ops",{ type:"bar", indexAxis:"y", data:{ labels:["LNG T9+T12","Fixed >25yr","Subsea pipes","Compression","Floating prod"], datasets:[{data:urg,backgroundColor:urg.map(u=>u>75?"rgba(239,68,68,.7)":u>55?"rgba(245,158,11,.7)":"rgba(16,185,129,.7)"),borderRadius:2}] },
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{max:100,ticks:{font:{size:8},color:"#475569",callback:function(v){return v+"%";}},grid:{color:"rgba(255,255,255,.03)"}},y:{ticks:{font:{size:8},color:"#475569"},grid:{color:"rgba(255,255,255,.03)"}}}} });
+  mkF("c-roi",{ type:"bar", data:{ labels:["UAV/yr $K","Manual/yr $K","1d shutdown","Saving $K"], datasets:[{data:[110,320,Math.round(cur*.85),210],backgroundColor:["rgba(16,185,129,.7)","rgba(239,68,68,.6)","rgba(245,158,11,.7)","rgba(14,165,233,.7)"],borderRadius:2}] },
+    options:{...CBO} });
+
+  // Gulf charts
+  mkF("c-pth",{ type:"line", data:{ labels:["Mar","Apr 8","Apr 20","May","Jun","Jul","Sep","Dec"], datasets:[
+    {label:"Bull",data:[cur*1.25,cur*1.02,cur*.95,cur*.90,cur*.86,cur*.84,cur*.82,cur*.80],borderColor:"#10B981",borderDash:[5,3],tension:0.4,fill:false,pointRadius:2,borderWidth:1.5},
+    {label:"Base",data:[cur*1.25,cur*1.06,cur*1.02,cur*.98,cur*.95,cur*.93,cur*.90,cur*.88],borderColor:"#F59E0B",tension:0.4,fill:false,pointRadius:2,borderWidth:1.5},
+    {label:"Bear",data:[cur*1.25,cur*1.10,cur*1.08,cur*1.07,cur*1.06,cur*1.05,cur*1.04,cur*1.03],borderColor:"#EF4444",borderDash:[3,3],tension:0.4,fill:false,pointRadius:2,borderWidth:1.5}
+  ]}, options:{...CBO,plugins:{legend:{display:true,position:"top",labels:{font:{size:8},color:"#94A3B8",boxWidth:6,padding:5}}},scales:{x:{...CBO.scales.x},y:{...CBO.scales.y,ticks:cbk("")}}} });
+
+  mkF("c-gap",{ type:"doughnut", data:{ labels:["US LNG 45%","Australia 25%","Spot 15%","Mozambique 8%","Others 7%"], datasets:[{data:[45,25,15,8,7],backgroundColor:["#0EA5E9","#10B981","#F59E0B","#8B5CF6","#475569"],borderWidth:0}] },
+    options:{responsive:true,maintainAspectRatio:false,cutout:"60%",plugins:{legend:{display:true,position:"right",labels:{font:{size:8},color:"#94A3B8",boxWidth:8,padding:4}}}} });
+}
+
+// ── renderIntelligence ────────────────────────────────────────────────────────
+function renderIntelligence(brent, wti, gas) {
+  const bv=BD.slice(0,12).map(d=>d.value).reverse(), wv=WD.slice(0,12).map(d=>d.value).reverse(), gv=GD.slice(0,12).map(d=>d.value).reverse();
+  const sma4=bv.slice(-4).reduce((a,b)=>a+b,0)/4, sma8=bv.slice(-Math.min(8,bv.length)).reduce((a,b)=>a+b,0)/Math.min(8,bv.length);
+  const last4=bv.slice(-4), avg4=last4.reduce((a,b)=>a+b)/4;
+  const vol=+Math.sqrt(last4.reduce((s,v)=>s+(v-avg4)**2,0)/4).toFixed(2);
+  const mom=sma4>sma8*1.005?1:sma4<sma8*0.995?-1:0;
+  const w1=bv.length>=2?((bv[bv.length-1]-bv[bv.length-2])/bv[bv.length-2]*100):null;
+  const w4=bv.length>=5?((bv[bv.length-1]-bv[bv.length-5])/bv[bv.length-5]*100):null;
+  const hi=Math.max(...bv), lo=Math.min(...bv), avgB=bv.reduce((a,b)=>a+b)/bv.length;
+  const dd=((brent-hi)/hi*100);
+  const volLvl=vol>6?"High":vol>3?"Med":"Low";
+  const momTxt=mom>0?"Bullish":mom<0?"Bearish":"Neutral";
+  const regime=mom>0&&vol<6?"Supply risk expanding":mom>0?"Volatile bullish":mom<0?"Bearish":"Range-bound";
+  const set=(id,txt,col)=>{const e=document.getElementById(id);if(e){e.textContent=txt;if(col)e.style.color=col;}};
+
+  // Regime strip
+  const rb=document.getElementById("reg-badge");
+  if(rb){rb.textContent=regime;rb.style.background=mom>0?"rgba(239,68,68,.12)":mom<0?"rgba(16,185,129,.12)":"rgba(245,158,11,.12)";rb.style.color=mom>0?"#EF4444":mom<0?"#10B981":"#F59E0B";}
+  if(w1!==null)set("rs-1w",(w1>=0?"+":"")+w1.toFixed(1)+"%",w1>=0?"#10B981":"#EF4444");
+  if(w4!==null)set("rs-4w",(w4>=0?"+":"")+w4.toFixed(1)+"%",w4>=0?"#10B981":"#EF4444");
+  set("rs-vol",volLvl+" σ="+vol,vol>6?"#EF4444":vol>3?"#F59E0B":"#10B981");
+  set("rs-mom",momTxt,mom>0?"#10B981":mom<0?"#EF4444":"#F59E0B");
+  set("rs-dd",dd.toFixed(1)+"% peak",dd<-5?"#EF4444":dd<-2?"#F59E0B":"#10B981");
+  const sd=document.getElementById("src-dot"),st=document.getElementById("src-txt");
+  if(sd)sd.className="dot d-g";if(st){st.textContent="EIA: Live · "+new Date().toLocaleDateString("en-GB");st.style.color="#10B981";}
+
+  // Brent stats
+  const chge=document.getElementById("bchg");
+  const chg12=((bv[bv.length-1]-bv[0])/bv[0]*100);
+  set("bhi","$"+hi.toFixed(1)); set("blo","$"+lo.toFixed(1)); set("bavg","$"+avgB.toFixed(1));
+  if(chge){chge.textContent=(chg12>=0?"+":"")+chg12.toFixed(1)+"%";chge.style.color=chg12>=0?"#10B981":"#EF4444";}
+
+  // Signal bars
+  const geo=Math.min(100,Math.max(0,Math.round((brent-75)/40*100)));
+  const lng=Math.min(100,Math.max(0,Math.round((brent-80)/35*100+15)));
+  const ogmp=Math.min(100,Math.round(lng*.9+10));
+  const insp=Math.min(100,Math.max(0,Math.round((brent-70)/50*100+20)));
+  const rest=Math.max(5,100-geo);
+  const lvl=s=>s>=75?"↑HI":s>=50?"→MD":"↓LO";
+  [[1,geo,"#EF4444"],[2,lng,"#F59E0B"],[3,ogmp,"#8B5CF6"],[4,insp,"#0EA5E9"],[5,rest,"#10B981"]].forEach(([i,s,c])=>{
+    const f=document.getElementById("sf"+i),v=document.getElementById("sv"+i),l=document.getElementById("sl"+i);
+    if(f)f.style.width=s+"%";if(v){v.textContent=s;v.style.color=c;}if(l)l.textContent=lvl(s);
+  });
+
+  // What changed
+  const pct=(c,p)=>p?((c-p)/p*100).toFixed(1):null;
+  const bw2=bv.length>=2?pct(bv[bv.length-1],bv[bv.length-2]):null;
+  const ww2=wv.length>=2?pct(wv[wv.length-1],wv[wv.length-2]):null;
+  const gw2=gas&&gv.length>=2?pct(gv[gv.length-1],gv[gv.length-2]):null;
+  const sp=brent-wti, psp=bv.length>=2&&wv.length>=2?bv[bv.length-2]-wv[wv.length-2]:null;
+  const sw=psp!==null?+(sp-psp).toFixed(2):null;
+  const wrow=(lbl,val,chg,unit)=>{const c=+chg>=0?"#10B981":"#EF4444",a=+chg>=0?"▲":"▼";return`<div class="wow-row"><span style="color:var(--t2)">${lbl}</span><span style="font-family:var(--mono);color:var(--t1)">${val}</span><span style="font-family:var(--mono);font-size:10px;color:${c}">${a} ${+chg>=0?"+":""}${chg}${unit}</span></div>`;};
+  const wowEl=document.getElementById("wow");
+  if(wowEl)wowEl.innerHTML=(bw2?wrow("Brent","$"+brent.toFixed(2),bw2,"%"):"")+(ww2?wrow("WTI","$"+wti.toFixed(2),ww2,"%"):"")+(gw2?wrow("Gas","$"+gas.toFixed(2),gw2,"%"):"")+(sw?wrow("Spread","$"+sp.toFixed(2),sw,"/bbl"):"")+`<div style="font-size:9px;color:var(--t4);margin-top:4px">Week-on-week · EIA · ${new Date().toLocaleDateString("en-GB")}</div>`;
+
+  // Table
+  const tblTs=document.getElementById("tbl-ts");if(tblTs)tblTs.textContent="EIA weekly · "+(BD.length?BD[0].period:"—");
+  const trd=m=>m>0?'<span class="tbl-bull">Bullish</span>':m<0?'<span class="tbl-bear">Bearish</span>':'<span class="tbl-rng">Neutral</span>';
+  const sig=(c,p)=>{if(!p)return"—";const d=(c-p)/p;if(d>0.02)return'<span class="tbl-up">Breakout</span>';if(d>0.005)return'<span class="tbl-up">Follow-thru</span>';if(d<-0.02)return'<span class="tbl-dn">Breakdown</span>';if(d<-0.005)return'<span class="tbl-dn">Weakening</span>';return'<span class="tbl-neu">Range</span>';};
+  const tbody=document.getElementById("tbl-body");
+  if(tbody){tbody.innerHTML=[
+    {lbl:"Brent",p:brent,pp:BD.length>=2?BD[1].value:null,cv:bv,m:mom,u:"/bbl"},
+    {lbl:"WTI",p:wti,pp:WD.length>=2?WD[1].value:null,cv:wv,m:mom,u:"/bbl"},
+    {lbl:"Henry Hub",p:gas,pp:GD.length>=2?GD[1].value:null,cv:gv,m:mom,u:"/MMBtu"},
+    {lbl:"B/W Spread",p:sp,pp:psp,cv:null,m:sw>=0?1:-1,u:"/bbl"}
+  ].filter(r=>r.p).map(r=>{
+    const w1v=r.pp?((r.p-r.pp)/r.pp*100).toFixed(1):null;
+    const w4v=r.cv&&r.cv.length>=5?((r.cv[r.cv.length-1]-r.cv[r.cv.length-5])/r.cv[r.cv.length-5]*100).toFixed(1):null;
+    return`<tr><td>${r.lbl}</td><td class="tbl-price">$${r.p.toFixed(2)}<span style="font-size:9px;color:var(--t4)">${r.u}</span></td><td class="${w1v&&+w1v>=0?"tbl-up":"tbl-dn"}">${w1v?(+w1v>=0?"+":"")+w1v+"%":"—"}</td><td class="${w4v&&+w4v>=0?"tbl-up":"tbl-dn"}">${w4v?(+w4v>=0?"+":"")+w4v+"%":"—"}</td><td>${trd(r.m)}</td><td>${sig(r.p,r.pp)}</td></tr>`;
+  }).join("");}
+
+  // CEO text
+  const ceoTs=document.getElementById("ceo-ts");if(ceoTs)ceoTs.textContent="Generated "+new Date().toLocaleTimeString("en-GB");
+  const ceo=document.getElementById("ceo");
+  if(ceo){const lvlT=brent>100?"significantly elevated":brent>90?"elevated":brent>80?"moderate":"moderating";const act=brent>90?"Accelerate OGMP 2.0 certification and UAV inspection. EU buyers will not reinstate without verified methane data.":"Monitor closely. Reinstatement window opening. Prepare compliance documentation now.";ceo.innerHTML=`<b style="color:var(--t1)">Board brief · ${new Date().toLocaleDateString("en-GB")}:</b> Brent <b style="color:#0EA5E9">$${brent.toFixed(2)}/bbl</b> — ${lvlT}. WTI <b style="color:#10B981">$${wti.toFixed(2)}</b>. Spread <b style="color:#F59E0B">$${sp.toFixed(2)}/bbl</b> — ${Math.abs(sp)>4?"above-average Gulf risk premium":"approaching historical norms"}. ${gas?`Gas <b style="color:#F59E0B">$${gas.toFixed(2)}/MMBtu</b>.`:""}<br><b style="color:#10B981">Action:</b> ${act}`;}
+
+  // Contract trigger
+  const ct=document.getElementById("ctrig");if(ct)ct.innerHTML=brent>90?`<b style="color:#EF4444">TRIGGER ACTIVE</b> — Brent $${brent.toFixed(2)} > $90. EU buyers require OGMP 2.0 Level 4-5 before reinstating Qatari LNG contracts. UAV + satellite methane verification mandatory.`:`<b style="color:#10B981">BELOW TRIGGER</b> — Brent $${brent.toFixed(2)} < $90. Compliance remains best practice. Reinstatement window is opening.`;
+
+  // Bias
+  const confB=Math.min(82,Math.max(45,55+(mom*14)+Math.max(0,(brent-85)/2)));
+  const biasEl=document.getElementById("bias");
+  if(biasEl)biasEl.innerHTML=`<div class="intel ${mom>0?"i-g":mom<0?"i-r":"i-a"}" style="margin-bottom:5px"><div class="it">Brent 7-day: ${mom>0?"Bullish":mom<0?"Bearish":"Neutral"} · ${confB.toFixed(0)}% confidence</div><div class="ib">${mom>0?"Positive weekly momentum · SMA4 above SMA8":"Bearish momentum · Price below MA"}. Risk: ${brent>100?"Upside limited above $100":"Downside if Hormuz normalises faster"}.</div></div><div class="intel i-a" style="margin-bottom:5px"><div class="it">WTI: ${mom>0?"Bullish":"Neutral"} · ${Math.max(42,confB-5).toFixed(0)}% confidence</div><div class="ib">Tracking Brent. US storage data key variable this week.</div></div><div class="intel i-a" style="margin-bottom:0"><div class="it">Henry Hub: Neutral/range-bound · 52% confidence</div><div class="ib">Range-bound with mild weakness bias. LNG export demand key upside catalyst.</div></div><div style="font-size:9px;color:var(--t4);margin-top:5px;font-style:italic">Rule-based model (MA crossover + momentum) · Not investment advice</div>`;
+
+  // Ops text
+  const od=document.getElementById("opsd");if(od)od.innerHTML=`At Brent <b style="color:#0EA5E9">$${brent.toFixed(2)}/bbl</b> — unplanned offshore shutdown costs ~<b style="color:#EF4444">$${(brent*.85).toFixed(0)}K/day</b>. UAV inspection programme ~$110K/yr. Shutdown cost exceeds inspection in <b style="color:#10B981">${Math.round(110000/(brent*850))} hours</b>. UAV-first inspection is financially mandatory.`;
+
+  // Hormuz
+  const horm=document.getElementById("horm");if(horm){const p=Math.max(0,brent-82);horm.innerHTML=`At Brent <b style="color:#0EA5E9">$${brent.toFixed(2)}/bbl</b> — Hormuz risk premium est. <b style="color:#EF4444">$${p.toFixed(1)}/bbl</b> above ~$82 baseline. Full normalisation (est. May–Jun) could release <b style="color:#10B981">$5-15/bbl</b> downward pressure.`;}
+
+  // Alerts
+  const al=[];
+  if(brent>95)al.push({c:"i-r",t:"CRITICAL — Brent above $95",b:`At $${brent.toFixed(2)}/bbl — OGMP 2.0 Level 4-5 mandatory for EU LNG contract reinstatement.`});
+  else if(brent>85)al.push({c:"i-a",t:`ALERT — Brent $${brent.toFixed(2)} · Compliance trigger active`,b:"LNG reinstatement pressure elevated. EU buyers require methane compliance certification."});
+  else al.push({c:"i-g",t:`Brent moderating $${brent.toFixed(2)} — window opening`,b:"Market pricing in supply restoration. Compliance verification remains key barrier."});
+  if(Math.abs(sp)>4)al.push({c:sp>0?"i-r":"i-g",t:`Spread $${sp.toFixed(2)}/bbl — ${sp>0?"Brent premium":"WTI premium"}`,b:sp>0?"Wide spread — Gulf risk elevated. Inspection demand increased.":"Unusual WTI premium — reduced Gulf risk or US supply constraint."});
+  if(gas&&gas>4)al.push({c:"i-a",t:"Henry Hub elevated — US LNG margins compressed",b:`At $${gas.toFixed(2)}/MMBtu — creates LNG market opening if Qatari compliance conditions met.`});
+  const ab=document.getElementById("alerts");if(ab)ab.innerHTML=al.map(a=>`<div class="intel ${a.c}" style="margin-bottom:5px"><div class="it">${a.t}</div><div class="ib">${a.b}</div></div>`).join("");
+
+  // Ticker
+  const pb=BD.length>=2?BD[1].value:null,pw=WD.length>=2?WD[1].value:null,pg=GD.length>=2?GD[1].value:null;
+  const fmt=(v,p,u)=>"$"+v.toFixed(2)+u+(p?" ("+(v>=p?"+":"")+((v-p)/p*100).toFixed(1)+"%)":"");
+  const cls=(v,p)=>p?(v>=p?"up":"dn"):"neu";
+  ["tk1","tk1b"].forEach(id=>{const e=document.getElementById(id);if(e){e.textContent=fmt(brent,pb,"/bbl");e.className=cls(brent,pb);}});
+  ["tk2","tk2b"].forEach(id=>{const e=document.getElementById(id);if(e){e.textContent=fmt(wti,pw,"/bbl");e.className=cls(wti,pw);}});
+  if(gas)["tk3","tk3b"].forEach(id=>{const e=document.getElementById(id);if(e){e.textContent=fmt(gas,pg,"/MMBtu");e.className=cls(gas,pg);}});
+  const sp2=brent-wti;["tk4","tk4b"].forEach(id=>{const e=document.getElementById(id);if(e){e.textContent="$"+sp2.toFixed(2)+"/bbl "+(sp2>=0?"Brent+":"WTI+");e.className=sp2>=0?"up":"dn";}});
+}
+
+// ── showErrorState ────────────────────────────────────────────────────────────
+function showErrorState(msg) {
+  console.error("[Dashboard] Error:", msg);
+  const b=document.getElementById("badge");if(b){b.innerHTML='<span class="dot d-r"></span>API error — fallback';b.className="badge b-err";}
+  const sd=document.getElementById("src-dot"),st=document.getElementById("src-txt");
+  if(sd)sd.className="dot d-r";if(st){st.textContent="EIA: Retrying...";st.style.color="#EF4444";}
+  document.getElementById("ts").textContent="Fallback · "+new Date().toLocaleTimeString("en-GB");
+}
+
+// ── loadFallbackData ──────────────────────────────────────────────────────────
+function loadFallbackData() {
+  console.log("[Dashboard] Using fallback data (confirmed Apr 2026)");
+  BD=[{period:"2026-04-07",value:99.33},{period:"2026-03-31",value:103.45},{period:"2026-03-24",value:107.12},{period:"2026-03-17",value:112.84},{period:"2026-03-10",value:118.65},{period:"2026-03-03",value:121.42},{period:"2026-02-24",value:115.23},{period:"2026-02-17",value:108.91},{period:"2026-02-10",value:96.74},{period:"2026-02-03",value:88.32},{period:"2026-01-27",value:82.15},{period:"2026-01-20",value:79.88}];
+  WD=[{period:"2026-04-07",value:104.69},{period:"2026-03-31",value:101.26},{period:"2026-03-24",value:96.18},{period:"2026-03-17",value:95.82},{period:"2026-03-10",value:93.26},{period:"2026-03-03",value:90.15},{period:"2026-02-24",value:87.34},{period:"2026-02-17",value:82.47},{period:"2026-02-10",value:74.65},{period:"2026-02-03",value:68.22},{period:"2026-01-27",value:64.50},{period:"2026-01-20",value:62.18}];
+  GD=[{period:"2026-04-07",value:4.38},{period:"2026-03-31",value:4.12},{period:"2026-03-24",value:3.98},{period:"2026-03-17",value:3.75},{period:"2026-03-10",value:3.61},{period:"2026-02-24",value:3.45},{period:"2026-02-17",value:3.22},{period:"2026-02-10",value:3.08},{period:"2026-02-03",value:2.95},{period:"2026-01-27",value:2.87}];
+}
+
+// ── refreshDashboard ──────────────────────────────────────────────────────────
+async function refreshDashboard() {
+  console.log("[Dashboard] Refresh #"+(retryCount+1));
+  const badge=document.getElementById("badge"),rbtn=document.getElementById("rbtn");
+  if(badge){badge.innerHTML='<span class="dot d-a"></span>Fetching EIA...';badge.className="badge b-load";}
+  if(rbtn)rbtn.textContent="&#8635; Loading...";
+  ["c-rng","c-nrm","c-scn","c-ops","c-roi","c-pth","c-gap"].forEach(id=>{if(CH[id]){CH[id].destroy();delete CH[id];}});
+
+  try {
+    [BD,WD,GD]=await Promise.all([
+      fetchMarketData("/petroleum/pri/spt/data/","series","RBRTE"),
+      fetchMarketData("/petroleum/pri/spt/data/","series","RWTC"),
+      fetchMarketData("/natural-gas/pri/sum/data/","process","PG4")
+    ]);
+    if(!BD.length) throw new Error("Brent: 0 records — check EIA series RBRTE");
+    const brent=BD[0].value, wti=WD.length?WD[0].value:brent*.97, gas=GD.length?GD[0].value:null;
+    renderTopCards(brent,wti,gas);
+    renderCharts();
+    renderIntelligence(brent,wti,gas);
+    const ts=document.getElementById("ts");if(ts)ts.textContent="Live · "+new Date().toLocaleTimeString("en-GB")+" · "+BD[0].period;
+    if(badge){badge.innerHTML='<span class="dot d-g"></span>LIVE — EIA';badge.className="badge b-live";}
+    retryCount=0;
+    console.log("[Dashboard] Success. Brent=$"+brent.toFixed(2));
+  } catch(err) {
+    console.error("[Dashboard] Failed:",err.message);
+    showErrorState(err.message);
+    loadFallbackData();
+    const brent=99.33,wti=104.69,gas=4.38;
+    renderTopCards(brent,wti,gas);renderCharts();renderIntelligence(brent,wti,gas);
+    if(retryCount<MAX_RETRY){const d=Math.pow(2,retryCount)*10000;retryCount++;console.log("[Dashboard] Retry in",d/1000,"s");setTimeout(refreshDashboard,d);}
+    else console.warn("[Dashboard] Max retries reached — staying on fallback");
+  } finally {
+    if(rbtn)rbtn.textContent="&#8635; Refresh";
+  }
+}
+
+window.addEventListener("load", refreshDashboard);
+</script>
+</body>
+</html>
