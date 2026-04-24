@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Prasad Selvaraj — Independent Energy Intelligence Researcher</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700;800&display=swap');
+:root{
+  --bg:#050C1A;--s1:#081422;--s2:#0C1C30;--s3:#11253D;
+  --b1:#1C3A5A;--b2:#0EA5E9;--b3:#38BDF8;
+  --t1:#EFF6FF;--t2:#94A3B8;--t3:#475569;--t4:#2D4A6B;
+  --G:#10B981;--A:#F59E0B;--R:#EF4444;--P:#8B5CF6;--C:#06B6D4;
+  --gold:#F59E0B;
+  --mono:'IBM Plex Mono',monospace;
+  --sans:'Inter',system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--sans);background:var(--bg);color:var(--t1);min-height:100vh;line-height:1.5}
+
+/* ── TICKER ── */
+.ticker{height:26px;background:#03080F;border-bottom:1px solid var(--b1);overflow:hidden;display:flex;align-items:center}
+.tk-track{display:inline-flex;white-space:nowrap;animation:scroll 50s linear infinite}
+@keyframes scroll{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
+.tk-seg{display:inline-flex;align-items:center;gap:6px;padding:0 22px;border-right:1px solid var(--b1);font-family:var(--mono);font-size:10px;color:var(--t3);height:26px}
+.tk-seg b{color:var(--t2);font-weight:500;letter-spacing:.04em}
+
+/* ── HERO ── */
+.hero{background:var(--s1);border-bottom:1px solid var(--b1);padding:44px 24px 36px;text-align:center;position:relative;overflow:hidden}
+.hero::before{content:'';position:absolute;top:-80px;left:50%;transform:translateX(-50%);width:600px;height:300px;background:radial-gradient(ellipse,rgba(14,165,233,.06) 0%,transparent 70%);pointer-events:none}
+.hero-stripe{position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--b2),var(--P),var(--G),var(--A),var(--R))}
+.hero-av{width:68px;height:68px;border-radius:50%;background:linear-gradient(135deg,var(--P),var(--b2));display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:800;color:#fff;margin:0 auto 16px;border:2px solid rgba(14,165,233,.3)}
+.hero-name{font-size:28px;font-weight:800;letter-spacing:-.5px;color:var(--t1);margin-bottom:5px}
+.hero-title{font-size:13px;font-weight:600;color:var(--gold);letter-spacing:.05em;text-transform:uppercase;margin-bottom:10px}
+.hero-sub{font-size:13px;color:var(--t2);max-width:560px;margin:0 auto 20px;line-height:1.7}
+.hero-chips{display:flex;flex-wrap:wrap;justify-content:center;gap:6px;margin-bottom:20px}
+.chip{font-size:10px;font-weight:600;padding:3px 10px;border-radius:3px;background:rgba(14,165,233,.08);color:var(--b2);border:1px solid rgba(14,165,233,.2);text-transform:uppercase;letter-spacing:.04em}
+.chip-g{background:rgba(16,185,129,.08);color:var(--G);border-color:rgba(16,185,129,.2)}
+.chip-a{background:rgba(245,158,11,.08);color:var(--A);border-color:rgba(245,158,11,.2)}
+.chip-p{background:rgba(139,92,246,.08);color:var(--P);border-color:rgba(139,92,246,.2)}
+.hero-links{display:flex;flex-wrap:wrap;justify-content:center;gap:8px}
+.hlink{font-family:var(--mono);font-size:10px;font-weight:500;color:var(--t3);text-decoration:none;padding:4px 12px;border-radius:3px;border:1px solid var(--b1);transition:all .15s}
+.hlink:hover{border-color:var(--b2);color:var(--b2)}
+.hlink-primary{background:var(--b2);color:#fff;border-color:var(--b2)}
+.hlink-primary:hover{background:#0284C7;color:#fff}
+
+/* ── STATS STRIP ── */
+.stats{background:#040B17;border-bottom:1px solid var(--b1);padding:0}
+.stats-inner{max-width:1040px;margin:0 auto;display:grid;grid-template-columns:repeat(5,1fr)}
+.stat{padding:14px 20px;text-align:center;border-right:1px solid var(--b1)}
+.stat:last-child{border-right:none}
+.stat-val{font-family:var(--mono);font-size:22px;font-weight:600;color:var(--t1);margin-bottom:2px}
+.stat-lbl{font-size:9px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:.08em}
+.stat-val-b{color:var(--b2)}
+.stat-val-g{color:var(--G)}
+.stat-val-a{color:var(--A)}
+.stat-val-p{color:var(--P)}
+
+/* ── MAIN CONTENT ── */
+.main{max-width:1040px;margin:0 auto;padding:28px 20px}
+
+/* ── SECTION TITLES ── */
+.sec-title{font-size:9.5px;font-weight:700;color:var(--t4);text-transform:uppercase;letter-spacing:.1em;margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid var(--b1);display:flex;align-items:center;gap:6px}
+.sec-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0}
+
+/* ── DASHBOARD GRID ── */
+.dash-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:12px;margin-bottom:32px}
+.dash-card{background:var(--s2);border:1px solid var(--b1);border-radius:8px;overflow:hidden;display:flex;flex-direction:column;transition:border-color .15s,transform .15s}
+.dash-card:hover{border-color:var(--b2);transform:translateY(-2px)}
+.dash-card.dim{opacity:.6}
+.dash-top{height:3px}
+.dash-body{padding:14px;flex:1}
+.dash-tag{font-size:9px;font-weight:700;padding:2px 8px;border-radius:2px;display:inline-block;margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em}
+.tag-live{background:rgba(16,185,129,.12);color:var(--G)}
+.tag-live-api{background:rgba(14,165,233,.12);color:var(--b2)}
+.tag-interactive{background:rgba(139,92,246,.12);color:var(--P)}
+.tag-coming{background:rgba(255,255,255,.05);color:var(--t3)}
+.tag-scenario{background:rgba(245,158,11,.12);color:var(--A)}
+.dash-title{font-size:14px;font-weight:700;color:var(--t1);margin-bottom:5px;line-height:1.3}
+.dash-desc{font-size:11.5px;color:var(--t2);line-height:1.6;margin-bottom:10px}
+.dash-pills{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px}
+.pill{font-size:9.5px;padding:2px 7px;border-radius:2px;background:rgba(255,255,255,.04);color:var(--t3);border:1px solid var(--b1)}
+.dash-foot{padding:10px 14px;border-top:1px solid var(--b1);display:flex;align-items:center;justify-content:space-between;background:rgba(0,0,0,.15)}
+.dash-date{font-family:var(--mono);font-size:9.5px;color:var(--t4)}
+.dash-btn{font-family:var(--mono);font-size:10px;font-weight:600;padding:5px 14px;border-radius:3px;text-decoration:none;border:none;cursor:pointer;transition:all .15s}
+.btn-live{background:var(--b2);color:#fff}
+.btn-live:hover{background:#0284C7}
+.btn-live-api{background:var(--G);color:#fff}
+.btn-live-api:hover{background:#059669}
+.btn-interactive{background:var(--P);color:#fff}
+.btn-interactive:hover{background:#7C3AED}
+.btn-soon{background:rgba(255,255,255,.04);color:var(--t3);border:1px solid var(--b1);cursor:default}
+
+/* ── LIVE INDICATOR ── */
+.live-dot{width:6px;height:6px;border-radius:50%;background:var(--G);animation:blink 1.4s infinite;display:inline-block;margin-right:4px;vertical-align:middle}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+
+/* ── PAPERS ── */
+.papers{display:flex;flex-direction:column;gap:8px;margin-bottom:32px}
+.paper{background:var(--s2);border:1px solid var(--b1);border-radius:6px;padding:12px 14px;display:flex;align-items:flex-start;gap:12px;transition:border-color .15s}
+.paper:hover{border-color:var(--b2)}
+.paper-num{width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,var(--b2),var(--P));color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px}
+.paper-title{font-size:12.5px;font-weight:600;color:var(--t1);margin-bottom:3px;line-height:1.4}
+.paper-meta{font-family:var(--mono);font-size:10px;color:var(--t3);margin-bottom:6px}
+.paper-tags{display:flex;flex-wrap:wrap;gap:4px}
+.paper-tag{font-size:9px;padding:1px 6px;border-radius:2px;background:rgba(14,165,233,.08);color:var(--b2);border:1px solid rgba(14,165,233,.15)}
+.paper-views{font-family:var(--mono);font-size:10px;color:var(--G);font-weight:500;white-space:nowrap;margin-top:2px}
+.paper-doi{font-family:var(--mono);font-size:9px;color:var(--b2);text-decoration:none}
+.paper-doi:hover{text-decoration:underline}
+
+/* ── CREDS GRID ── */
+.creds{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px;margin-bottom:32px}
+.cred{background:var(--s2);border:1px solid var(--b1);border-radius:6px;padding:10px 12px;display:flex;align-items:flex-start;gap:10px}
+.cred-icon{width:32px;height:32px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;font-family:var(--mono);font-weight:700;font-size:11px}
+.ci-b{background:rgba(14,165,233,.12);color:var(--b2)}
+.ci-g{background:rgba(16,185,129,.12);color:var(--G)}
+.ci-a{background:rgba(245,158,11,.12);color:var(--A)}
+.ci-p{background:rgba(139,92,246,.12);color:var(--P)}
+.cred-name{font-size:11.5px;font-weight:600;color:var(--t1);margin-bottom:2px;line-height:1.3}
+.cred-org{font-size:10.5px;color:var(--t3)}
+.cred-new{font-size:8.5px;font-weight:700;padding:1px 5px;border-radius:2px;background:rgba(16,185,129,.12);color:var(--G);margin-left:5px;text-transform:uppercase}
+
+/* ── CONTACT ── */
+.contact{background:var(--s2);border:1px solid var(--b1);border-radius:8px;padding:24px;text-align:center;margin-bottom:28px}
+.contact-title{font-size:17px;font-weight:700;color:var(--t1);margin-bottom:6px}
+.contact-sub{font-size:12px;color:var(--t2);margin-bottom:18px;line-height:1.65;max-width:520px;margin-left:auto;margin-right:auto}
+.contact-links{display:flex;flex-wrap:wrap;justify-content:center;gap:8px}
+.clink{font-family:var(--mono);font-size:11px;font-weight:500;padding:8px 20px;border-radius:4px;text-decoration:none;transition:all .15s}
+.clink-primary{background:var(--b2);color:#fff}
+.clink-primary:hover{background:#0284C7}
+.clink-outline{background:transparent;color:var(--t2);border:1px solid var(--b1)}
+.clink-outline:hover{border-color:var(--b2);color:var(--b2)}
+.clink-gold{background:rgba(245,158,11,.1);color:var(--A);border:1px solid rgba(245,158,11,.25)}
+
+/* ── DISCLAIMER ── */
+.disclaimer{background:#040B17;border:1px solid var(--b1);border-radius:6px;padding:12px 16px;margin-bottom:24px;font-family:var(--mono);font-size:9.5px;color:var(--t4);line-height:1.7}
+
+/* ── FOOTER ── */
+.footer{font-family:var(--mono);font-size:9.5px;color:var(--t4);text-align:center;padding:12px;border-top:1px solid var(--b1);line-height:1.8}
+.footer a{color:var(--b2);text-decoration:none}
+.footer a:hover{text-decoration:underline}
+
+/* ── RESPONSIVE ── */
+@media(max-width:640px){
+  .hero-name{font-size:22px}
+  .stats-inner{grid-template-columns:repeat(2,1fr);grid-template-rows:auto auto}
+  .stat:nth-child(2n){border-right:none}
+  .stat:nth-child(n+3){border-top:1px solid var(--b1)}
+  .dash-grid{grid-template-columns:1fr}
+  .creds{grid-template-columns:1fr}
+}
+
+/* ── DASHBOARD CARD ENHANCEMENTS ── */
+.dash-header-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.dash-tabs-count{font-family:var(--mono);font-size:9px;color:var(--t4);background:rgba(255,255,255,.04);padding:2px 7px;border-radius:2px;border:1px solid var(--b1)}
+
+/* ── MINI PREVIEW ── */
+.dash-preview{background:#020810;border:1px solid var(--b1);border-radius:5px;overflow:hidden;margin-bottom:12px}
+.dp-bar{background:#040B17;padding:4px 8px;display:flex;align-items:center;gap:5px;border-bottom:1px solid var(--b1)}
+.dp-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.dp-url{font-family:var(--mono);font-size:8.5px;color:var(--t4);margin-left:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dp-screen{padding:8px;background:#050C1A}
+.dp-kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-bottom:6px}
+.dp-kpi{background:#0C1C30;border-radius:3px;padding:5px;border-top:2px solid transparent}
+.dp-k-lbl{font-size:7.5px;color:#475569;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px;font-family:var(--mono)}
+.dp-k-val{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--t1);margin-bottom:1px}
+.dp-k-chg{font-family:var(--mono);font-size:8.5px;font-weight:500}
+.dp-chart-row{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:5px}
+.dp-chart-box{background:#0C1C30;border-radius:3px;padding:4px 6px}
+.dp-chart-lbl{font-size:7.5px;color:#475569;margin-bottom:2px;font-family:var(--mono)}
+.dp-badge-row{display:flex;gap:5px;flex-wrap:wrap}
+.dp-badge{font-size:8.5px;font-weight:600;padding:2px 7px;border-radius:2px}
+.dp-train-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:3px;margin-bottom:5px}
+.dp-train{border-radius:3px;padding:3px 2px;text-align:center;border:1px solid;display:flex;flex-direction:column;align-items:center;gap:1px}
+
+/* ── LINKEDIN CARD ── */
+.li-card{background:#0A1628;border:1px solid #1C3A5A;border-radius:5px;padding:10px 12px;margin-top:10px;margin-bottom:2px}
+.li-card-hdr{display:flex;align-items:center;gap:6px;margin-bottom:7px;padding-bottom:7px;border-bottom:1px solid #1C3A5A}
+.li-icon{width:18px;height:18px;border-radius:3px;background:#0A66C2;color:#fff;font-size:10px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.li-card-title{font-size:9px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.07em}
+.li-title{font-size:11.5px;font-weight:700;color:var(--t1);line-height:1.4;margin-bottom:7px}
+.li-desc{font-size:10.5px;color:var(--t2);line-height:1.65;white-space:pre-line}
+
+</style>
+</head>
+<body>
+
+<!-- TICKER -->
+<div class="ticker">
+  <div class="tk-track">
+    <span class="tk-seg"><b>PORTFOLIO</b><span>Independent Energy Intelligence Research · 5 Live Dashboards</span></span>
+    <span class="tk-seg"><b>RESEARCHER</b><span>Prasad Selvaraj · Doha, Qatar · OGMP 2.0 · UAV Inspection · SUMIF Framework</span></span>
+    <span class="tk-seg"><b>PAPERS</b><span>6 Published · 331+ views · Academia.edu · Zenodo</span></span>
+    <span class="tk-seg"><b>LIVE DATA</b><span>Gulf Energy Price Monitor — EIA API connected · Real-time Brent · WTI · Henry Hub</span></span>
+    <span class="tk-seg"><b>CONTACT</b><span><a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="2b5b594a584a4f195f6b4c464a424705484446">[email&#160;protected]</a> · linkedin.com/in/prasadselvaraj · ORCID 0009-0001-4513-3910</span></span>
+    <span class="tk-seg"><b>PORTFOLIO</b><span>Independent Energy Intelligence Research · 5 Live Dashboards</span></span>
+    <span class="tk-seg"><b>RESEARCHER</b><span>Prasad Selvaraj · Doha, Qatar · OGMP 2.0 · UAV Inspection · SUMIF Framework</span></span>
+    <span class="tk-seg"><b>PAPERS</b><span>6 Published · 331+ views · Academia.edu · Zenodo</span></span>
+    <span class="tk-seg"><b>LIVE DATA</b><span>Gulf Energy Price Monitor — EIA API connected · Real-time Brent · WTI · Henry Hub</span></span>
+    <span class="tk-seg"><b>CONTACT</b><span><a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="94e4e6f5e7f5f0a6e0d4f3f9f5fdf8baf7fbf9">[email&#160;protected]</a> · linkedin.com/in/prasadselvaraj · ORCID 0009-0001-4513-3910</span></span>
+  </div>
+</div>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="hero-stripe"></div>
+  <div class="hero-av">PS</div>
+  <div class="hero-name">Prasad Selvaraj</div>
+  <div class="hero-title">Independent Energy Intelligence Researcher</div>
+  <div class="hero-sub">
+    Research interests in offshore methane compliance, UAV inspection systems, Gulf energy market scenario analysis and emissions intelligence frameworks. Author of the SAT-UAV Methane Intelligence Framework (SUMIF) — OGMP 2.0 Gold Standard architecture. Six published research papers. Based in Doha, Qatar.
+  </div>
+  <div class="hero-chips">
+    <span class="chip">OGMP 2.0</span>
+    <span class="chip">SUMIF Framework</span>
+    <span class="chip chip-g">UAV Inspection</span>
+    <span class="chip chip-g">CAP 437</span>
+    <span class="chip chip-a">Power BI PL-300</span>
+    <span class="chip chip-a">Petroleum Engineering AI</span>
+    <span class="chip chip-p">ESG Reporting</span>
+    <span class="chip chip-p">HSE Offshore</span>
+    <span class="chip">AIMS Framework</span>
+    <span class="chip">RAPID-UAV</span>
+    <span class="chip chip-g">HSE Command Center</span>
+  </div>
+  <div class="hero-links">
+    <a class="hlink hlink-primary" href="https://www.linkedin.com/in/prasadselvaraj" target="_blank">LinkedIn Profile</a>
+    <a class="hlink" href="https://doi.org/10.5281/zenodo.18968721" target="_blank">Zenodo DOI</a>
+    <a class="hlink" href="https://orcid.org/0009-0001-4513-3910" target="_blank">ORCID</a>
+    <a class="hlink" href="https://dig-ahead-44653197.figma.site" target="_blank">SUMIF App</a>
+    <a class="hlink" href="https://independentresearcher.academia.edu/PrasadSelvaraj" target="_blank">Academia.edu</a>
+    <a class="hlink" href="/cdn-cgi/l/email-protection#a2d2d0c3d1c3c690d6e2c5cfc3cbce8cc1cdcf">Email</a>
+  </div>
+</div>
+
+<!-- STATS -->
+<div class="stats">
+  <div class="stats-inner">
+    <div class="stat"><div class="stat-val stat-val-b">5</div><div class="stat-lbl">Live dashboards</div></div>
+    <div class="stat"><div class="stat-val stat-val-g">6</div><div class="stat-lbl">Research papers</div></div>
+    <div class="stat"><div class="stat-val stat-val-a">331+</div><div class="stat-lbl">Research views</div></div>
+    <div class="stat"><div class="stat-val stat-val-p">15+</div><div class="stat-lbl">Years experience</div></div>
+    <div class="stat"><div class="stat-val" style="color:var(--C)">EIA Live</div><div class="stat-lbl">Real-time data feed</div></div>
+  </div>
+</div>
+
+<div class="main">
+
+  <!-- DASHBOARDS -->
+  <div class="sec-title"><span class="sec-dot" style="background:var(--b2)"></span>Intelligence Dashboards</div>
+  <div class="dash-grid">
+
+    <!-- Dashboard 1 — LIVE API -->
+    <div class="dash-card">
+      <div class="dash-top" style="background:linear-gradient(90deg,var(--b2),var(--C))"></div>
+      <div class="dash-body">
+        <div class="dash-header-row">
+          <span class="dash-tag tag-live-api"><span class="live-dot"></span>Live EIA data</span>
+          <span class="dash-tabs-count">4 tabs</span>
+        </div>
+        <div class="dash-title">Gulf Energy Live Price Monitor</div>
+        <div class="dash-desc">Real-time Brent crude, WTI, Henry Hub natural gas and Brent–WTI spread fetched live from the US EIA Open Data API every page load. Bloomberg-style executive layout with auto-generated market regime classification, 5 derived signal bars, CEO board briefing and near-term probabilistic bias engine. Fallback data and exponential retry if API is unreachable.</div>
+        <!-- MINI PREVIEW -->
+        <div class="dash-preview">
+          <div class="dp-bar">
+            <span class="dp-dot" style="background:#EF4444"></span>
+            <span class="dp-dot" style="background:#F59E0B"></span>
+            <span class="dp-dot" style="background:#10B981"></span>
+            <span class="dp-url">Gulf_Energy_Live_Price_Monitor.html</span>
+          </div>
+          <div class="dp-screen dp-dark">
+            <div class="dp-kpi-row">
+              <div class="dp-kpi" style="border-top:2px solid #0EA5E9"><div class="dp-k-lbl">BRENT</div><div class="dp-k-val" style="color:#0EA5E9">$99.33</div><div class="dp-k-chg" style="color:#EF4444">▼ -3.9%</div></div>
+              <div class="dp-kpi" style="border-top:2px solid #10B981"><div class="dp-k-lbl">WTI</div><div class="dp-k-val" style="color:#10B981">$104.69</div><div class="dp-k-chg" style="color:#10B981">▲ +3.4%</div></div>
+              <div class="dp-kpi" style="border-top:2px solid #F59E0B"><div class="dp-k-lbl">HH GAS</div><div class="dp-k-val" style="color:#F59E0B">$4.38</div><div class="dp-k-chg" style="color:#10B981">▲ +6.3%</div></div>
+              <div class="dp-kpi" style="border-top:2px solid #8B5CF6"><div class="dp-k-lbl">SPREAD</div><div class="dp-k-val" style="color:#8B5CF6">-$5.36</div><div class="dp-k-chg" style="color:var(--t3)">WTI premium</div></div>
+            </div>
+            <div class="dp-chart-row">
+              <div class="dp-chart-box">
+                <div class="dp-chart-lbl">Brent 12-week</div>
+                <svg viewBox="0 0 120 36" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:32px">
+                  <polyline points="0,30 10,28 20,22 30,18 40,14 50,10 60,12 70,16 80,20 90,24 100,22 110,26 120,30" fill="none" stroke="#0EA5E9" stroke-width="1.5" stroke-linejoin="round"/>
+                  <polyline points="0,30 10,28 20,22 30,18 40,14 50,10 60,12 70,16 80,20 90,24 100,22 110,26 120,30" fill="rgba(14,165,233,.08)" stroke="none"/>
+                </svg>
+              </div>
+              <div class="dp-chart-box">
+                <div class="dp-chart-lbl">WTI 12-week</div>
+                <svg viewBox="0 0 120 36" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:32px">
+                  <polyline points="0,32 10,30 20,26 30,22 40,18 50,14 60,16 70,18 80,16 90,14 100,12 110,10 120,8" fill="none" stroke="#10B981" stroke-width="1.5" stroke-linejoin="round"/>
+                </svg>
+              </div>
+            </div>
+            <div class="dp-badge-row">
+              <span class="dp-badge" style="background:rgba(239,68,68,.15);color:#EF4444">Supply risk expanding</span>
+              <span class="dp-badge" style="background:rgba(16,185,129,.15);color:#10B981">EIA: Live</span>
+            </div>
+          </div>
+        </div>
+        <div class="dash-pills">
+          <span class="pill">EIA API v2</span><span class="pill">Brent · WTI · Gas</span><span class="pill">Market Regime</span><span class="pill">Executive Brief</span><span class="pill">Live Signals</span>
+        </div>
+        <!-- LINKEDIN CARD -->
+        <div class="li-card">
+          <div class="li-card-hdr"><span class="li-icon">in</span><span class="li-card-title">LinkedIn post title &amp; description</span></div>
+          <div class="li-title">I built a live Gulf Energy Intelligence Dashboard — Brent, WTI and Henry Hub pulled directly from EIA API in real time</div>
+          <div class="li-desc">As an independent energy intelligence researcher based in Doha, I track Gulf energy markets daily. So I built the tool I wanted to use — a Bloomberg-style dashboard that fetches real weekly prices from the US EIA Open Data API the moment you open it.<br><br>It shows: Brent crude · WTI · Henry Hub natural gas · Brent-WTI spread · Market regime classification · Near-term probabilistic bias · CEO board summary · OGMP 2.0 compliance urgency signals<br><br>All analysis is scenario-based interpretation — not confirmed intelligence. But it is built on real, verified public data.<br><br>Live now at the link below.<br><br>#EnergyIntelligence #LNG #BrentCrude #OGMP2 #GulfEnergy #EIAData #EnergyMarkets #QatarEnergy #OffshoreHSE</div>
+        </div>
+      </div>
+      <div class="dash-foot">
+        <span class="dash-date">Live · EIA Weekly · April 2026 · 4 tabs</span>
+        <a class="dash-btn btn-live-api" href="Gulf_Energy_Live_Price_Monitor.html">View live &#8594;</a>
+      </div>
+    </div>
+
+    <!-- Dashboard 2 -->
+    <div class="dash-card">
+      <div class="dash-top" style="background:linear-gradient(90deg,var(--R),var(--A))"></div>
+      <div class="dash-body">
+        <div class="dash-header-row">
+          <span class="dash-tag tag-scenario">Scenario analysis</span>
+          <span class="dash-tabs-count">5 tabs</span>
+        </div>
+        <div class="dash-title">Qatar LNG Restart Scenario Monitor</div>
+        <div class="dash-desc">Post-ceasefire restart intelligence for Ras Laffan. Covers all 14 LNG train status with individual risk ratings, capacity recovery curve, force majeure contract exposure by country, market rebalancing and Gulf rebuild opportunity mapping. All language is scenario-framed and sourced from public reporting.</div>
+        <!-- MINI PREVIEW -->
+        <div class="dash-preview">
+          <div class="dp-bar">
+            <span class="dp-dot" style="background:#EF4444"></span><span class="dp-dot" style="background:#F59E0B"></span><span class="dp-dot" style="background:#10B981"></span>
+            <span class="dp-url">Qatar_LNG_Restart_Scenario_Monitor_2026.html</span>
+          </div>
+          <div class="dp-screen dp-dark" style="background:#0A1628">
+            <div style="font-size:9px;font-weight:700;color:#F59E0B;margin-bottom:6px;font-family:monospace">Ras Laffan — 14 LNG trains · April 2026</div>
+            <div class="dp-train-grid">
+              <div class="dp-train" style="background:#EAF3DE;border-color:#97C459"><span style="color:#27500A;font-size:8px;font-weight:700">T1</span><span style="font-size:7px;color:#3B6D11">Intact</span></div>
+              <div class="dp-train" style="background:#EAF3DE;border-color:#97C459"><span style="color:#27500A;font-size:8px;font-weight:700">T2</span><span style="font-size:7px;color:#3B6D11">Intact</span></div>
+              <div class="dp-train" style="background:#EAF3DE;border-color:#97C459"><span style="color:#27500A;font-size:8px;font-weight:700">T3</span><span style="font-size:7px;color:#3B6D11">Intact</span></div>
+              <div class="dp-train" style="background:#FEF3E2;border-color:#F59E0B"><span style="color:#92400E;font-size:8px;font-weight:700">T4</span><span style="font-size:7px;color:#92400E">Assess</span></div>
+              <div class="dp-train" style="background:#EAF3DE;border-color:#97C459"><span style="color:#27500A;font-size:8px;font-weight:700">T5</span><span style="font-size:7px;color:#3B6D11">Intact</span></div>
+              <div class="dp-train" style="background:#EAF3DE;border-color:#97C459"><span style="color:#27500A;font-size:8px;font-weight:700">T6</span><span style="font-size:7px;color:#3B6D11">Intact</span></div>
+              <div class="dp-train" style="background:#EAF3DE;border-color:#97C459"><span style="color:#27500A;font-size:8px;font-weight:700">T7</span><span style="font-size:7px;color:#3B6D11">Intact</span></div>
+              <div class="dp-train" style="background:#FDEAEA;border-color:#EF4444"><span style="color:#991B1B;font-size:8px;font-weight:700">T9</span><span style="font-size:7px;color:#991B1B">Damaged</span></div>
+              <div class="dp-train" style="background:#EAF3DE;border-color:#97C459"><span style="color:#27500A;font-size:8px;font-weight:700">T10</span><span style="font-size:7px;color:#3B6D11">Intact</span></div>
+              <div class="dp-train" style="background:#FDEAEA;border-color:#EF4444"><span style="color:#991B1B;font-size:8px;font-weight:700">T12</span><span style="font-size:7px;color:#991B1B">Damaged</span></div>
+              <div class="dp-train" style="background:#EAF3DE;border-color:#97C459"><span style="color:#27500A;font-size:8px;font-weight:700">T13</span><span style="font-size:7px;color:#3B6D11">Intact</span></div>
+              <div class="dp-train" style="background:#EAF3DE;border-color:#97C459"><span style="color:#27500A;font-size:8px;font-weight:700">T14</span><span style="font-size:7px;color:#3B6D11">Intact</span></div>
+            </div>
+            <div class="dp-badge-row" style="margin-top:6px">
+              <span class="dp-badge" style="background:rgba(245,158,11,.15);color:#F59E0B">~83% capacity intact</span>
+              <span class="dp-badge" style="background:rgba(239,68,68,.15);color:#EF4444">12.8 MTPA affected</span>
+            </div>
+          </div>
+        </div>
+        <div class="dash-pills">
+          <span class="pill">LNG Recovery</span><span class="pill">Ras Laffan</span><span class="pill">Train Status</span><span class="pill">Market Rebalancing</span><span class="pill">OGMP 2.0</span>
+        </div>
+        <div class="li-card">
+          <div class="li-card-hdr"><span class="li-icon">in</span><span class="li-card-title">LinkedIn post title &amp; description</span></div>
+          <div class="li-title">Qatar LNG restart is more complex than markets are pricing — here is a train-by-train scenario analysis</div>
+          <div class="li-desc">The ceasefire was reported on April 8. Engineers were mobilised at Ras Laffan the same day. But the restart is a process, not a switch.<br><br>I built a scenario monitor tracking:<br>→ All 14 LNG trains — individual status (intact / damaged / assessing)<br>→ Capacity recovery curve — estimated MTPA by month<br>→ Force majeure contract exposure — Italy, Korea, China, Belgium<br>→ Market rebalancing — who fills the Qatar gap<br>→ Rebuild opportunity mapping — $49B+ sector analysis<br><br>Two trains reportedly damaged. 12.8 MTPA sidelined for an estimated 3-5 year repair window regardless of peace progress.<br><br>All analysis is scenario-based and sourced from public reporting — IEA, Bloomberg, IEEFA, QNA.<br><br>#QatarLNG #RasLaffan #LNGMarkets #OGMP2 #GulfEnergy #EnergyIntelligence #QatarEnergy</div>
+        </div>
+      </div>
+      <div class="dash-foot">
+        <span class="dash-date">April 2026 · Scenario model · 5 tabs</span>
+        <a class="dash-btn btn-live" href="Qatar_LNG_Restart_Scenario_Monitor_2026.html">View dashboard &#8594;</a>
+      </div>
+    </div>
+
+    <!-- Dashboard 3 -->
+    <div class="dash-card">
+      <div class="dash-top" style="background:linear-gradient(90deg,#1A3A6B,var(--b2))"></div>
+      <div class="dash-body">
+        <div class="dash-header-row">
+          <span class="dash-tag tag-live">Scenario analysis</span>
+          <span class="dash-tabs-count">7 tabs</span>
+        </div>
+        <div class="dash-title">Middle East Oil &amp; Gas Executive Intelligence</div>
+        <div class="dash-desc">Strategic market intelligence covering GCC investment flows, NOC strategies, crisis disruption analysis, 2026–2030 outlook and ESG decarbonisation roadmap. Features a Decision Intelligence engine with 6-slider scenario simulator, Early Warning Index, E-UVaR methane model, UAV Value Calculator and Career Market Fit scoring.</div>
+        <!-- MINI PREVIEW -->
+        <div class="dash-preview">
+          <div class="dp-bar">
+            <span class="dp-dot" style="background:#EF4444"></span><span class="dp-dot" style="background:#F59E0B"></span><span class="dp-dot" style="background:#10B981"></span>
+            <span class="dp-url">ME_oil_gas_executive_intelligence_2026.html</span>
+          </div>
+          <div class="dp-screen dp-dark" style="background:#0B1526">
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;margin-bottom:6px">
+              <div style="background:#0F1E35;border-radius:3px;padding:5px;text-align:center"><div style="font-size:8px;color:#475569;margin-bottom:2px">GCC Invest.</div><div style="font-family:monospace;font-size:11px;color:#0EA5E9;font-weight:700">$45B</div></div>
+              <div style="background:#0F1E35;border-radius:3px;padding:5px;text-align:center"><div style="font-size:8px;color:#475569;margin-bottom:2px">NOC Output</div><div style="font-family:monospace;font-size:11px;color:#10B981;font-weight:700">9.5M</div></div>
+              <div style="background:#0F1E35;border-radius:3px;padding:5px;text-align:center"><div style="font-size:8px;color:#475569;margin-bottom:2px">ESG Score</div><div style="font-family:monospace;font-size:11px;color:#F59E0B;font-weight:700">64/100</div></div>
+            </div>
+            <div style="background:#0F1E35;border-radius:3px;padding:6px;margin-bottom:5px">
+              <div style="font-size:8px;color:#475569;margin-bottom:3px">NOC Capability Radar — QatarEnergy · Aramco · ADNOC</div>
+              <svg viewBox="0 0 100 50" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:32px">
+                <polygon points="50,5 75,20 70,45 30,45 25,20" fill="rgba(14,165,233,.15)" stroke="#0EA5E9" stroke-width="1"/>
+                <polygon points="50,12 68,24 65,40 35,40 32,24" fill="rgba(16,185,129,.12)" stroke="#10B981" stroke-width="1"/>
+                <polygon points="50,18 62,28 60,37 40,37 38,28" fill="rgba(245,158,11,.12)" stroke="#F59E0B" stroke-width="1"/>
+              </svg>
+            </div>
+            <div class="dp-badge-row">
+              <span class="dp-badge" style="background:rgba(14,165,233,.15);color:#0EA5E9">Decision Intelligence</span>
+              <span class="dp-badge" style="background:rgba(139,92,246,.15);color:#8B5CF6">E-UVaR Model</span>
+            </div>
+          </div>
+        </div>
+        <div class="dash-pills">
+          <span class="pill">GCC Markets</span><span class="pill">NOC Strategy</span><span class="pill">Scenario Engine</span><span class="pill">E-UVaR</span><span class="pill">ESG Roadmap</span>
+        </div>
+        <div class="li-card">
+          <div class="li-card-hdr"><span class="li-icon">in</span><span class="li-card-title">LinkedIn post title &amp; description</span></div>
+          <div class="li-title">Middle East oil and gas in 2026 — I built an executive intelligence dashboard covering GCC investment, NOC strategy and the decision intelligence layer energy leaders actually need</div>
+          <div class="li-desc">Most energy dashboards show you prices. This one was built to support strategic decisions.<br><br>7 analysis tabs covering:<br>→ GCC market overview — $45B+ investment flows<br>→ NOC strategies — QatarEnergy, Saudi Aramco, ADNOC compared<br>→ Crisis and disruption analysis — Hormuz, force majeure, supply chain<br>→ 2026–2030 outlook — base, bull and bear scenarios<br>→ ESG decarbonisation roadmap — NOC commitments vs progress<br>→ Strategic signals — early warning index<br>→ Decision Intelligence — 6-slider scenario simulator, E-UVaR methane model, UAV value calculator<br><br>All analysis is independent scenario interpretation based on public sources.<br><br>#MiddleEast #GulfEnergy #NOCStrategy #GCCMarkets #EnergyIntelligence #OGMP2 #ESG #QatarEnergy #SaudiAramco #ADNOC</div>
+        </div>
+      </div>
+      <div class="dash-foot">
+        <span class="dash-date">April 2026 · Executive model · 7 tabs</span>
+        <a class="dash-btn btn-live" href="ME_oil_gas_executive_intelligence_2026.html">View dashboard &#8594;</a>
+      </div>
+    </div>
+
+    <!-- Dashboard 4 -->
+    <div class="dash-card">
+      <div class="dash-top" style="background:linear-gradient(90deg,var(--P),var(--C))"></div>
+      <div class="dash-body">
+        <div class="dash-header-row">
+          <span class="dash-tag tag-interactive">Interactive</span>
+          <span class="dash-tabs-count">6 tabs</span>
+        </div>
+        <div class="dash-title">Offshore Asset Integrity &amp; Predictive Maintenance</div>
+        <div class="dash-desc">Gulf offshore platform risk analysis with interactive Leaflet.js map showing 15 asset markers across Qatar, Saudi Arabia, UAE, Kuwait and Iraq. Features live country and risk filters, failure probability simulator with 4 sliders, UAV vs manual inspection ROI calculator, digital twin readiness scorecard and post-conflict damage assessment. Linked to published AIMS framework.</div>
+        <!-- MINI PREVIEW -->
+        <div class="dash-preview">
+          <div class="dp-bar">
+            <span class="dp-dot" style="background:#EF4444"></span><span class="dp-dot" style="background:#F59E0B"></span><span class="dp-dot" style="background:#10B981"></span>
+            <span class="dp-url">Offshore_Asset_Integrity_Dashboard_2026.html</span>
+          </div>
+          <div class="dp-screen dp-dark" style="background:#0C1C30">
+            <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-bottom:6px">
+              <div style="background:#1E1B4B;border-radius:3px;padding:4px;text-align:center"><div style="font-size:7px;color:#A5B4FC;margin-bottom:1px">Risk Index</div><div style="font-family:monospace;font-size:10px;color:#A78BFA;font-weight:700">72/100</div></div>
+              <div style="background:#0C4A6E;border-radius:3px;padding:4px;text-align:center"><div style="font-size:7px;color:#7DD3FC;margin-bottom:1px">UAV Gap</div><div style="font-family:monospace;font-size:10px;color:#38BDF8;font-weight:700">~68%</div></div>
+              <div style="background:#064E3B;border-radius:3px;padding:4px;text-align:center"><div style="font-size:7px;color:#6EE7B7;margin-bottom:1px">PM Level</div><div style="font-family:monospace;font-size:10px;color:#34D399;font-weight:700">Lvl 2</div></div>
+              <div style="background:#451A03;border-radius:3px;padding:4px;text-align:center"><div style="font-size:7px;color:#FCD34D;margin-bottom:1px">Delay Cost</div><div style="font-family:monospace;font-size:10px;color:#F59E0B;font-weight:700">$8M+</div></div>
+              <div style="background:#3B0764;border-radius:3px;padding:4px;text-align:center"><div style="font-size:7px;color:#D8B4FE;margin-bottom:1px">D-Twin</div><div style="font-family:monospace;font-size:10px;color:#A78BFA;font-weight:700">22%</div></div>
+            </div>
+            <div style="background:#152642;border-radius:3px;padding:5px;margin-bottom:5px;position:relative;overflow:hidden">
+              <div style="font-size:7px;color:#475569;margin-bottom:3px">Gulf offshore — 15 asset markers · country + risk filters</div>
+              <div style="background:#0B1E33;border-radius:2px;height:30px;display:flex;align-items:center;justify-content:center;gap:6px">
+                <span style="width:8px;height:8px;border-radius:50%;background:#EF4444;display:inline-block;opacity:.9"></span>
+                <span style="width:10px;height:10px;border-radius:50%;background:#F59E0B;display:inline-block;opacity:.9"></span>
+                <span style="width:7px;height:7px;border-radius:50%;background:#10B981;display:inline-block;opacity:.9"></span>
+                <span style="width:9px;height:9px;border-radius:50%;background:#EF4444;display:inline-block;opacity:.9"></span>
+                <span style="width:8px;height:8px;border-radius:50%;background:#F59E0B;display:inline-block;opacity:.9"></span>
+                <span style="width:6px;height:6px;border-radius:50%;background:#10B981;display:inline-block;opacity:.9"></span>
+                <span style="width:11px;height:11px;border-radius:50%;background:#EF4444;display:inline-block;opacity:.9"></span>
+                <span style="width:7px;height:7px;border-radius:50%;background:#10B981;display:inline-block;opacity:.9"></span>
+              </div>
+            </div>
+            <div class="dp-badge-row">
+              <span class="dp-badge" style="background:rgba(139,92,246,.15);color:#8B5CF6">AIMS Framework</span>
+              <span class="dp-badge" style="background:rgba(6,182,212,.15);color:#06B6D4">Interactive map</span>
+            </div>
+          </div>
+        </div>
+        <div class="dash-pills">
+          <span class="pill">Asset Integrity</span><span class="pill">Predictive Maintenance</span><span class="pill">UAV Inspection</span><span class="pill">Interactive Map</span><span class="pill">AIMS Framework</span>
+        </div>
+        <div class="li-card">
+          <div class="li-card-hdr"><span class="li-icon">in</span><span class="li-card-title">LinkedIn post title &amp; description</span></div>
+          <div class="li-title">I built an interactive offshore asset integrity dashboard for the Gulf — with a live map, failure probability simulator and UAV inspection ROI calculator</div>
+          <div class="li-desc">With 40+ Gulf energy assets reportedly affected by recent disruption, the question of offshore asset integrity is urgent. I built this to make the operational intelligence accessible.<br><br>What is inside:<br>→ Interactive Leaflet.js map — 15 offshore asset markers across Qatar, Saudi Arabia, UAE, Kuwait and Iraq with country and risk filters<br>→ Failure probability simulator — adjust asset age, corrosion rate, inspection gap and maintenance quality to get remaining useful life<br>→ UAV vs manual inspection ROI — at current energy prices, unplanned shutdown exceeds UAV inspection cost in hours<br>→ Digital twin readiness scorecard — sensor coverage, UAV integration, AI anomaly detection by operator<br>→ Post-conflict assessment — inspection priority queue, repair vs replace decision matrix<br><br>Directly linked to my published AIMS framework research on AI-powered structural health monitoring.<br><br>#OffshoreHSE #AssetIntegrity #UAVInspection #PredictiveMaintenance #DigitalTwin #OGMP2 #GulfEnergy #EnergyIntelligence #OffshoreOilAndGas</div>
+        </div>
+      </div>
+      <div class="dash-foot">
+        <span class="dash-date">April 2026 · Interactive model · 6 tabs</span>
+        <a class="dash-btn btn-interactive" href="Offshore_Asset_Integrity_Dashboard_2026.html">View dashboard &#8594;</a>
+      </div>
+    </div>
+
+    <!-- Dashboard 5 — HSE Command Center -->
+    <div class="dash-card">
+      <div class="dash-top" style="background:linear-gradient(90deg,#f5a623,#e8394a)"></div>
+      <div class="dash-body">
+        <div class="dash-header-row">
+          <span class="dash-tag" style="background:rgba(245,166,35,.12);color:#f5a623">HSE Command Center</span>
+          <span class="dash-tabs-count">20 tabs</span>
+        </div>
+        <div class="dash-title">Integrated Oil &amp; Gas HSE Command Center</div>
+        <div class="dash-desc">Full-spectrum offshore and onshore HSE intelligence platform covering incidents, permits to work, risk matrix, helideck operations, emergency response, occupational health, environmental monitoring, contractor management, training compliance, audits, predictive AI and data model. Industrial dark control-room design inspired by offshore facility displays.</div>
+        <!-- MINI PREVIEW -->
+        <div class="dash-preview">
+          <div class="dp-bar">
+            <span class="dp-dot" style="background:#EF4444"></span>
+            <span class="dp-dot" style="background:#F59E0B"></span>
+            <span class="dp-dot" style="background:#10B981"></span>
+            <span class="dp-url">HSE_CommandCenter_FULL.html</span>
+          </div>
+          <div class="dp-screen" style="background:#07090f;padding:8px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;padding-bottom:5px;border-bottom:1px solid #1f2d42">
+              <div style="font-family:monospace;font-size:10px;font-weight:700;color:#f5a623;letter-spacing:1px">HSE COMMAND CENTER</div>
+              <div style="display:flex;align-items:center;gap:5px;font-size:8.5px;font-family:monospace;color:#23c97a;background:#062314;border:1px solid #13784a;padding:2px 7px;border-radius:10px"><span style="width:5px;height:5px;border-radius:50%;background:#23c97a;display:inline-block"></span>LIVE</div>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-bottom:6px">
+              <div style="background:#141923;border-radius:3px;padding:5px;border-top:2px solid #e8394a"><div style="font-size:7px;color:#4e6480;margin-bottom:2px;text-transform:uppercase;letter-spacing:.5px">LTI Free</div><div style="font-family:monospace;font-size:13px;font-weight:700;color:#e8394a">247d</div></div>
+              <div style="background:#141923;border-radius:3px;padding:5px;border-top:2px solid #f5a623"><div style="font-size:7px;color:#4e6480;margin-bottom:2px;text-transform:uppercase;letter-spacing:.5px">TRIR</div><div style="font-family:monospace;font-size:13px;font-weight:700;color:#f5a623">1.42</div></div>
+              <div style="background:#141923;border-radius:3px;padding:5px;border-top:2px solid #23c97a"><div style="font-size:7px;color:#4e6480;margin-bottom:2px;text-transform:uppercase;letter-spacing:.5px">Near Miss</div><div style="font-family:monospace;font-size:13px;font-weight:700;color:#23c97a">23</div></div>
+              <div style="background:#141923;border-radius:3px;padding:5px;border-top:2px solid #2f8fff"><div style="font-size:7px;color:#4e6480;margin-bottom:2px;text-transform:uppercase;letter-spacing:.5px">PTW Open</div><div style="font-family:monospace;font-size:13px;font-weight:700;color:#2f8fff">34</div></div>
+            </div>
+            <div style="display:flex;gap:4px;overflow:hidden;margin-bottom:5px">
+              <div style="background:#141923;border:1px solid #1f2d42;border-radius:2px;padding:3px 6px;font-size:7.5px;color:#f5a623;font-family:monospace;white-space:nowrap">◈ Executive</div>
+              <div style="background:#141923;border:1px solid #1f2d42;border-radius:2px;padding:3px 6px;font-size:7.5px;color:#4e6480;font-family:monospace;white-space:nowrap">◎ Daily Ops</div>
+              <div style="background:#141923;border:1px solid #1f2d42;border-radius:2px;padding:3px 6px;font-size:7.5px;color:#4e6480;font-family:monospace;white-space:nowrap">▲ Helideck</div>
+              <div style="background:#141923;border:1px solid #1f2d42;border-radius:2px;padding:3px 6px;font-size:7.5px;color:#4e6480;font-family:monospace;white-space:nowrap">◉ Incidents</div>
+              <div style="background:#141923;border:1px solid #1f2d42;border-radius:2px;padding:3px 6px;font-size:7.5px;color:#4e6480;font-family:monospace;white-space:nowrap">+16 more</div>
+            </div>
+            <div style="background:#2d0a0f;border:1px solid #9e1f2c;border-radius:3px;padding:4px 7px;font-size:8px;color:#ffa0a8;font-family:monospace">⚠ OVERDUE: Helideck inspection Facility C · Emergency drill Offshore Alpha</div>
+          </div>
+        </div>
+        <div class="dash-pills">
+          <span class="pill">20 Tabs</span>
+          <span class="pill">Incidents · PTW</span>
+          <span class="pill">Helideck CAP 437</span>
+          <span class="pill">Risk / JSA</span>
+          <span class="pill">Predictive AI</span>
+          <span class="pill">Emergency Response</span>
+          <span class="pill">Contractor HSE</span>
+          <span class="pill">Environmental</span>
+        </div>
+        <div class="li-card">
+          <div class="li-card-hdr"><span class="li-icon">in</span><span class="li-card-title">LinkedIn post title &amp; description</span></div>
+          <div class="li-title">I built a 20-tab integrated HSE Command Center for offshore oil and gas operations — from incident management to predictive AI</div>
+          <div class="li-desc">Most HSE reporting happens in spreadsheets or disconnected systems. I built what a modern integrated HSE platform should look like for offshore and onshore oil and gas operations.<br><br>20 operational tabs in one dashboard:<br>→ Executive overview — LTI-free days, TRIR, near miss ratio, safety scorecard<br>→ Daily operations — inspection counts, permit status, real-time alerts<br>→ Helideck management — CAP 437 compliance, movement logs, deck status<br>→ Incident register — classification, severity, root cause, closure tracking<br>→ Permit to work — active permits, isolation status, energy control<br>→ Risk / JSA — 5×5 risk matrix, job safety analysis workflow<br>→ Emergency response — drill tracking, overdue actions, response readiness<br>→ Occupational health — case management, fitness for duty, exposure records<br>→ Environmental — spill register, emissions, waste manifest, compliance status<br>→ Fire and process safety — PSE events, fire suppression status<br>→ Contractor HSE — scorecard, competency verification, improvement plans<br>→ Training compliance — by role, by facility, gap analysis<br>→ Audits and inspections — finding register, closure rates, overdue tracking<br>→ Transport safety — journey management, vehicle incidents<br>→ Chemical and PPE — SDS status, inventory, PPE compliance<br>→ Waste management — manifest tracking, disposal routes<br>→ Management of change — MOC register, approval workflow<br>→ Offshore operations — POB tracking, marine interface<br>→ Predictive AI — LTI probability model, leading indicator scoring<br>→ Data model — 7-table schema for HSE data architecture<br><br>Built with 15+ years of aviation safety and offshore HSE experience. This is the kind of tool HSE advisors, asset managers and operations directors actually need.<br><br>#OffshoreHSE #HSEManagement #OilAndGas #SafetyManagement #IncidentManagement #CAP437 #PermitToWork #RiskManagement #PredictiveHSE #EnergyIntelligence #DigitalHSE</div>
+        </div>
+      </div>
+      <div class="dash-foot">
+        <span class="dash-date">April 2026 · Industrial dark theme · 20 tabs</span>
+        <a class="dash-btn" href="HSE_CommandCenter_FULL.html" style="background:#f5a623;color:#07090f;font-family:monospace;font-size:10px;font-weight:700;padding:5px 14px;border-radius:3px;text-decoration:none">View dashboard &#8594;</a>
+      </div>
+    </div>
+
+    <!-- Coming soon 1 -->
+    <div class="dash-card dim">
+      <div class="dash-top" style="background:var(--A)"></div>
+      <div class="dash-body">
+        <div class="dash-header-row">
+          <span class="dash-tag tag-coming">In development</span>
+          <span class="dash-tabs-count">Coming soon</span>
+        </div>
+        <div class="dash-title">Global Methane Emissions Intelligence — OGMP 2.0 Compliance Tracker</div>
+        <div class="dash-desc">Measurement maturity analysis, OGMP 2.0 signatory tracker by level, Emissions Uncertainty Value-at-Risk by asset type, EU regulatory timeline and SUMIF framework compliance gap modelling.</div>
+        <div class="dash-pills">
+          <span class="pill">OGMP 2.0</span><span class="pill">Methane Compliance</span><span class="pill">E-UVaR</span><span class="pill">SUMIF Framework</span>
+        </div>
+      </div>
+      <div class="dash-foot">
+        <span class="dash-date">In development</span>
+        <span class="dash-btn btn-soon">Coming soon</span>
+      </div>
+    </div>
+
+    <!-- Coming soon 2 -->
+    <div class="dash-card dim">
+      <div class="dash-top" style="background:var(--G)"></div>
+      <div class="dash-body">
+        <div class="dash-header-row">
+          <span class="dash-tag tag-coming">In development</span>
+          <span class="dash-tabs-count">Coming soon</span>
+        </div>
+        <div class="dash-title">Gulf Energy Transition &amp; ESG Readiness Index</div>
+        <div class="dash-desc">Gulf NOC decarbonisation commitments vs progress, carbon capture tracker, renewable investment, CSRD and ESG reporting maturity, hydrogen and blue ammonia pipeline and energy transition risk matrix.</div>
+        <div class="dash-pills">
+          <span class="pill">ESG Reporting</span><span class="pill">CSRD</span><span class="pill">Decarbonisation</span><span class="pill">Energy Transition</span>
+        </div>
+      </div>
+      <div class="dash-foot">
+        <span class="dash-date">In development</span>
+        <span class="dash-btn btn-soon">Coming soon</span>
+      </div>
+    </div>
+
+  </div>
+
+    <!-- RESEARCH PAPERS -->
+  <div class="sec-title"><span class="sec-dot" style="background:var(--G)"></span>Published Research</div>
+  <div class="papers">
+
+    <div class="paper">
+      <div class="paper-num">1</div>
+      <div style="flex:1">
+        <div class="paper-title">Aviation Safety in Oil &amp; Gas Operations: Drone Inspection Models and the Cost-Benefit of UAV Logistics</div>
+        <div class="paper-meta">Academia.edu · Zenodo · 2025 · <a class="paper-doi" href="https://doi.org/10.5281/zenodo.18968721" target="_blank">DOI: 10.5281/ZENODO.18968721</a></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+          <div class="paper-tags"><span class="paper-tag">UAV Inspection</span><span class="paper-tag">Aviation Safety</span><span class="paper-tag">Oil &amp; Gas</span></div>
+          <div class="paper-views">207 views · 30 downloads</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="paper">
+      <div class="paper-num">2</div>
+      <div style="flex:1">
+        <div class="paper-title">SAT-UAV Methane Intelligence Framework (SUMIF) — Integrating Satellite and Drone-Based Sensing with Mass Balance ESG Modelling for OGMP 2.0 Gold Standard Compliance</div>
+        <div class="paper-meta">Academia.edu · 2025</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+          <div class="paper-tags"><span class="paper-tag">OGMP 2.0</span><span class="paper-tag">Methane</span><span class="paper-tag">Satellite UAV</span><span class="paper-tag">ESG</span></div>
+          <div class="paper-views">89 views · 33 downloads</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="paper">
+      <div class="paper-num">3</div>
+      <div style="flex:1">
+        <div class="paper-title">Rapid Assessment Protocol for Infrastructure Damage Using Integrated UAV (RAPID-UAV)</div>
+        <div class="paper-meta">Zenodo · 2026 · <a class="paper-doi" href="https://doi.org/10.5281/zenodo.19282792" target="_blank">DOI: 10.5281/zenodo.19282792</a></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+          <div class="paper-tags"><span class="paper-tag">UAV</span><span class="paper-tag">Damage Assessment</span><span class="paper-tag">Post-conflict</span></div>
+          <div class="paper-views">Published 2026</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="paper">
+      <div class="paper-num">4</div>
+      <div style="flex:1">
+        <div class="paper-title">AI-Powered Structural Health Monitoring of Offshore Drilling Platforms Using UAV and Sensor Fusion (AIMS)</div>
+        <div class="paper-meta">Academia.edu · 2026</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+          <div class="paper-tags"><span class="paper-tag">Structural Health</span><span class="paper-tag">AI</span><span class="paper-tag">Offshore</span><span class="paper-tag">Sensor Fusion</span></div>
+          <div class="paper-views">Published 2026</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="paper">
+      <div class="paper-num">5</div>
+      <div style="flex:1">
+        <div class="paper-title">Role of Drones in Methane Emission Detection and Mitigation in Oil and Gas Operations</div>
+        <div class="paper-meta">Academia.edu · 2025</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+          <div class="paper-tags"><span class="paper-tag">Methane</span><span class="paper-tag">Drones</span><span class="paper-tag">Emissions</span></div>
+          <div class="paper-views">24 views</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="paper">
+      <div class="paper-num">6</div>
+      <div style="flex:1">
+        <div class="paper-title">Integration of Data Analytics and Drone AI Technology in the Oil and Gas Industry: A Review and Future Roadmap</div>
+        <div class="paper-meta">Academia.edu · 2025</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+          <div class="paper-tags"><span class="paper-tag">Data Analytics</span><span class="paper-tag">Drone AI</span><span class="paper-tag">Oil &amp; Gas</span></div>
+          <div class="paper-views">Published 2025</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- CREDENTIALS -->
+  <div class="sec-title"><span class="sec-dot" style="background:var(--A)"></span>Certifications &amp; Qualifications</div>
+  <div class="creds">
+
+    <div class="cred">
+      <div class="cred-icon ci-g">AI</div>
+      <div><div class="cred-name">Petroleum Engineering with AI Applications<span class="cred-new">2026</span></div><div class="cred-org">L&amp;T EduTech · Coursera · Verified</div></div>
+    </div>
+    <div class="cred">
+      <div class="cred-icon ci-g">ESG</div>
+      <div><div class="cred-name">ESG Reporting Certificate<span class="cred-new">2026</span></div><div class="cred-org">The ESG Institute</div></div>
+    </div>
+    <div class="cred">
+      <div class="cred-icon ci-b">CAP</div>
+      <div><div class="cred-name">CAP 437 Helicopter Landing Officer</div><div class="cred-org">UK Civil Aviation Authority · HeliDubai</div></div>
+    </div>
+    <div class="cred">
+      <div class="cred-icon ci-b">PBI</div>
+      <div><div class="cred-name">Microsoft Power BI PL-300</div><div class="cred-org">Microsoft Certified</div></div>
+    </div>
+    <div class="cred">
+      <div class="cred-icon ci-a">HSE</div>
+      <div><div class="cred-name">HSE Engineering Specialisation</div><div class="cred-org">Khalifa University, Abu Dhabi</div></div>
+    </div>
+    <div class="cred">
+      <div class="cred-icon ci-a">UAS</div>
+      <div><div class="cred-name">UAS/RPAS Drone Pilot Licence</div><div class="cred-org">Madras Institute of Technology</div></div>
+    </div>
+    <div class="cred">
+      <div class="cred-icon ci-p">IBM</div>
+      <div><div class="cred-name">IBM Generative AI Professional</div><div class="cred-org">IBM</div></div>
+    </div>
+    <div class="cred">
+      <div class="cred-icon ci-p">MBA</div>
+      <div><div class="cred-name">MBA — International Business</div><div class="cred-org">Alagappa University</div></div>
+    </div>
+    <div class="cred">
+      <div class="cred-icon ci-g">GO</div>
+      <div><div class="cred-name">Kenyon International Go Team Member</div><div class="cred-org">Emergency Response · Since 2013</div></div>
+    </div>
+
+  </div>
+
+  <!-- CONTACT -->
+  <div class="contact">
+    <div class="contact-title">Open to collaboration and energy sector opportunities</div>
+    <div class="contact-sub">Based in Doha, Qatar. Research interests in OGMP 2.0 compliance, UAV inspection frameworks, offshore safety management and Gulf energy market intelligence. Available for HSE advisory, emissions compliance, digital inspection and energy intelligence roles.</div>
+    <div class="contact-links">
+      <a class="clink clink-primary" href="https://www.linkedin.com/in/prasadselvaraj" target="_blank">Connect on LinkedIn</a>
+      <a class="clink clink-gold" href="https://dig-ahead-44653197.figma.site" target="_blank">SUMIF Framework App</a>
+      <a class="clink clink-outline" href="/cdn-cgi/l/email-protection#98e8eaf9ebf9fcaaecd8fff5f9f1f4b6fbf7f5"><span class="__cf_email__" data-cfemail="651517041604015711250208040c094b060a08">[email&#160;protected]</span></a>
+      <a class="clink clink-outline" href="https://orcid.org/0009-0001-4513-3910" target="_blank">ORCID Profile</a>
+    </div>
+  </div>
+
+  <!-- DISCLAIMER -->
+  <div class="disclaimer">
+    <b style="color:var(--t2)">Disclaimer:</b> All dashboards on this portfolio represent independent scenario-based research analysis. Data is sourced from publicly available sources including the US Energy Information Administration (EIA), IEA, Bloomberg, IEEFA and QNA. All estimates, projections and scenario assumptions are analyst interpretations — not confirmed operational intelligence. Not investment advice. Not affiliated with any named company or organisation. Qatar Airways is not mentioned or referenced in any public-facing content on this site.
+  </div>
+
+</div><!-- /main -->
+
+<div class="footer">
+  <b style="color:var(--t2)">Prasad Selvaraj</b> — Independent Energy Intelligence Researcher · Doha, Qatar<br>ORCID: <a href="https://orcid.org/0009-0001-4513-3910" target="_blank">0009-0001-4513-3910</a> ·
+  DOI: <a href="https://doi.org/10.5281/zenodo.18968721" target="_blank">10.5281/ZENODO.18968721</a> ·
+  <a href="https://www.linkedin.com/in/prasadselvaraj" target="_blank">linkedin.com/in/prasadselvaraj</a><br>
+  All dashboards represent independent scenario analysis based on publicly available data sources · Not investment advice
+</div>
+
+</body>
+</html>
