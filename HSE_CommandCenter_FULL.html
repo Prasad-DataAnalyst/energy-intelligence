@@ -1,0 +1,1246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Integrated Oil & Gas HSE Command Center</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=DM+Sans:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+/* ══════════════════════════════════════════════
+   DESIGN SYSTEM — INDUSTRIAL DARK
+   Inspired by offshore control room displays
+   ══════════════════════════════════════════════ */
+:root{
+  --bg0:#07090f;--bg1:#0e1117;--bg2:#141923;--bg3:#1c2332;--bg4:#232d3f;
+  --border:#1f2d42;--border2:#2a3d58;--border3:#344d6e;
+  --t1:#e8edf4;--t2:#8fa3bc;--t3:#4e6480;--t4:#2d3f55;
+  --amber:#f5a623;--amber2:#c27d0e;--amber3:#3d2a06;
+  --red:#e8394a;--red2:#9e1f2c;--red3:#2d0a0f;
+  --green:#23c97a;--green2:#13784a;--green3:#062314;
+  --blue:#2f8fff;--blue2:#1a5ab5;--blue3:#091a38;
+  --teal:#0dd8c8;--teal2:#0a8a7e;--teal3:#031e1b;
+  --purple:#9b6bff;--purple3:#1a0d38;
+  --orange:#ff7043;
+  --ff-head:'Barlow Condensed',sans-serif;
+  --ff-body:'DM Sans',sans-serif;
+  --ff-mono:'JetBrains Mono',monospace;
+  --r4:4px;--r6:6px;--r8:8px;--r12:12px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:var(--bg0);color:var(--t1);font-family:var(--ff-body);font-size:13px;line-height:1.5;overflow:hidden}
+
+/* ── SHELL ── */
+#shell{display:grid;grid-template-rows:50px 42px 1fr;height:100vh;overflow:hidden}
+
+/* ── TOP BAR ── */
+#topbar{
+  background:var(--bg1);border-bottom:1px solid var(--border);
+  display:flex;align-items:center;gap:14px;padding:0 16px;
+  position:relative;z-index:100;
+}
+#topbar::after{content:'';position:absolute;bottom:0;left:0;right:0;height:1px;background:linear-gradient(90deg,var(--amber) 0%,var(--teal) 40%,transparent 100%)}
+.logo{font-family:var(--ff-head);font-size:20px;font-weight:700;letter-spacing:1px;white-space:nowrap;display:flex;align-items:center;gap:8px}
+.logo-icon{width:28px;height:28px;background:linear-gradient(135deg,var(--amber),var(--amber2));border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:14px}
+.logo-text{color:var(--t1)}
+.logo-text span{color:var(--amber)}
+.top-meta{font-size:11px;color:var(--t3);display:flex;gap:6px;align-items:center}
+.top-meta strong{color:var(--t2)}
+.top-right{margin-left:auto;display:flex;align-items:center;gap:10px}
+.live-badge{display:flex;align-items:center;gap:5px;font-size:10px;font-family:var(--ff-mono);color:var(--green);background:var(--green3);border:1px solid var(--green2);padding:3px 8px;border-radius:20px}
+.live-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:blink 1.4s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+.alert-counter{background:var(--red3);border:1px solid var(--red2);color:#ffa0a8;font-size:10px;font-weight:600;padding:3px 9px;border-radius:20px;cursor:pointer;animation:pulse-red 2s infinite}
+@keyframes pulse-red{0%,100%{box-shadow:0 0 0 0 rgba(232,57,74,.4)}50%{box-shadow:0 0 0 4px rgba(232,57,74,0)}}
+.top-clock{font-family:var(--ff-mono);font-size:11px;color:var(--t3)}
+.db-selector{background:var(--bg3);border:1px solid var(--border2);color:var(--t2);font-size:11px;font-family:var(--ff-body);padding:4px 8px;border-radius:var(--r4);cursor:pointer}
+
+/* ── TAB NAV ── */
+#tabnav{
+  background:var(--bg1);border-bottom:1px solid var(--border);
+  display:flex;overflow-x:auto;scrollbar-width:none;
+  align-items:stretch;
+}
+#tabnav::-webkit-scrollbar{display:none}
+.tn{
+  padding:0 13px;font-size:11.5px;font-weight:500;color:var(--t3);
+  border:none;background:none;cursor:pointer;white-space:nowrap;
+  border-bottom:2px solid transparent;transition:all .18s;
+  font-family:var(--ff-body);display:flex;align-items:center;gap:5px;
+  position:relative;
+}
+.tn:hover{color:var(--t2);background:rgba(255,255,255,.03)}
+.tn.active{color:var(--amber);border-bottom-color:var(--amber);background:rgba(245,166,35,.06)}
+.tn-ico{font-size:11px;opacity:.7}
+.tn-num{font-size:9px;font-family:var(--ff-mono);background:var(--bg3);color:var(--t3);padding:1px 4px;border-radius:3px;margin-left:2px}
+.tn.active .tn-num{background:var(--amber3);color:var(--amber)}
+
+/* ── CONTENT AREA ── */
+#content{overflow-y:auto;padding:14px;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+.page{display:none;animation:fadeIn .2s ease}
+.page.active{display:block}
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+/* ── FILTER BAR ── */
+.fbar{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r8);padding:8px 12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.fbar label{font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:.6px;font-weight:600}
+.fbar select,.fbar input[type=date]{background:var(--bg3);border:1px solid var(--border2);color:var(--t2);border-radius:var(--r4);padding:4px 8px;font-size:11.5px;font-family:var(--ff-body);outline:none;cursor:pointer}
+.fbar select:focus,.fbar input:focus{border-color:var(--amber)}
+.fbar-sep{width:1px;height:20px;background:var(--border2)}
+.fbar-tag{font-size:10px;font-family:var(--ff-mono);color:var(--teal);background:var(--teal3);border:1px solid var(--teal2);padding:2px 8px;border-radius:10px}
+
+/* ── KPI CARDS ── */
+.kgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:9px;margin-bottom:12px}
+.kcard{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r8);padding:12px 14px;position:relative;overflow:hidden;cursor:default;transition:border-color .2s}
+.kcard:hover{border-color:var(--border3)}
+.kcard::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;border-radius:2px 2px 0 0}
+.kcard.k-red::before{background:linear-gradient(90deg,var(--red),var(--red2))}
+.kcard.k-amber::before{background:linear-gradient(90deg,var(--amber),var(--amber2))}
+.kcard.k-green::before{background:linear-gradient(90deg,var(--green),var(--green2))}
+.kcard.k-blue::before{background:linear-gradient(90deg,var(--blue),var(--blue2))}
+.kcard.k-teal::before{background:linear-gradient(90deg,var(--teal),var(--teal2))}
+.kcard.k-purple::before{background:linear-gradient(90deg,var(--purple),#6b45c9)}
+.kcard.k-orange::before{background:linear-gradient(90deg,var(--orange),#c04020)}
+.k-label{font-size:9.5px;text-transform:uppercase;letter-spacing:.8px;color:var(--t3);font-weight:600;margin-bottom:6px}
+.k-val{font-family:var(--ff-head);font-size:28px;font-weight:700;line-height:1;letter-spacing:-.5px}
+.k-val.red{color:var(--red)}
+.k-val.amber{color:var(--amber)}
+.k-val.green{color:var(--green)}
+.k-val.blue{color:var(--blue)}
+.k-val.teal{color:var(--teal)}
+.k-val.purple{color:var(--purple)}
+.k-val.white{color:var(--t1)}
+.k-sub{font-size:10px;color:var(--t3);margin-top:4px}
+.k-trend{font-size:10px;margin-top:3px;font-weight:500}
+.t-bad{color:var(--red)}.t-good{color:var(--green)}.t-warn{color:var(--amber)}.t-info{color:var(--blue)}
+
+/* ── PANELS ── */
+.panel{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r8);padding:14px;margin-bottom:0}
+.panel-head{font-family:var(--ff-head);font-size:12px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--t2);margin-bottom:12px;display:flex;align-items:center;gap:8px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+.ph-line{width:3px;height:14px;border-radius:2px;background:var(--amber);flex-shrink:0}
+.ph-line.blue{background:var(--blue)}
+.ph-line.green{background:var(--green)}
+.ph-line.red{background:var(--red)}
+.ph-line.teal{background:var(--teal)}
+.ph-line.purple{background:var(--purple)}
+
+/* ── GRIDS ── */
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px}
+.g65{display:grid;grid-template-columns:65fr 35fr;gap:10px;margin-bottom:10px}
+.g60{display:grid;grid-template-columns:60fr 40fr;gap:10px;margin-bottom:10px}
+.g4{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;margin-bottom:10px}
+.mb10{margin-bottom:10px}
+
+/* ── CHART WRAPPERS ── */
+.cw{position:relative;width:100%}
+
+/* ── TABLES ── */
+.dt{width:100%;border-collapse:collapse;font-size:11.5px}
+.dt th{background:var(--bg3);color:var(--t3);font-weight:600;padding:7px 10px;text-align:left;font-size:10px;letter-spacing:.6px;text-transform:uppercase;border-bottom:1px solid var(--border);font-family:var(--ff-body)}
+.dt td{padding:7px 10px;border-bottom:1px solid rgba(31,45,66,.7);color:var(--t1);font-size:11.5px;vertical-align:middle}
+.dt tr:last-child td{border-bottom:none}
+.dt tr:hover td{background:rgba(255,255,255,.015)}
+.dt .mono{font-family:var(--ff-mono);font-size:11px;color:var(--t2)}
+
+/* ── BADGES ── */
+.b{display:inline-flex;align-items:center;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:600;white-space:nowrap}
+.b-red{background:var(--red3);color:#ff7083;border:1px solid var(--red2)}
+.b-amber{background:var(--amber3);color:#ffc555;border:1px solid var(--amber2)}
+.b-green{background:var(--green3);color:#4dffa0;border:1px solid var(--green2)}
+.b-blue{background:var(--blue3);color:#72b8ff;border:1px solid var(--blue2)}
+.b-teal{background:var(--teal3);color:#35ffe8;border:1px solid var(--teal2)}
+.b-purple{background:var(--purple3);color:#c09fff;border:1px solid #5a3bb0}
+.b-gray{background:var(--bg4);color:var(--t2);border:1px solid var(--border2)}
+
+/* ── ALERTS ── */
+.alert{border-radius:var(--r6);padding:9px 12px;margin-bottom:9px;display:flex;align-items:flex-start;gap:9px;font-size:11.5px}
+.alert-icon{font-size:13px;flex-shrink:0;margin-top:1px}
+.a-red{background:var(--red3);border:1px solid var(--red2);color:#ffa0a8}
+.a-amber{background:var(--amber3);border:1px solid var(--amber2);color:#ffc555}
+.a-blue{background:var(--blue3);border:1px solid var(--blue2);color:#90caff}
+.a-green{background:var(--green3);border:1px solid var(--green2);color:#5dff9e}
+.a-teal{background:var(--teal3);border:1px solid var(--teal2);color:#35ffe8}
+
+/* ── PROGRESS BARS ── */
+.prog-row{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+.prog-label{font-size:11.5px;color:var(--t2);min-width:140px;flex-shrink:0}
+.prog-track{flex:1;height:5px;background:var(--bg4);border-radius:3px;overflow:hidden}
+.prog-fill{height:100%;border-radius:3px;transition:width .6s cubic-bezier(.4,0,.2,1)}
+.prog-val{font-size:10.5px;color:var(--t3);font-family:var(--ff-mono);min-width:36px;text-align:right}
+
+/* ── STAT ROWS ── */
+.srow{display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(31,45,66,.6)}
+.srow:last-child{border-bottom:none}
+.srow-name{font-size:11.5px;color:var(--t2)}
+.srow-val{font-size:12px;font-weight:600;font-family:var(--ff-mono)}
+
+/* ── ACTION ITEMS ── */
+.aitem{background:var(--bg3);border:1px solid var(--border);border-radius:var(--r6);padding:9px 11px;margin-bottom:7px;border-left:3px solid var(--border3)}
+.aitem.crit{border-left-color:var(--red)}
+.aitem.high{border-left-color:var(--amber)}
+.aitem.med{border-left-color:var(--blue)}
+.aitem-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:3px}
+.aitem-title{font-size:12px;font-weight:500;color:var(--t1)}
+.aitem-meta{font-size:10px;color:var(--t3)}
+
+/* ── RISK MATRIX ── */
+.rmatrix{display:grid;grid-template-columns:repeat(5,1fr);gap:3px}
+.rc{height:34px;border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;font-family:var(--ff-head);cursor:pointer;transition:transform .15s}
+.rc:hover{transform:scale(1.08);z-index:10;position:relative}
+
+/* ── INCIDENT PYRAMID ── */
+.pyramid{display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 0}
+.pyr-level{display:flex;align-items:center;justify-content:center;border-radius:4px;font-size:11px;font-weight:600;font-family:var(--ff-head);letter-spacing:.3px;transition:all .2s;cursor:default}
+.pyr-level:hover{opacity:.85;transform:scaleX(1.02)}
+
+/* ── HELIDECK STATUS ── */
+.heli-status-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.hcheck{display:flex;align-items:center;justify-content:space-between;padding:5px 8px;background:var(--bg3);border-radius:var(--r4);border:1px solid var(--border);font-size:11px}
+.hcheck-name{color:var(--t2)}
+
+/* ── SECTION LABELS ── */
+.sec-label{font-size:9.5px;text-transform:uppercase;letter-spacing:.9px;color:var(--t3);font-weight:700;margin-bottom:7px;margin-top:2px;padding-left:2px;display:flex;align-items:center;gap:6px}
+.sec-label::after{content:'';flex:1;height:1px;background:var(--border)}
+
+/* ── DIVIDER ── */
+.div{height:1px;background:var(--border);margin:10px 0}
+
+/* ── SCROLLABLE TABLE WRAP ── */
+.tscroll{overflow-x:auto;border-radius:var(--r6);border:1px solid var(--border)}
+.tscroll .dt{min-width:620px}
+
+/* ── KPI FORMULA TOOLTIP ── */
+.formula-chip{font-size:9.5px;font-family:var(--ff-mono);background:var(--bg4);color:var(--teal);padding:2px 7px;border-radius:3px;border:1px solid var(--border2)}
+
+/* ── MODEL RELATION LINES ── */
+.rel-box{background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r6);padding:10px 14px;font-size:11px;color:var(--t2)}
+.rel-box strong{color:var(--amber);font-family:var(--ff-mono)}
+.rel-arrow{color:var(--teal);margin:0 6px;font-size:12px}
+
+/* ── SCHEMA TABLE ── */
+.schema-table{width:100%;border-collapse:collapse;font-size:11px}
+.schema-table th{background:var(--bg4);color:var(--t3);padding:6px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)}
+.schema-table td{padding:6px 10px;border-bottom:1px solid rgba(31,45,66,.5);vertical-align:top}
+.schema-table tr:last-child td{border-bottom:none}
+.col-name{font-family:var(--ff-mono);color:var(--blue);font-size:10.5px}
+.col-type{font-family:var(--ff-mono);color:var(--teal);font-size:10px}
+.col-pk{font-size:9px;background:var(--amber3);color:var(--amber);padding:1px 5px;border-radius:3px;font-weight:700}
+.col-fk{font-size:9px;background:var(--blue3);color:var(--blue);padding:1px 5px;border-radius:3px}
+.col-desc{color:var(--t3);font-size:10.5px}
+
+/* ── RESPONSIVE ── */
+@media(max-width:700px){.g2,.g3,.g65,.g60,.g4{grid-template-columns:1fr}.kgrid{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div id="shell">
+
+<!-- ══ TOP BAR ══════════════════════════════════════════════════════════════ -->
+<div id="topbar">
+  <div class="logo">
+    <div class="logo-icon">⬡</div>
+    <div class="logo-text">HSE<span>COMMAND</span></div>
+  </div>
+  <div class="top-meta">
+    <strong>Integrated Oil & Gas HSE Command Center</strong>
+    <span>·</span><span>Gulf Operations Zone</span>
+    <span>·</span><span id="db-status" style="color:var(--green);font-size:10px">● Data model: 7 tables · 15 relationships · live KPI engine</span>
+  </div>
+  <div class="top-right">
+    <div class="live-badge"><div class="live-dot"></div>LIVE</div>
+    <div class="alert-counter" id="alert-counter">▲ 3 CRITICAL</div>
+    <div class="top-clock" id="clock">--:--:--</div>
+    <select class="db-selector" onchange="switchFacility(this.value)">
+      <option value="all">All Facilities</option>
+      <option value="alpha">Offshore Alpha</option>
+      <option value="beta">Onshore Beta</option>
+      <option value="logistics">Logistics Base</option>
+      <option value="refinery">Refinery Unit</option>
+    </select>
+  </div>
+</div>
+
+<!-- ══ TAB NAV ══════════════════════════════════════════════════════════════ -->
+<div id="tabnav">
+  <button class="tn active" onclick="goTab('exec',this)"><span class="tn-ico">◈</span>Executive<span class="tn-num" id="tn-exec">8 KPI</span></button>
+  <button class="tn" onclick="goTab('daily',this)"><span class="tn-ico">◎</span>Daily Ops<span class="tn-num" id="tn-daily">47 insp</span></button>
+  <button class="tn" onclick="goTab('heli',this)"><span class="tn-ico">▲</span>Helideck<span class="tn-num" id="tn-heli">14 mvmt</span></button>
+  <button class="tn" onclick="goTab('incident',this)"><span class="tn-ico">◉</span>Incidents<span class="tn-num" id="tn-incident">47 YTD</span></button>
+  <button class="tn" onclick="goTab('ptw',this)"><span class="tn-ico">◈</span>PTW<span class="tn-num" id="tn-ptw">34 active</span></button>
+  <button class="tn" onclick="goTab('risk',this)"><span class="tn-ico">◎</span>Risk/JSA<span class="tn-num" id="tn-risk">5×5</span></button>
+  <button class="tn" onclick="goTab('emergency',this)"><span class="tn-ico">◉</span>Emergency<span class="tn-num" id="tn-emergency">5 overdue</span></button>
+  <button class="tn" onclick="goTab('health',this)"><span class="tn-ico">◈</span>Occ.Health<span class="tn-num" id="tn-health">4 cases</span></button>
+  <button class="tn" onclick="goTab('env',this)"><span class="tn-ico">◎</span>Environment<span class="tn-num" id="tn-env">4 spills</span></button>
+  <button class="tn" onclick="goTab('fire',this)"><span class="tn-ico">◉</span>Fire/Process<span class="tn-num" id="tn-fire">2 PSE</span></button>
+  <button class="tn" onclick="goTab('contractor',this)"><span class="tn-ico">◈</span>Contractor<span class="tn-num" id="tn-contractor">12 active</span></button>
+  <button class="tn" onclick="goTab('training',this)"><span class="tn-ico">◎</span>Training<span class="tn-num" id="tn-training">87%</span></button>
+  <button class="tn" onclick="goTab('audit',this)"><span class="tn-ico">◉</span>Audits<span class="tn-num" id="tn-audit">22 open</span></button>
+  <button class="tn" onclick="goTab('transport',this)"><span class="tn-ico">◈</span>Transport<span class="tn-num" id="tn-transport">6 inc</span></button>
+  <button class="tn" onclick="goTab('chem',this)"><span class="tn-ico">◎</span>Chem/PPE<span class="tn-num" id="tn-chem">3 SDS!</span></button>
+  <button class="tn" onclick="goTab('waste',this)"><span class="tn-ico">◉</span>Waste<span class="tn-num" id="tn-waste">48.7T</span></button>
+  <button class="tn" onclick="goTab('moc',this)"><span class="tn-ico">◈</span>MOC<span class="tn-num" id="tn-moc">18 open</span></button>
+  <button class="tn" onclick="goTab('offshore',this)"><span class="tn-ico">◎</span>Offshore<span class="tn-num" id="tn-offshore">POB 127</span></button>
+  <button class="tn" onclick="goTab('predict',this)"><span class="tn-ico">◉</span>Predictive AI<span class="tn-num" id="tn-predict">68% LTI</span></button>
+  <button class="tn" onclick="goTab('datamodel',this)"><span class="tn-ico">◈</span>Data Model<span class="tn-num" id="tn-datamodel">7 tables</span></button>
+</div>
+
+<!-- ══ CONTENT ══════════════════════════════════════════════════════════════ -->
+<div id="content">
+
+<!-- ─── EXECUTIVE ─────────────────────────────────────────────────────────── -->
+<div class="page active" id="page-exec">
+  <div class="fbar">
+    <label>Period</label>
+    <select id="f-period" onchange="recalcKPIs()"><option value="ytd">YTD 2025</option><option value="q2">Q2 2025</option><option value="30d">Last 30 Days</option></select>
+    <div class="fbar-sep"></div>
+    <label>Facility</label>
+    <select id="f-facility" onchange="recalcKPIs()"><option value="all">All Facilities</option><option value="alpha">Offshore Alpha</option><option value="beta">Onshore Beta</option><option value="logistics">Logistics Base</option></select>
+    <div class="fbar-sep"></div>
+    <span class="fbar-tag" id="kpi-status">● KPI engine active</span>
+    <span class="fbar-tag" id="manhour-tag">2.18M manhours</span>
+  </div>
+  <div class="alert a-red"><span class="alert-icon">▲</span><div><strong>CRITICAL — TRIR Breach:</strong> Current TRIR <span id="alert-trir">1.84</span> exceeds target of 1.50. Night-shift unsafe acts +67% vs day shift. Immediate leadership intervention required.</div></div>
+  <div class="alert a-amber"><span class="alert-icon">⚠</span><div><strong>OVERDUE:</strong> Helideck inspection Facility C (11 days) · Emergency drill Offshore Alpha (6 days) · AquaDrill improvement plan (3 days overdue)</div></div>
+  <div class="kgrid" id="exec-kpis">
+    <div class="kcard k-red"><div class="k-label">TRIR (YTD)</div><div class="k-val red" id="kv-trir">1.84</div><div class="k-sub">Target ≤ 1.50</div><div class="k-trend t-bad">▲ +0.22 vs prior year</div></div>
+    <div class="kcard k-amber"><div class="k-label">LTIFR</div><div class="k-val amber" id="kv-ltifr">0.68</div><div class="k-sub">per 1M manhours</div><div class="k-trend t-bad">▲ +0.12 MoM</div></div>
+    <div class="kcard k-green"><div class="k-label">Near Miss Rate</div><div class="k-val green" id="kv-nmr">4.2</div><div class="k-sub">per 200K hrs</div><div class="k-trend t-good">▲ Reporting culture ↑</div></div>
+    <div class="kcard k-blue"><div class="k-label">PTW Compliance</div><div class="k-val blue" id="kv-ptw">94.7%</div><div class="k-sub">Field audit score</div><div class="k-trend t-warn">→ Stable</div></div>
+    <div class="kcard k-teal"><div class="k-label">LTI-Free Days</div><div class="k-val teal" id="kv-ltifree">124</div><div class="k-sub">Last LTI: 14 Jun</div><div class="k-trend t-good">▼ −14 days (new event)</div></div>
+    <div class="kcard k-amber"><div class="k-label">Training Compliance</div><div class="k-val amber" id="kv-train">87.3%</div><div class="k-sub">Target ≥ 95%</div><div class="k-trend t-bad">▼ −3.1% MoM</div></div>
+    <div class="kcard k-amber"><div class="k-label">Audit Closure Rate</div><div class="k-val amber" id="kv-audit">78%</div><div class="k-sub">22 findings open</div><div class="k-trend t-bad">▼ −5% MoM</div></div>
+    <div class="kcard k-green"><div class="k-label">Total Manhours</div><div class="k-val green" id="kv-mh">2.18M</div><div class="k-sub">YTD all facilities</div><div class="k-trend t-good">▲ On track</div></div>
+  </div>
+  <div class="g65">
+    <div class="panel">
+      <div class="panel-head"><div class="ph-line"></div>12-Month Incident Trend</div>
+      <div class="cw" style="height:200px"><canvas id="c-exec-trend" aria-label="Monthly incident trend chart 2024-2025"></canvas></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><div class="ph-line blue"></div>Classification Split</div>
+      <div class="cw" style="height:200px"><canvas id="c-inc-class" aria-label="Incident classification donut chart"></canvas></div>
+    </div>
+  </div>
+  <div class="g3">
+    <div class="panel">
+      <div class="panel-head"><div class="ph-line"></div>KPI vs Target</div>
+      <div class="prog-row"><div class="prog-label">TRIR</div><div class="prog-track"><div class="prog-fill" style="width:81%;background:var(--red)"></div></div><div class="prog-val" style="color:var(--red)">1.84</div></div>
+      <div class="prog-row"><div class="prog-label">Training %</div><div class="prog-track"><div class="prog-fill" style="width:87%;background:var(--amber)"></div></div><div class="prog-val" style="color:var(--amber)">87%</div></div>
+      <div class="prog-row"><div class="prog-label">PTW Comply</div><div class="prog-track"><div class="prog-fill" style="width:95%;background:var(--green)"></div></div><div class="prog-val" style="color:var(--green)">95%</div></div>
+      <div class="prog-row"><div class="prog-label">Audit Close</div><div class="prog-track"><div class="prog-fill" style="width:78%;background:var(--amber)"></div></div><div class="prog-val" style="color:var(--amber)">78%</div></div>
+      <div class="prog-row"><div class="prog-label">Inspection</div><div class="prog-track"><div class="prog-fill" style="width:91%;background:var(--green)"></div></div><div class="prog-val" style="color:var(--green)">91%</div></div>
+      <div class="prog-row"><div class="prog-label">Drill Completion</div><div class="prog-track"><div class="prog-fill" style="width:83%;background:var(--amber)"></div></div><div class="prog-val" style="color:var(--amber)">83%</div></div>
+      <div class="prog-row"><div class="prog-label">HSE Score</div><div class="prog-track"><div class="prog-fill" style="width:73%;background:var(--blue)"></div></div><div class="prog-val" style="color:var(--blue)">73/100</div></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><div class="ph-line teal"></div>Leading vs Lagging Radar</div>
+      <div class="cw" style="height:180px"><canvas id="c-radar" aria-label="Radar chart leading vs lagging indicators"></canvas></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><div class="ph-line red"></div>Facility Risk Status</div>
+      <div class="srow"><div class="srow-name">Offshore Alpha</div><span class="b b-red">HIGH RISK</span></div>
+      <div class="srow"><div class="srow-name">Onshore Beta</div><span class="b b-amber">MEDIUM</span></div>
+      <div class="srow"><div class="srow-name">Logistics Base</div><span class="b b-amber">MEDIUM</span></div>
+      <div class="srow"><div class="srow-name">Facility C (Helideck)</div><span class="b b-red">HIGH RISK</span></div>
+      <div class="srow"><div class="srow-name">Refinery Unit</div><span class="b b-green">LOW</span></div>
+      <div style="margin-top:10px" class="alert a-red" style="margin:0"><span class="alert-icon">▲</span><span style="font-size:10.5px">2 facilities at HIGH — board notification required</span></div>
+    </div>
+  </div>
+  <div class="g2">
+    <div class="panel">
+      <div class="panel-head"><div class="ph-line blue"></div>Severity Distribution (YTD)</div>
+      <div class="cw" style="height:160px"><canvas id="c-severity" aria-label="Incident severity bar chart"></canvas></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><div class="ph-line red"></div>Top Overdue Actions</div>
+      <div class="aitem crit"><div class="aitem-head"><span class="aitem-title">Helideck FOD Procedure Update</span><span class="b b-red">21d overdue</span></div><div class="aitem-meta">Offshore Alpha · Owner: J. Khalid · Source: Incident INC-0047</div></div>
+      <div class="aitem crit"><div class="aitem-head"><span class="aitem-title">AquaDrill Improvement Plan</span><span class="b b-red">18d overdue</span></div><div class="aitem-meta">Logistics Base · Owner: HSE Director · Source: Contractor Scorecard</div></div>
+      <div class="aitem high"><div class="aitem-head"><span class="aitem-title">Fire Pump Annual Service</span><span class="b b-amber">12d overdue</span></div><div class="aitem-meta">Onshore Beta · Owner: M. Al-Rashid · Source: Audit AUD-087</div></div>
+      <div class="aitem med"><div class="aitem-head"><span class="aitem-title">Waste Manifest Filing Apr/May</span><span class="b b-amber">26d overdue</span></div><div class="aitem-meta">Logistics Base · Owner: Env Officer · Source: Audit AUD-085</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── HELIDECK ────────────────────────────────────────────────────────────── -->
+<div class="page" id="page-heli">
+  <div class="alert a-amber"><span class="alert-icon">⚠</span><div><strong>WEATHER ADVISORY:</strong> Wind gusts 28 knots — Facility C on cautionary hold. FOD check completed 07:50 by HLO. Next wx assessment: 12:30.</div></div>
+  <div class="alert a-blue"><span class="alert-icon">ℹ</span>Next flight: OH-417 depart 13:30 · 12 PAX · Offshore Alpha → Doha Base · Manifest verified · Medevac standby active</div>
+  <div class="kgrid">
+    <div class="kcard k-green"><div class="k-label">Movements Today</div><div class="k-val green">14</div><div class="k-sub">8 in · 6 out</div><div class="k-trend t-good">→ Normal ops</div></div>
+    <div class="kcard k-green"><div class="k-label">On-Time Performance</div><div class="k-val green">89%</div><div class="k-sub">Target ≥ 85%</div><div class="k-trend t-good">▲ +4% vs target</div></div>
+    <div class="kcard k-amber"><div class="k-label">Delays Today</div><div class="k-val amber">3</div><div class="k-sub">2 weather · 1 mech</div><div class="k-trend t-bad">▲ +1 vs yesterday</div></div>
+    <div class="kcard k-blue"><div class="k-label">POB Current</div><div class="k-val blue">127</div><div class="k-sub">Manifest verified</div><div class="k-trend t-good">✓ Reconciled</div></div>
+    <div class="kcard k-red"><div class="k-label">Facility C Status</div><div class="k-val red">HOLD</div><div class="k-sub">Weather — 28 kts</div><div class="k-trend t-bad">▲ Wind advisory</div></div>
+    <div class="kcard k-teal"><div class="k-label">Medevac YTD</div><div class="k-val teal">2</div><div class="k-sub">Both successful</div><div class="k-trend t-good">✓ 100% success</div></div>
+    <div class="kcard k-green"><div class="k-label">PAX Briefed Today</div><div class="k-val green">74</div><div class="k-sub">CAP 437 compliant</div><div class="k-trend t-good">100% compliance</div></div>
+    <div class="kcard k-amber"><div class="k-label">Helideck Readiness</div><div class="k-val amber">2/3</div><div class="k-sub">Facility C on hold</div><div class="k-trend t-bad">▼ 1 deck unavail</div></div>
+  </div>
+  <div class="g65">
+    <div class="panel">
+      <div class="panel-head"><div class="ph-line"></div>Helicopter Movement Log — Today (helicopter_movements table)</div>
+      <div class="tscroll">
+        <table class="dt">
+          <thead><tr><th>Flight ID</th><th>Time</th><th>Type</th><th>PAX</th><th>Origin</th><th>Destination</th><th>Delay</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">OH-411</td><td>06:15</td><td>Personnel</td><td>8</td><td>Doha Base</td><td>Offshore Alpha</td><td style="color:var(--green)">0 min</td><td><span class="b b-green">Landed</span></td></tr>
+            <tr><td class="mono">OH-412</td><td>07:30</td><td>Cargo</td><td>0</td><td>Offshore Alpha</td><td>Doha Base</td><td style="color:var(--green)">0 min</td><td><span class="b b-green">Departed</span></td></tr>
+            <tr><td class="mono">MED-03</td><td>09:45</td><td><span class="b b-purple">Medevac</span></td><td>1</td><td>Offshore Delta</td><td>Hamad Hospital</td><td style="color:var(--green)">0 min</td><td><span class="b b-teal">Completed</span></td></tr>
+            <tr><td class="mono">OH-414</td><td>11:00</td><td>Personnel</td><td>12</td><td>Doha Base</td><td>Offshore Alpha</td><td style="color:var(--amber)">+25 min</td><td><span class="b b-amber">Delayed</span></td></tr>
+            <tr><td class="mono">OH-415</td><td>11:30</td><td>Personnel</td><td>6</td><td>Offshore Alpha</td><td>Offshore Delta</td><td style="color:var(--green)">0 min</td><td><span class="b b-green">Departed</span></td></tr>
+            <tr><td class="mono">OH-417</td><td>13:30</td><td>Personnel</td><td>12</td><td>Offshore Alpha</td><td>Doha Base</td><td style="color:var(--t3)">—</td><td><span class="b b-blue">Scheduled</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><div class="ph-line green"></div>Helideck Readiness — Offshore Alpha</div>
+      <div class="heli-status-grid">
+        <div class="hcheck"><span class="hcheck-name">FOD Inspection</span><span class="b b-green">CLEAR</span></div>
+        <div class="hcheck"><span class="hcheck-name">Deck Lighting</span><span class="b b-green">OPER.</span></div>
+        <div class="hcheck"><span class="hcheck-name">Foam System</span><span class="b b-green">CHARGED</span></div>
+        <div class="hcheck"><span class="hcheck-name">HLO On Station</span><span class="b b-green">CONF.</span></div>
+        <div class="hcheck"><span class="hcheck-name">Fire Team</span><span class="b b-green">READY</span></div>
+        <div class="hcheck"><span class="hcheck-name">Wind Indicator</span><span class="b b-green">FUNCT.</span></div>
+        <div class="hcheck"><span class="hcheck-name">Radio Comm</span><span class="b b-green">CLEAR</span></div>
+        <div class="hcheck"><span class="hcheck-name">Deck Markings</span><span class="b b-amber">FADED</span></div>
+        <div class="hcheck"><span class="hcheck-name">DG Declared</span><span class="b b-green">STOWED</span></div>
+        <div class="hcheck"><span class="hcheck-name">PAX Briefing</span><span class="b b-green">DONE</span></div>
+      </div>
+      <div style="margin-top:8px" class="alert a-amber"><span class="alert-icon">⚠</span><span style="font-size:10.5px">Deck markings faded — corrective action ACT-215 raised. CAP 437 §5.4 compliance due.</span></div>
+    </div>
+  </div>
+  <div class="g3">
+    <div class="panel">
+      <div class="panel-head"><div class="ph-line blue"></div>Monthly Movements</div>
+      <div class="cw" style="height:160px"><canvas id="c-heli-monthly" aria-label="Monthly helicopter movements bar chart"></canvas></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><div class="ph-line"></div>Delay Reasons (YTD)</div>
+      <div class="cw" style="height:160px"><canvas id="c-delays" aria-label="Delay reasons donut chart"></canvas></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><div class="ph-line teal"></div>Live Weather — Offshore Alpha</div>
+      <div class="srow"><div class="srow-name">Wind Speed</div><div class="srow-val" style="color:var(--amber)">28 kts</div></div>
+      <div class="srow"><div class="srow-name">Direction</div><div class="srow-val">NNW 330°</div></div>
+      <div class="srow"><div class="srow-name">Visibility</div><div class="srow-val" style="color:var(--green)">8 km</div></div>
+      <div class="srow"><div class="srow-name">Cloud Base</div><div class="srow-val" style="color:var(--green)">2,400 ft</div></div>
+      <div class="srow"><div class="srow-name">Sea State</div><div class="srow-val" style="color:var(--amber)">Mod (2.1m)</div></div>
+      <div class="srow"><div class="srow-name">Temperature</div><div class="srow-val">38°C</div></div>
+      <div class="srow"><div class="srow-name">METAR</div><div class="srow-val" style="color:var(--amber)">CAUTION</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── INCIDENTS ──────────────────────────────────────────────────────────── -->
+<div class="page" id="page-incident">
+  <div class="kgrid">
+    <div class="kcard k-red"><div class="k-label">LTI Count YTD</div><div class="k-val red">3</div><div class="k-sub">Last: 11 Jun 2025</div><div class="k-trend t-bad">▲ +1 MoM</div></div>
+    <div class="kcard k-amber"><div class="k-label">MTC YTD</div><div class="k-val amber">7</div><div class="k-sub">Medical Treatment</div><div class="k-trend t-bad">▲ +2 MoM</div></div>
+    <div class="kcard k-amber"><div class="k-label">Restricted Work</div><div class="k-val amber">5</div><div class="k-sub">RWC cases</div><div class="k-trend t-warn">→ Stable</div></div>
+    <div class="kcard k-blue"><div class="k-label">First Aid YTD</div><div class="k-val blue">22</div><div class="k-sub">FAC only</div><div class="k-trend t-warn">→ Stable</div></div>
+    <div class="kcard k-green"><div class="k-label">Near Misses YTD</div><div class="k-val green">91</div><div class="k-sub">Healthy reporting</div><div class="k-trend t-good">▲ +12%</div></div>
+    <div class="kcard k-amber"><div class="k-label">Property Damage</div><div class="k-val amber">8</div><div class="k-sub">USD 142K total</div><div class="k-trend t-bad">▲ +3 MoM</div></div>
+    <div class="kcard k-red"><div class="k-label">Overdue Invest.</div><div class="k-val red">4</div><div class="k-sub">≥5 days breached</div><div class="k-trend t-bad">▲ Escalate now</div></div>
+    <div class="kcard k-teal"><div class="k-label">CAPA Closure</div><div class="k-val teal">74%</div><div class="k-sub">of all actions</div><div class="k-trend t-bad">▼ −4% vs target</div></div>
+  </div>
+  <div class="g65">
+    <div class="panel">
+      <div class="panel-head"><div class="ph-line"></div>Incident Register — incidents table (recent 30 days)</div>
+      <div class="tscroll">
+        <table class="dt">
+          <thead><tr><th>Incident ID</th><th>Date</th><th>Type</th><th>Severity</th><th>Description</th><th>Root Cause</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">INC-0047</td><td>15 Jun</td><td>Near Miss</td><td><span class="b b-red">HIGH</span></td><td>Dropped wrench — platform 3</td><td>Procedure not followed</td><td><span class="b b-amber">Investigating</span></td></tr>
+            <tr><td class="mono">INC-0046</td><td>13 Jun</td><td>FAC</td><td><span class="b b-amber">MED</span></td><td>Hand laceration — grinder</td><td>Training gap</td><td><span class="b b-green">Closed</span></td></tr>
+            <tr><td class="mono">INC-0045</td><td>11 Jun</td><td><span class="b b-red">LTI</span></td><td><span class="b b-red">HIGH</span></td><td>Back strain — manual lift</td><td>Inadequate supervision</td><td><span class="b b-red">Open</span></td></tr>
+            <tr><td class="mono">INC-0044</td><td>09 Jun</td><td>Vehicle</td><td><span class="b b-amber">MED</span></td><td>Forklift vs barrier</td><td>Procedure not followed</td><td><span class="b b-green">Closed</span></td></tr>
+            <tr><td class="mono">INC-0043</td><td>06 Jun</td><td>Env Spill</td><td><span class="b b-amber">MED</span></td><td>Diesel 40L — bund contained</td><td>Equipment failure</td><td><span class="b b-green">Closed</span></td></tr>
+            <tr><td class="mono">INC-0042</td><td>03 Jun</td><td>Process</td><td><span class="b b-red">HIGH</span></td><td>H2S alarm 12ppm Zone 7</td><td>Environmental factors</td><td><span class="b b-amber">Investigating</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><div class="ph-line red"></div>Root Cause Clusters</div>
+      <div class="cw" style="height:200px"><canvas id="c-rootcause" aria-label="Root cause horizontal bar chart"></canvas></div>
+      <div style="margin-top:8px" class="alert a-amber"><span class="alert-icon">⚠</span><span style="font-size:10.5px">"Procedure not followed" = 31% of all incidents. Targeted TBT programme recommended.</span></div>
+    </div>
+  </div>
+  <div class="g3">
+    <div class="panel">
+      <div class="panel-head"><div class="ph-line"></div>Incident Pyramid</div>
+      <div class="pyramid">
+        <div class="pyr-level" style="width:60px;height:34px;background:#2d0a0f;color:var(--red);border:1px solid var(--red2)">LTI: 3</div>
+        <div class="pyr-level" style="width:110px;height:34px;background:#2d1a06;color:var(--amber);border:1px solid var(--amber2)">MTC: 7</div>
+        <div class="pyr-level" style="width:162px;height:34px;background:var(--blue3);color:#90caff;border:1px solid var(--blue2)">First Aid: 22</div>
+        <div class="pyr-level" style="width:218px;height:34px;background:var(--green3);color:#5dff9e;border:1px solid var(--green2)">Near Miss: 91</div>
+        <div class="pyr-level" style="width:272px;height:34px;background:var(--bg4);color:var(--t2);border:1px solid var(--border2)">Unsafe Acts: 214</div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><div class="ph-line teal"></div>CAPA Status</div>
+      <div class="prog-row"><div class="prog-label">Overdue</div><div class="prog-track"><div class="prog-fill" style="width:18%;background:var(--red)"></div></div><div class="prog-val" style="color:var(--red)">18%</div></div>
+      <div class="prog-row"><div class="prog-label">In Progress</div><div class="prog-track"><div class="prog-fill" style="width:37%;background:var(--amber)"></div></div><div class="prog-val" style="color:var(--amber)">37%</div></div>
+      <div class="prog-row"><div class="prog-label">Closed</div><div class="prog-track"><div class="prog-fill" style="width:74%;background:var(--green)"></div></div><div class="prog-val" style="color:var(--green)">74%</div></div>
+      <div class="prog-row"><div class="prog-label">Lessons Learned</div><div class="prog-track"><div class="prog-fill" style="width:62%;background:var(--blue)"></div></div><div class="prog-val" style="color:var(--blue)">62%</div></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><div class="ph-line blue"></div>By Facility</div>
+      <div class="srow"><div class="srow-name">Offshore Alpha</div><div class="srow-val" style="color:var(--red)">18</div></div>
+      <div class="srow"><div class="srow-name">Onshore Beta</div><div class="srow-val" style="color:var(--amber)">12</div></div>
+      <div class="srow"><div class="srow-name">Logistics Base</div><div class="srow-val" style="color:var(--amber)">9</div></div>
+      <div class="srow"><div class="srow-name">Refinery Unit</div><div class="srow-val" style="color:var(--blue)">6</div></div>
+      <div class="srow"><div class="srow-name">Helideck Ops</div><div class="srow-val" style="color:var(--green)">2</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── PTW ────────────────────────────────────────────────────────────────── -->
+<div class="page" id="page-ptw">
+  <div class="alert a-red"><span class="alert-icon">▲</span><div><strong>EXPIRED PERMIT:</strong> PTW-1843 (Hot Work — Flare Area) expired 12:00 — gas test FAIL recorded. SafeRig Co supervisor notified. Work suspended pending re-issue.</div></div>
+  <div class="kgrid">
+    <div class="kcard k-green"><div class="k-label">Active Permits</div><div class="k-val green">34</div><div class="k-sub">of 38 opened today</div></div>
+    <div class="kcard k-amber"><div class="k-label">Suspended</div><div class="k-val amber">3</div><div class="k-sub">Weather / SWO</div></div>
+    <div class="kcard k-red"><div class="k-label">Expired Unconfirmed</div><div class="k-val red">1</div><div class="k-sub">Action required NOW</div></div>
+    <div class="kcard k-blue"><div class="k-label">PTW Compliance %</div><div class="k-val blue">94.7%</div><div class="k-sub">Field audit score</div></div>
+    <div class="kcard k-teal"><div class="k-label">SIMOPS Conflicts</div><div class="k-val teal">2</div><div class="k-sub">Reviewed & managed</div></div>
+    <div class="kcard k-green"><div class="k-label">Gas Tests Today</div><div class="k-val green">47</div><div class="k-sub">All within limits</div></div>
+    <div class="kcard k-amber"><div class="k-label">LOTO Active</div><div class="k-val amber">9</div><div class="k-sub">Verified in field</div></div>
+    <div class="kcard k-green"><div class="k-label">JSA Attached Rate</div><div class="k-val green">100%</div><div class="k-sub">All permits today</div></div>
+  </div>
+  <div class="g2">
+    <div class="panel">
+      <div class="panel-head"><div class="ph-line"></div>PTW Register — permits table (active today)</div>
+      <div class="tscroll">
+        <table class="dt">
+          <thead><tr><th>PTW #</th><th>Type</th><th>Area</th><th>Contractor</th><th>Expiry</th><th>JSA</th><th>Gas Test</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">PTW-1847</td><td>Hot Work</td><td>Drill Floor</td><td>SafeRig Co</td><td>18:00</td><td><span class="b b-green">✓</span></td><td><span class="b b-green">PASS</span></td><td><span class="b b-green">Active</span></td></tr>
+            <tr><td class="mono">PTW-1848</td><td>CSE</td><td>Vessel V-101</td><td>Petroflex</td><td>17:00</td><td><span class="b b-green">✓</span></td><td><span class="b b-green">PASS</span></td><td><span class="b b-green">Active</span></td></tr>
+            <tr><td class="mono">PTW-1849</td><td>Electrical</td><td>Substation A</td><td>PowerTech</td><td>16:30</td><td><span class="b b-green">✓</span></td><td><span class="b b-gray">N/A</span></td><td><span class="b b-amber">Suspended</span></td></tr>
+            <tr><td class="mono">PTW-1850</td><td>Lifting</td><td>Crane Bay 2</td><td>HeavyLift</td><td>20:00</td><td><span class="b b-green">✓</span></td><td><span class="b b-gray">N/A</span></td><td><span class="b b-green">Active</span></td></tr>
+            <tr><td class="mono">PTW-1843</td><td>Hot Work</td><td>Flare Area</td><td>SafeRig Co</td><td>12:00</td><td><span class="b b-green">✓</span></td><td><span class="b b-red">FAIL</span></td><td><span class="b b-red">EXPIRED</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><div class="ph-line teal"></div>Permit Types & SIMOPS</div>
+      <div class="cw" style="height:160px"><canvas id="c-ptw-types" aria-label="Permit types bar chart"></canvas></div>
+      <div style="margin-top:10px" class="alert a-amber"><span class="alert-icon">⚠</span><span style="font-size:10.5px">SIMOPS: PTW-1847 (Hot Work) within 30m of PTW-1848 (CSE). Standby gas monitor assigned. Review required.</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── RISK/JSA ───────────────────────────────────────────────────────────── -->
+<div class="page" id="page-risk">
+  <div class="kgrid">
+    <div class="kcard k-red"><div class="k-label">Extreme Risk Tasks</div><div class="k-val red">6</div><div class="k-sub">GM approval required</div></div>
+    <div class="kcard k-amber"><div class="k-label">High Risk Tasks</div><div class="k-val amber">24</div><div class="k-sub">HSE Manager review</div></div>
+    <div class="kcard k-blue"><div class="k-label">JSA Library</div><div class="k-val blue">148</div><div class="k-sub">Updated this quarter</div></div>
+    <div class="kcard k-green"><div class="k-label">Review Effectiveness</div><div class="k-val green">88%</div><div class="k-sub">Post-task assessment</div></div>
+  </div>
+  <div class="g2">
+    <div class="panel">
+      <div class="panel-head"><div class="ph-line red"></div>5×5 Risk Matrix</div>
+      <div style="font-size:10px;color:var(--t3);margin-bottom:8px">Consequence (→) vs Likelihood (↑)</div>
+      <div class="rmatrix">
+        <div class="rc" style="background:#3d0a0f;color:var(--red)">25</div><div class="rc" style="background:#3d0a0f;color:var(--red)">20</div><div class="rc" style="background:#3d2a06;color:var(--amber)">15</div><div class="rc" style="background:#3d2a06;color:var(--amber)">10</div><div class="rc" style="background:var(--green3);color:var(--green)">5</div>
+        <div class="rc" style="background:#3d0a0f;color:var(--red)">20</div><div class="rc" style="background:#3d2a06;color:var(--amber)">16</div><div class="rc" style="background:#3d2a06;color:var(--amber)">12</div><div class="rc" style="background:var(--green3);color:var(--green)">8</div><div class="rc" style="background:var(--green3);color:var(--green)">4</div>
+        <div class="rc" style="background:#3d2a06;color:var(--amber)">15</div><div class="rc" style="background:#3d2a06;color:var(--amber)">12</div><div class="rc" style="background:var(--green3);color:var(--green)">9</div><div class="rc" style="background:var(--green3);color:var(--green)">6</div><div class="rc" style="background:var(--blue3);color:var(--blue)">3</div>
+        <div class="rc" style="background:#3d2a06;color:var(--amber)">10</div><div class="rc" style="background:var(--green3);color:var(--green)">8</div><div class="rc" style="background:var(--green3);color:var(--green)">6</div><div class="rc" style="background:var(--blue3);color:var(--blue)">4</div><div class="rc" style="background:var(--blue3);color:var(--blue)">2</div>
+        <div class="rc" style="background:var(--green3);color:var(--green)">5</div><div class="rc" style="background:var(--green3);color:var(--green)">4</div><div class="rc" style="background:var(--blue3);color:var(--blue)">3</div><div class="rc" style="background:var(--blue3);color:var(--blue)">2</div><div class="rc" style="background:var(--bg4);color:var(--t3)">1</div>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;font-size:10px">
+        <span style="color:var(--red)">■ Extreme 15–25</span><span style="color:var(--amber)">■ High 8–12</span><span style="color:var(--green)">■ Med 4–6</span><span style="color:var(--blue)">■ Low 1–3</span>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><div class="ph-line red"></div>High-Risk Tasks Active</div>
+      <div class="tscroll">
+        <table class="dt">
+          <thead><tr><th>Task</th><th>Risk</th><th>Controls</th><th>Residual</th></tr></thead>
+          <tbody>
+            <tr><td>H2S entry Zone 7</td><td><span class="b b-red">25</span></td><td>BA set, standby, gas monitor</td><td><span class="b b-amber">9</span></td></tr>
+            <tr><td>Crane lift 42T</td><td><span class="b b-red">20</span></td><td>Lift plan, exclusion zone</td><td><span class="b b-amber">8</span></td></tr>
+            <tr><td>Pressure test 600 bar</td><td><span class="b b-red">20</span></td><td>Isolation, witness, barrier</td><td><span class="b b-green">6</span></td></tr>
+            <tr><td>Radiography (γ)</td><td><span class="b b-amber">16</span></td><td>RPO oversight, zone tape</td><td><span class="b b-green">4</span></td></tr>
+            <tr><td>Hot tap — live line</td><td><span class="b b-red">25</span></td><td>Specialist, procedure</td><td><span class="b b-amber">8</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── CONTRACTOR ─────────────────────────────────────────────────────────── -->
+<div class="page" id="page-contractor">
+  <div class="alert a-red"><span class="alert-icon">▲</span><div><strong>CONTRACTOR FLAG — AquaDrill:</strong> TRIR 6.1 (3× company avg) · Induction 72% · Training 65% · Audit score 58%. Formal HSE Improvement Notice must be issued within 48 hours per KPI trigger rules.</div></div>
+  <div class="kgrid">
+    <div class="kcard k-blue"><div class="k-label">Active Contractors</div><div class="k-val blue">12</div><div class="k-sub">On site today</div></div>
+    <div class="kcard k-teal"><div class="k-label">Manhours YTD</div><div class="k-val teal">841K</div><div class="k-sub">All contractors</div></div>
+    <div class="kcard k-red"><div class="k-label">Contractor TRIR</div><div class="k-val red">2.1</div><div class="k-sub">vs 1.84 company avg</div></div>
+    <div class="kcard k-amber"><div class="k-label">Induction Overdue</div><div class="k-val amber">8</div><div class="k-sub">Site access blocked</div></div>
+  </div>
+  <div class="panel mb10">
+    <div class="panel-head"><div class="ph-line"></div>Contractor Monthly Scorecard — contractor_scorecard table</div>
+    <div class="tscroll">
+      <table class="dt">
+        <thead><tr><th>Contractor</th><th>Manhours</th><th>Incidents</th><th>TRIR</th><th>Induction%</th><th>Training%</th><th>Audit Score</th><th>Rating</th></tr></thead>
+        <tbody>
+          <tr><td>SafeRig Co</td><td class="mono">182,000</td><td>2</td><td class="mono" style="color:var(--amber)">2.20</td><td><span class="b b-green">100%</span></td><td><span class="b b-amber">81%</span></td><td>74%</td><td><span class="b b-amber">MEDIUM</span></td></tr>
+          <tr><td>Petroflex Ltd</td><td class="mono">241,000</td><td>1</td><td class="mono" style="color:var(--green)">0.83</td><td><span class="b b-green">100%</span></td><td><span class="b b-green">94%</span></td><td>91%</td><td><span class="b b-green">HIGH</span></td></tr>
+          <tr style="background:rgba(232,57,74,.06)"><td>AquaDrill</td><td class="mono">98,000</td><td>3</td><td class="mono" style="color:var(--red);font-weight:700">6.10</td><td><span class="b b-red">72%</span></td><td><span class="b b-red">65%</span></td><td><span style="color:var(--red)">58%</span></td><td><span class="b b-red">LOW — FLAG</span></td></tr>
+          <tr><td>HeavyLift</td><td class="mono">76,000</td><td>0</td><td class="mono" style="color:var(--green)">0.00</td><td><span class="b b-green">100%</span></td><td><span class="b b-green">98%</span></td><td>96%</td><td><span class="b b-teal">EXCELLENT</span></td></tr>
+          <tr><td>PowerTech</td><td class="mono">54,000</td><td>1</td><td class="mono" style="color:var(--amber)">3.70</td><td><span class="b b-amber">88%</span></td><td><span class="b b-amber">79%</span></td><td>71%</td><td><span class="b b-amber">MEDIUM</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="g2">
+    <div class="panel">
+      <div class="panel-head"><div class="ph-line"></div>TRIR by Contractor</div>
+      <div class="cw" style="height:180px"><canvas id="c-contractor-trir" aria-label="TRIR by contractor bar chart"></canvas></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><div class="ph-line teal"></div>Contractor Risk Ranking</div>
+      <div class="prog-row"><div class="prog-label">AquaDrill</div><div class="prog-track"><div class="prog-fill" style="width:91%;background:var(--red)"></div></div><div class="prog-val" style="color:var(--red)">HIGH</div></div>
+      <div class="prog-row"><div class="prog-label">PowerTech</div><div class="prog-track"><div class="prog-fill" style="width:64%;background:var(--amber)"></div></div><div class="prog-val" style="color:var(--amber)">MED</div></div>
+      <div class="prog-row"><div class="prog-label">SafeRig Co</div><div class="prog-track"><div class="prog-fill" style="width:55%;background:var(--amber)"></div></div><div class="prog-val" style="color:var(--amber)">MED</div></div>
+      <div class="prog-row"><div class="prog-label">Petroflex</div><div class="prog-track"><div class="prog-fill" style="width:22%;background:var(--green)"></div></div><div class="prog-val" style="color:var(--green)">LOW</div></div>
+      <div class="prog-row"><div class="prog-label">HeavyLift</div><div class="prog-track"><div class="prog-fill" style="width:5%;background:var(--teal)"></div></div><div class="prog-val" style="color:var(--teal)">MIN</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── TRAINING ───────────────────────────────────────────────────────────── -->
+<div class="page" id="page-training">
+  <div class="kgrid">
+    <div class="kcard k-amber"><div class="k-label">Training Compliance</div><div class="k-val amber">87.3%</div><div class="k-sub">Target ≥ 95%</div></div>
+    <div class="kcard k-red"><div class="k-label">Expired Certs</div><div class="k-val red">23</div><div class="k-sub">H2S, First Aid, WAH</div></div>
+    <div class="kcard k-amber"><div class="k-label">Due in 30 Days</div><div class="k-val amber">41</div><div class="k-sub">Pre-expiry alerts sent</div></div>
+    <div class="kcard k-blue"><div class="k-label">Total Personnel</div><div class="k-val blue">347</div><div class="k-sub">In training matrix</div></div>
+  </div>
+  <div class="g2">
+    <div class="panel">
+      <div class="panel-head"><div class="ph-line"></div>Training Matrix — training_matrix table</div>
+      <div class="prog-row"><div class="prog-label">HSE Induction</div><div class="prog-track"><div class="prog-fill" style="width:100%;background:var(--green)"></div></div><div class="prog-val" style="color:var(--green)">100%</div></div>
+      <div class="prog-row"><div class="prog-label">H2S Awareness</div><div class="prog-track"><div class="prog-fill" style="width:89%;background:var(--amber)"></div></div><div class="prog-val" style="color:var(--amber)">89%</div></div>
+      <div class="prog-row"><div class="prog-label">Fire Warden</div><div class="prog-track"><div class="prog-fill" style="width:76%;background:var(--amber)"></div></div><div class="prog-val" style="color:var(--amber)">76%</div></div>
+      <div class="prog-row"><div class="prog-label">First Aider</div><div class="prog-track"><div class="prog-fill" style="width:68%;background:var(--red)"></div></div><div class="prog-val" style="color:var(--red)">68%</div></div>
+      <div class="prog-row"><div class="prog-label">Work at Height</div><div class="prog-track"><div class="prog-fill" style="width:82%;background:var(--amber)"></div></div><div class="prog-val" style="color:var(--amber)">82%</div></div>
+      <div class="prog-row"><div class="prog-label">Confined Space</div><div class="prog-track"><div class="prog-fill" style="width:78%;background:var(--amber)"></div></div><div class="prog-val" style="color:var(--amber)">78%</div></div>
+      <div class="prog-row"><div class="prog-label">PTW System</div><div class="prog-track"><div class="prog-fill" style="width:91%;background:var(--green)"></div></div><div class="prog-val" style="color:var(--green)">91%</div></div>
+      <div class="prog-row"><div class="prog-label">Defensive Driving</div><div class="prog-track"><div class="prog-fill" style="width:85%;background:var(--amber)"></div></div><div class="prog-val" style="color:var(--amber)">85%</div></div>
+      <div class="prog-row"><div class="prog-label">Helideck Safety</div><div class="prog-track"><div class="prog-fill" style="width:94%;background:var(--green)"></div></div><div class="prog-val" style="color:var(--green)">94%</div></div>
+      <div class="prog-row"><div class="prog-label">Spill Response</div><div class="prog-track"><div class="prog-fill" style="width:72%;background:var(--amber)"></div></div><div class="prog-val" style="color:var(--amber)">72%</div></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><div class="ph-line amber"></div>Certificate Expiry Forecast — 90 Days</div>
+      <div class="cw" style="height:260px"><canvas id="c-expiry" aria-label="Certificate expiry forecast stacked bar chart"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── PREDICTIVE AI ──────────────────────────────────────────────────────── -->
+<div class="page" id="page-predict">
+  <div class="alert a-red"><span class="alert-icon">▲</span><div><strong>AI PREDICTION:</strong> LTI probability in next 30 days = <strong>68%</strong> (model confidence 81%). Primary drivers: night-shift unsafe act rate (+67%), training compliance below 90%, AquaDrill risk score HIGH. Immediate multi-action intervention required.</div></div>
+  <div class="alert a-amber"><span class="alert-icon">⚠</span><div><strong>ANOMALY DETECTED:</strong> Unsafe act frequency on night shift exceeds 2-sigma boundary for this day-of-week pattern. Isolation Forest model flagged at 06:42 today.</div></div>
+  <div class="kgrid">
+    <div class="kcard k-red"><div class="k-label">LTI Probability 30d</div><div class="k-val red">68%</div><div class="k-sub">Model confidence: 81%</div><div class="k-trend t-bad">▲ +12% vs last week</div></div>
+    <div class="kcard k-red"><div class="k-label">Spill Risk Score</div><div class="k-val red">7.4/10</div><div class="k-sub">Diesel storage area</div><div class="k-trend t-bad">▲ Rising</div></div>
+    <div class="kcard k-amber"><div class="k-label">Night Shift Risk Index</div><div class="k-val amber">8.1/10</div><div class="k-sub">Repeated pattern</div><div class="k-trend t-bad">▲ Anomaly flagged</div></div>
+    <div class="kcard k-amber"><div class="k-label">Actions Forecast +14d</div><div class="k-val amber">+11</div><div class="k-sub">Additional overdue</div><div class="k-trend t-bad">▲ Trajectory bad</div></div>
+    <div class="kcard k-teal"><div class="k-label">Training Expiry 30d</div><div class="k-val teal">41</div><div class="k-sub">Certs due for renewal</div><div class="k-trend t-warn">→ Action required</div></div>
+    <div class="kcard k-amber"><div class="k-label">Helideck Risk Flag</div><div class="k-val amber">ELEVATED</div><div class="k-sub">Facility C gap +11d</div><div class="k-trend t-bad">▲ Trigger active</div></div>
+  </div>
+  <div class="g2">
+    <div class="panel">
+      <div class="panel-head"><div class="ph-line red"></div>LTI Probability Forecast — 13 Weeks</div>
+      <div class="cw" style="height:210px"><canvas id="c-predict" aria-label="LTI probability forecast dual line chart"></canvas></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><div class="ph-line amber"></div>AI Recommendations Engine</div>
+      <div class="aitem crit">
+        <div class="aitem-head"><span class="aitem-title" style="color:var(--red)">▲ Night Shift Intervention — URGENT</span><span class="b b-red">Confidence: 81%</span></div>
+        <div class="aitem-meta">67% of unsafe acts on night shift. Deploy HSE supervisor patrols 22:00–02:00 daily. Expected risk reduction: −28% in 14 days.</div>
+      </div>
+      <div class="aitem high">
+        <div class="aitem-head"><span class="aitem-title" style="color:var(--amber)">▲ Hot Work TBT — Mandatory</span><span class="b b-amber">Pattern: 3 incidents/30d</span></div>
+        <div class="aitem-meta">3 incidents in 30 days involve hot work permits. Mandatory re-briefing for all hot work teams before next shift.</div>
+      </div>
+      <div class="aitem high">
+        <div class="aitem-head"><span class="aitem-title" style="color:var(--amber)">▲ AquaDrill Performance Notice</span><span class="b b-red">48hr deadline</span></div>
+        <div class="aitem-meta">Issue formal HSE Improvement Notice. Contractor risk scoring threshold crossed. Escalate to HSE Director and Procurement.</div>
+      </div>
+      <div class="aitem med">
+        <div class="aitem-head"><span class="aitem-title" style="color:var(--blue)">ℹ Spill Prevention — Diesel Store</span><span class="b b-amber">Score: 7.4/10</span></div>
+        <div class="aitem-meta">Diesel storage area risk score rising. Bund integrity inspection overdue. Schedule inspection within 5 days.</div>
+      </div>
+    </div>
+  </div>
+  <div class="g3">
+    <div class="panel">
+      <div class="panel-head"><div class="ph-line teal"></div>Root Cause Cluster Map</div>
+      <div class="srow"><div class="srow-name">Procedure non-compliance</div><div class="srow-val" style="color:var(--red)">31%</div></div>
+      <div class="srow"><div class="srow-name">Inadequate supervision</div><div class="srow-val" style="color:var(--amber)">22%</div></div>
+      <div class="srow"><div class="srow-name">Training gaps</div><div class="srow-val" style="color:var(--amber)">19%</div></div>
+      <div class="srow"><div class="srow-name">Fatigue / human error</div><div class="srow-val" style="color:var(--amber)">14%</div></div>
+      <div class="srow"><div class="srow-name">Equipment failure</div><div class="srow-val" style="color:var(--blue)">9%</div></div>
+      <div class="srow"><div class="srow-name">Environmental factors</div><div class="srow-val" style="color:var(--teal)">5%</div></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><div class="ph-line red"></div>Spill Risk Hotspots</div>
+      <div class="srow"><div class="srow-name">Diesel Storage Area</div><span class="b b-red">7.4 HIGH</span></div>
+      <div class="srow"><div class="srow-name">Drill Site 3</div><span class="b b-red">6.9 HIGH</span></div>
+      <div class="srow"><div class="srow-name">Chemical Store A</div><span class="b b-amber">5.1 MED</span></div>
+      <div class="srow"><div class="srow-name">Generator Bay</div><span class="b b-amber">4.8 MED</span></div>
+      <div class="srow"><div class="srow-name">Pump Room</div><span class="b b-green">2.2 LOW</span></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><div class="ph-line purple"></div>Model Parameters</div>
+      <div class="srow"><div class="srow-name">Near Miss Rate 30d</div><div class="srow-val" style="color:var(--amber)">4.2</div></div>
+      <div class="srow"><div class="srow-name">Night Shift UA Rate</div><div class="srow-val" style="color:var(--red)">0.67</div></div>
+      <div class="srow"><div class="srow-name">Training Compliance</div><div class="srow-val" style="color:var(--amber)">87.3%</div></div>
+      <div class="srow"><div class="srow-name">Contractor Risk %</div><div class="srow-val" style="color:var(--amber)">35%</div></div>
+      <div class="srow"><div class="srow-name">Inspection Overdue %</div><div class="srow-val" style="color:var(--amber)">9%</div></div>
+      <div class="srow"><div class="srow-name">Model Confidence</div><div class="srow-val" style="color:var(--green)">81%</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── DATA MODEL ─────────────────────────────────────────────────────────── -->
+<div class="page" id="page-datamodel">
+  <div class="alert a-teal"><span class="alert-icon">◈</span><div><strong>DATA MODEL:</strong> 7 core tables · 15 relationships · Live KPI engine · Azure SQL / PostgreSQL compatible · All formulas IOGP/OSHA standard denominators · React + Streamlit + Power BI portable</div></div>
+
+  <!-- KPI FORMULAS -->
+  <div class="panel mb10">
+    <div class="panel-head"><div class="ph-line amber"></div>KPI Formula Library — Live Calculation Engine</div>
+    <div class="tscroll">
+      <table class="schema-table">
+        <thead><tr><th>KPI</th><th>Formula</th><th>Target</th><th>Denominator</th><th>Source Table</th><th>Frequency</th></tr></thead>
+        <tbody>
+          <tr><td><strong>TRIR</strong></td><td class="col-type">(Recordable incidents × 200,000) ÷ manhours</td><td style="color:var(--green)">≤ 1.50</td><td>200,000 hrs</td><td class="col-name">incidents + manhour_reports</td><td>Monthly</td></tr>
+          <tr><td><strong>LTIFR</strong></td><td class="col-type">(LTI count × 1,000,000) ÷ manhours</td><td style="color:var(--green)">≤ 0.50</td><td>1,000,000 hrs</td><td class="col-name">incidents + manhour_reports</td><td>Monthly</td></tr>
+          <tr><td><strong>Severity Rate</strong></td><td class="col-type">(Lost days × 200,000) ÷ manhours</td><td style="color:var(--green)">≤ 50</td><td>200,000 hrs</td><td class="col-name">incidents</td><td>Monthly</td></tr>
+          <tr><td><strong>Near Miss Rate</strong></td><td class="col-type">(Near misses × 200,000) ÷ manhours</td><td style="color:var(--blue)">Report ↑</td><td>200,000 hrs</td><td class="col-name">incidents</td><td>Monthly</td></tr>
+          <tr><td><strong>PTW Compliance %</strong></td><td class="col-type">(Compliant permits ÷ total audited) × 100</td><td style="color:var(--green)">100%</td><td>Count</td><td class="col-name">permits</td><td>Daily</td></tr>
+          <tr><td><strong>Training Compliance %</strong></td><td class="col-type">(Current certs ÷ required) × 100</td><td style="color:var(--green)">≥ 95%</td><td>Count</td><td class="col-name">training_matrix</td><td>Monthly</td></tr>
+          <tr><td><strong>Audit Closure Rate</strong></td><td class="col-type">(Closed findings ÷ total findings) × 100</td><td style="color:var(--green)">≥ 90%</td><td>Count</td><td class="col-name">audit_findings</td><td>Monthly</td></tr>
+          <tr><td><strong>Heli On-Time %</strong></td><td class="col-type">(On-time flights ÷ total flights) × 100</td><td style="color:var(--green)">≥ 85%</td><td>Count</td><td class="col-name">helicopter_movements</td><td>Daily</td></tr>
+          <tr><td><strong>Helideck Readiness %</strong></td><td class="col-type">(OK checklist items ÷ total items) × 100</td><td style="color:var(--green)">100%</td><td>Count</td><td class="col-name">helicopter_movements</td><td>Per flight</td></tr>
+          <tr><td><strong>Contractor TRIR</strong></td><td class="col-type">(Contractor recordables × 200,000) ÷ contractor hrs</td><td style="color:var(--green)">≤ company avg</td><td>200,000 hrs</td><td class="col-name">contractor_scorecard</td><td>Monthly</td></tr>
+          <tr><td><strong>Spill Frequency Rate</strong></td><td class="col-type">(Spills × 1,000,000) ÷ manhours</td><td style="color:var(--green)">≤ 0.5</td><td>1,000,000 hrs</td><td class="col-name">incidents</td><td>Monthly</td></tr>
+          <tr><td><strong>Waste Segregation %</strong></td><td class="col-type">(Correctly segregated ÷ total inspected) × 100</td><td style="color:var(--green)">≥ 95%</td><td>Count</td><td class="col-name">incidents (env)</td><td>Weekly</td></tr>
+          <tr><td><strong>MOC Closure Rate</strong></td><td class="col-type">(Closed MOC ÷ opened) × 100</td><td style="color:var(--green)">100% pre-impl</td><td>Count</td><td class="col-name">action_tracker</td><td>Monthly</td></tr>
+          <tr><td><strong>LTI Probability</strong></td><td class="col-type">1 ÷ (1 + e^−z) where z = weighted score of 5 leading indicators</td><td style="color:var(--red)">&lt; 50%</td><td>Model</td><td class="col-name">all tables</td><td>Daily</td></tr>
+          <tr><td><strong>HSE Performance Score</strong></td><td class="col-type">(Leading avg × 0.60) + (TRIR score × 0.40)</td><td style="color:var(--green)">≥ 80/100</td><td>Composite</td><td class="col-name">all tables</td><td>Monthly</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- TABLE SCHEMAS -->
+  <div class="sec-label">Core Table Schemas</div>
+  <div class="g2">
+
+    <!-- incidents -->
+    <div class="panel mb10">
+      <div class="panel-head"><div class="ph-line red"></div>incidents</div>
+      <table class="schema-table">
+        <thead><tr><th>Column</th><th>Type</th><th>Key</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="col-name">incident_id</td><td class="col-type">VARCHAR(12)</td><td><span class="col-pk">PK</span></td><td class="col-desc">e.g. INC-0047</td></tr>
+          <tr><td class="col-name">date</td><td class="col-type">DATE</td><td></td><td class="col-desc">Incident date</td></tr>
+          <tr><td class="col-name">type</td><td class="col-type">VARCHAR(30)</td><td></td><td class="col-desc">Near Miss|FAC|MTC|RWC|LTI|Property|Vehicle|Env|Process</td></tr>
+          <tr><td class="col-name">severity</td><td class="col-type">VARCHAR(20)</td><td></td><td class="col-desc">Critical|HIGH|MED|LOW</td></tr>
+          <tr><td class="col-name">facility_id</td><td class="col-type">VARCHAR(20)</td><td><span class="col-fk">FK</span></td><td class="col-desc">→ facilities</td></tr>
+          <tr><td class="col-name">shift</td><td class="col-type">VARCHAR(10)</td><td></td><td class="col-desc">Day|Night|Swing</td></tr>
+          <tr><td class="col-name">contractor_id</td><td class="col-type">VARCHAR(20)</td><td><span class="col-fk">FK</span></td><td class="col-desc">→ contractors (nullable)</td></tr>
+          <tr><td class="col-name">lost_days</td><td class="col-type">INT</td><td></td><td class="col-desc">Days absent (LTI)</td></tr>
+          <tr><td class="col-name">root_cause</td><td class="col-type">VARCHAR(100)</td><td></td><td class="col-desc">Primary root cause category</td></tr>
+          <tr><td class="col-name">status</td><td class="col-type">VARCHAR(30)</td><td></td><td class="col-desc">Investigating|Open|Closed</td></tr>
+          <tr><td class="col-name">description</td><td class="col-type">TEXT</td><td></td><td class="col-desc">Full incident description</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- permits -->
+    <div class="panel mb10">
+      <div class="panel-head"><div class="ph-line amber"></div>permits</div>
+      <table class="schema-table">
+        <thead><tr><th>Column</th><th>Type</th><th>Key</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="col-name">ptw_id</td><td class="col-type">VARCHAR(12)</td><td><span class="col-pk">PK</span></td><td class="col-desc">e.g. PTW-1847</td></tr>
+          <tr><td class="col-name">type</td><td class="col-type">VARCHAR(30)</td><td></td><td class="col-desc">Hot Work|CSE|Electrical|Lifting|Excavation...</td></tr>
+          <tr><td class="col-name">facility_id</td><td class="col-type">VARCHAR(20)</td><td><span class="col-fk">FK</span></td><td class="col-desc">→ facilities</td></tr>
+          <tr><td class="col-name">contractor_id</td><td class="col-type">VARCHAR(20)</td><td><span class="col-fk">FK</span></td><td class="col-desc">→ contractors</td></tr>
+          <tr><td class="col-name">issue_datetime</td><td class="col-type">DATETIME</td><td></td><td class="col-desc">When permit issued</td></tr>
+          <tr><td class="col-name">expiry_datetime</td><td class="col-type">DATETIME</td><td></td><td class="col-desc">When permit expires</td></tr>
+          <tr><td class="col-name">status</td><td class="col-type">VARCHAR(20)</td><td></td><td class="col-desc">Active|Suspended|Closed|Expired</td></tr>
+          <tr><td class="col-name">jsa_attached</td><td class="col-type">BOOLEAN</td><td></td><td class="col-desc">JSA document linked</td></tr>
+          <tr><td class="col-name">gas_test_result</td><td class="col-type">VARCHAR(10)</td><td></td><td class="col-desc">PASS|FAIL|N/A</td></tr>
+          <tr><td class="col-name">simops_conflict</td><td class="col-type">BOOLEAN</td><td></td><td class="col-desc">SIMOPS review flag</td></tr>
+          <tr><td class="col-name">field_compliant</td><td class="col-type">BOOLEAN</td><td></td><td class="col-desc">Field audit result</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- helicopter_movements -->
+    <div class="panel mb10">
+      <div class="panel-head"><div class="ph-line blue"></div>helicopter_movements</div>
+      <table class="schema-table">
+        <thead><tr><th>Column</th><th>Type</th><th>Key</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="col-name">flight_id</td><td class="col-type">VARCHAR(12)</td><td><span class="col-pk">PK</span></td><td class="col-desc">e.g. OH-417</td></tr>
+          <tr><td class="col-name">date</td><td class="col-type">DATE</td><td></td><td class="col-desc">Flight date</td></tr>
+          <tr><td class="col-name">scheduled_time</td><td class="col-type">TIME</td><td></td><td class="col-desc">Planned departure/arrival</td></tr>
+          <tr><td class="col-name">actual_time</td><td class="col-type">TIME</td><td></td><td class="col-desc">Actual departure/arrival</td></tr>
+          <tr><td class="col-name">flight_type</td><td class="col-type">VARCHAR(20)</td><td></td><td class="col-desc">Personnel|Medevac|Cargo|DG</td></tr>
+          <tr><td class="col-name">pax_count</td><td class="col-type">INT</td><td></td><td class="col-desc">Passengers on board</td></tr>
+          <tr><td class="col-name">origin_facility_id</td><td class="col-type">VARCHAR(20)</td><td><span class="col-fk">FK</span></td><td class="col-desc">→ facilities</td></tr>
+          <tr><td class="col-name">dest_facility_id</td><td class="col-type">VARCHAR(20)</td><td><span class="col-fk">FK</span></td><td class="col-desc">→ facilities</td></tr>
+          <tr><td class="col-name">delay_reason</td><td class="col-type">VARCHAR(50)</td><td></td><td class="col-desc">Weather|Mechanical|ATC|Passenger|Cargo</td></tr>
+          <tr><td class="col-name">status</td><td class="col-type">VARCHAR(20)</td><td></td><td class="col-desc">Scheduled|Departed|Landed|Delayed|Cancelled</td></tr>
+          <tr><td class="col-name">fod_check_done</td><td class="col-type">BOOLEAN</td><td></td><td class="col-desc">FOD inspection completed</td></tr>
+          <tr><td class="col-name">manifest_verified</td><td class="col-type">BOOLEAN</td><td></td><td class="col-desc">PAX manifest confirmed</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- training_matrix -->
+    <div class="panel mb10">
+      <div class="panel-head"><div class="ph-line green"></div>training_matrix</div>
+      <table class="schema-table">
+        <thead><tr><th>Column</th><th>Type</th><th>Key</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="col-name">record_id</td><td class="col-type">VARCHAR(20)</td><td><span class="col-pk">PK</span></td><td class="col-desc">Unique training record</td></tr>
+          <tr><td class="col-name">person_id</td><td class="col-type">VARCHAR(20)</td><td><span class="col-fk">FK</span></td><td class="col-desc">→ personnel</td></tr>
+          <tr><td class="col-name">course_id</td><td class="col-type">VARCHAR(20)</td><td><span class="col-fk">FK</span></td><td class="col-desc">→ training_courses</td></tr>
+          <tr><td class="col-name">completion_date</td><td class="col-type">DATE</td><td></td><td class="col-desc">When training completed</td></tr>
+          <tr><td class="col-name">expiry_date</td><td class="col-type">DATE</td><td></td><td class="col-desc">Certificate expiry</td></tr>
+          <tr><td class="col-name">certificate_no</td><td class="col-type">VARCHAR(50)</td><td></td><td class="col-desc">Cert reference number</td></tr>
+          <tr><td class="col-name">provider</td><td class="col-type">VARCHAR(100)</td><td></td><td class="col-desc">Training provider name</td></tr>
+          <tr><td class="col-name">status</td><td class="col-type">COMPUTED</td><td></td><td class="col-desc">Current|Expiring Soon|Expired|Not Done</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- contractor_scorecard -->
+    <div class="panel mb10">
+      <div class="panel-head"><div class="ph-line teal"></div>contractor_scorecard</div>
+      <table class="schema-table">
+        <thead><tr><th>Column</th><th>Type</th><th>Key</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="col-name">scorecard_id</td><td class="col-type">VARCHAR(20)</td><td><span class="col-pk">PK</span></td><td class="col-desc">Monthly scorecard ID</td></tr>
+          <tr><td class="col-name">contractor_id</td><td class="col-type">VARCHAR(20)</td><td><span class="col-fk">FK</span></td><td class="col-desc">→ contractors</td></tr>
+          <tr><td class="col-name">period_month</td><td class="col-type">DATE</td><td></td><td class="col-desc">Reporting month (first day)</td></tr>
+          <tr><td class="col-name">manhours</td><td class="col-type">DECIMAL(12,2)</td><td></td><td class="col-desc">Total contractor manhours</td></tr>
+          <tr><td class="col-name">incidents_count</td><td class="col-type">INT</td><td></td><td class="col-desc">Recordable incidents</td></tr>
+          <tr><td class="col-name">trir</td><td class="col-type">COMPUTED</td><td></td><td class="col-desc">(incidents × 200K) ÷ manhours</td></tr>
+          <tr><td class="col-name">induction_pct</td><td class="col-type">DECIMAL(5,2)</td><td></td><td class="col-desc">% staff inducted on site</td></tr>
+          <tr><td class="col-name">training_pct</td><td class="col-type">DECIMAL(5,2)</td><td></td><td class="col-desc">% mandatory training current</td></tr>
+          <tr><td class="col-name">audit_score</td><td class="col-type">DECIMAL(5,2)</td><td></td><td class="col-desc">HSE audit score (0–100)</td></tr>
+          <tr><td class="col-name">rating</td><td class="col-type">COMPUTED</td><td></td><td class="col-desc">EXCELLENT|HIGH|MEDIUM|LOW</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- audit_findings -->
+    <div class="panel mb10">
+      <div class="panel-head"><div class="ph-line purple"></div>audit_findings</div>
+      <table class="schema-table">
+        <thead><tr><th>Column</th><th>Type</th><th>Key</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="col-name">finding_id</td><td class="col-type">VARCHAR(20)</td><td><span class="col-pk">PK</span></td><td class="col-desc">e.g. AUD-088</td></tr>
+          <tr><td class="col-name">audit_id</td><td class="col-type">VARCHAR(20)</td><td><span class="col-fk">FK</span></td><td class="col-desc">→ audits</td></tr>
+          <tr><td class="col-name">description</td><td class="col-type">TEXT</td><td></td><td class="col-desc">Finding detail</td></tr>
+          <tr><td class="col-name">grade</td><td class="col-type">VARCHAR(20)</td><td></td><td class="col-desc">CRITICAL|MAJOR|MINOR|OBSERVATION</td></tr>
+          <tr><td class="col-name">owner_id</td><td class="col-type">VARCHAR(20)</td><td><span class="col-fk">FK</span></td><td class="col-desc">→ personnel (action owner)</td></tr>
+          <tr><td class="col-name">due_date</td><td class="col-type">DATE</td><td></td><td class="col-desc">Closure target date</td></tr>
+          <tr><td class="col-name">close_date</td><td class="col-type">DATE</td><td></td><td class="col-desc">Actual closure date</td></tr>
+          <tr><td class="col-name">status</td><td class="col-type">VARCHAR(20)</td><td></td><td class="col-desc">Open|In Progress|Closed|Overdue</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <!-- action_tracker full width -->
+  <div class="panel mb10">
+    <div class="panel-head"><div class="ph-line orange"></div>action_tracker — Master CAPA Register (all sources aggregated)</div>
+    <div class="tscroll">
+      <table class="schema-table" style="min-width:700px">
+        <thead><tr><th>Column</th><th>Type</th><th>Key</th><th>Description</th><th>Populated From</th></tr></thead>
+        <tbody>
+          <tr><td class="col-name">action_id</td><td class="col-type">VARCHAR(12)</td><td><span class="col-pk">PK</span></td><td class="col-desc">e.g. ACT-201</td><td class="col-desc">Auto-generated</td></tr>
+          <tr><td class="col-name">source_type</td><td class="col-type">VARCHAR(30)</td><td></td><td class="col-desc">Incident|Audit|Inspection|PTW Audit|Drill Review|MOC|Contractor|Observation</td><td class="col-desc">System trigger</td></tr>
+          <tr><td class="col-name">source_id</td><td class="col-type">VARCHAR(20)</td><td><span class="col-fk">FK</span></td><td class="col-desc">Reference ID in source table (INC-0047, AUD-088, PTW-1843…)</td><td class="col-desc">Source record</td></tr>
+          <tr><td class="col-name">description</td><td class="col-type">TEXT</td><td></td><td class="col-desc">CAPA action description</td><td class="col-desc">HSE staff input</td></tr>
+          <tr><td class="col-name">priority</td><td class="col-type">VARCHAR(20)</td><td></td><td class="col-desc">CRITICAL|MAJOR|HIGH|MEDIUM|LOW</td><td class="col-desc">Auto or manual</td></tr>
+          <tr><td class="col-name">owner_id</td><td class="col-type">VARCHAR(20)</td><td><span class="col-fk">FK</span></td><td class="col-desc">→ personnel (responsible person)</td><td class="col-desc">Assigned at creation</td></tr>
+          <tr><td class="col-name">facility_id</td><td class="col-type">VARCHAR(20)</td><td><span class="col-fk">FK</span></td><td class="col-desc">→ facilities</td><td class="col-desc">Inherited from source</td></tr>
+          <tr><td class="col-name">due_date</td><td class="col-type">DATE</td><td></td><td class="col-desc">Target closure date</td><td class="col-desc">Priority-based default + manual</td></tr>
+          <tr><td class="col-name">status</td><td class="col-type">VARCHAR(30)</td><td></td><td class="col-desc">Open|In Progress|Planned|Overdue|Closed|Escalated|Cancelled</td><td class="col-desc">Updated by owner</td></tr>
+          <tr><td class="col-name">age_days</td><td class="col-type">COMPUTED INT</td><td></td><td class="col-desc">DATEDIFF(today, due_date) when status ≠ Closed — drives RAG status</td><td class="col-desc">Auto-calculated daily</td></tr>
+          <tr><td class="col-name">close_date</td><td class="col-type">DATE</td><td></td><td class="col-desc">When action was verified closed</td><td class="col-desc">Verifier input</td></tr>
+          <tr><td class="col-name">verification_by</td><td class="col-type">VARCHAR(20)</td><td><span class="col-fk">FK</span></td><td class="col-desc">→ personnel (who verified closure)</td><td class="col-desc">HSE Manager</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- RELATIONSHIPS -->
+  <div class="sec-label">Table Relationships</div>
+  <div class="g3">
+    <div class="rel-box"><strong>incidents</strong><span class="rel-arrow">→</span><strong>action_tracker</strong><br><span style="font-size:10px;color:var(--t3)">One incident generates multiple CAPA items. source_type='Incident', source_id=incident_id</span></div>
+    <div class="rel-box"><strong>permits</strong><span class="rel-arrow">→</span><strong>incidents</strong><br><span style="font-size:10px;color:var(--t3)">PTW active at time of incident is cross-referenced for investigation context</span></div>
+    <div class="rel-box"><strong>helicopter_movements</strong><span class="rel-arrow">→</span><strong>incidents</strong><br><span style="font-size:10px;color:var(--t3)">Flight incidents (near misses, medevac triggers) link by date and facility</span></div>
+    <div class="rel-box"><strong>audit_findings</strong><span class="rel-arrow">→</span><strong>action_tracker</strong><br><span style="font-size:10px;color:var(--t3)">Each finding spawns one or more CAPA items. source_type='Audit'</span></div>
+    <div class="rel-box"><strong>contractor_scorecard</strong><span class="rel-arrow">→</span><strong>action_tracker</strong><br><span style="font-size:10px;color:var(--t3)">Low scorecard triggers automatic improvement notice action. source_type='Contractor'</span></div>
+    <div class="rel-box"><strong>training_matrix</strong><span class="rel-arrow">→</span><strong>action_tracker</strong><br><span style="font-size:10px;color:var(--t3)">Expired certs auto-generate training renewal actions 30 days before expiry</span></div>
+    <div class="rel-box"><strong>contractor_scorecard</strong><span class="rel-arrow">→</span><strong>incidents</strong><br><span style="font-size:10px;color:var(--t3)">Contractor incidents roll up into scorecard TRIR monthly calculation</span></div>
+    <div class="rel-box"><strong>permits</strong><span class="rel-arrow">→</span><strong>action_tracker</strong><br><span style="font-size:10px;color:var(--t3)">PTW field audit non-compliance generates corrective action. source_type='PTW Audit'</span></div>
+    <div class="rel-box"><strong>helicopter_movements</strong><span class="rel-arrow">→</span><strong>action_tracker</strong><br><span style="font-size:10px;color:var(--t3)">Helideck checklist defects generate maintenance/safety actions</span></div>
+  </div>
+
+  <!-- IMPLEMENTATION GUIDE -->
+  <div class="sec-label" style="margin-top:12px">Portability Guide</div>
+  <div class="g3">
+    <div class="panel">
+      <div class="panel-head"><div class="ph-line amber"></div>React Component Library</div>
+      <div style="font-size:11.5px;color:var(--t2);line-height:1.8">
+        <div style="margin-bottom:4px"><span style="color:var(--blue);font-family:var(--ff-mono)">&lt;KpiCard/&gt;</span> — metric + trend + RAG</div>
+        <div style="margin-bottom:4px"><span style="color:var(--blue);font-family:var(--ff-mono)">&lt;DataTable/&gt;</span> — sort/filter/paginate</div>
+        <div style="margin-bottom:4px"><span style="color:var(--blue);font-family:var(--ff-mono)">&lt;RiskMatrix/&gt;</span> — interactive 5×5</div>
+        <div style="margin-bottom:4px"><span style="color:var(--blue);font-family:var(--ff-mono)">&lt;HelideckSVG/&gt;</span> — real-time D-shape</div>
+        <div style="margin-bottom:4px"><span style="color:var(--blue);font-family:var(--ff-mono)">&lt;ActionTracker/&gt;</span> — CAPA register</div>
+        <div style="margin-bottom:4px"><span style="color:var(--blue);font-family:var(--ff-mono)">&lt;LTIForecast/&gt;</span> — AI probability</div>
+        <div style="margin-bottom:4px"><span style="color:var(--blue);font-family:var(--ff-mono)">&lt;IncidentPyramid/&gt;</span> — 5-level stacked</div>
+        <div><span style="color:var(--blue);font-family:var(--ff-mono)">&lt;ContractorRank/&gt;</span> — risk ranking</div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><div class="ph-line teal"></div>Streamlit Embedding</div>
+      <div style="font-size:11px;font-family:var(--ff-mono);color:var(--teal);line-height:1.9">
+        <div>import streamlit as st</div>
+        <div>import plotly.express as px</div>
+        <div>from st_aggrid import AgGrid</div>
+        <div style="margin-top:4px;color:var(--t3)"># KPIs as metric columns</div>
+        <div>c1,c2,c3 = st.columns(3)</div>
+        <div>c1.metric("TRIR", "1.84", "▲ +0.22")</div>
+        <div style="margin-top:4px;color:var(--t3)"># Tables via AgGrid</div>
+        <div>AgGrid(incidents_df)</div>
+        <div style="margin-top:4px;color:var(--t3)"># Charts via Plotly</div>
+        <div>st.plotly_chart(fig_trend)</div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><div class="ph-line blue"></div>Power BI DAX Measures</div>
+      <div style="font-size:10.5px;font-family:var(--ff-mono);color:var(--blue);line-height:1.9">
+        <div style="color:var(--t3)">// TRIR</div>
+        <div>DIVIDE([Recordables]*200000,</div>
+        <div style="padding-left:12px">[Total Manhours])</div>
+        <div style="margin-top:4px;color:var(--t3)">// Training %</div>
+        <div>DIVIDE(</div>
+        <div style="padding-left:12px">COUNTROWS(FILTER(training,</div>
+        <div style="padding-left:24px">[status]="Current")),</div>
+        <div style="padding-left:12px">COUNTROWS(training))*100</div>
+        <div style="margin-top:4px;color:var(--t3)">// LTI Free Days</div>
+        <div>DATEDIFF(MAX(FILTER(</div>
+        <div style="padding-left:12px">incidents,[type]="LTI"</div>
+        <div style="padding-left:12px">)[date]),TODAY(),DAY)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── REMAINING TABS (compact) ──────────────────────────────────────────── -->
+<div class="page" id="page-daily"><div class="alert a-red"><span class="alert-icon">▲</span><strong>STOP WORK:</strong> Unguarded excavation — Logistics Zone B. Verbal SWO issued 08:42. Investigation ongoing.</div><div class="kgrid"><div class="kcard k-green"><div class="k-label">Inspections Today</div><div class="k-val green">47</div><div class="k-sub">of 52 planned</div></div><div class="kcard k-amber"><div class="k-label">Unsafe Acts</div><div class="k-val amber">8</div><div class="k-sub">+3 vs yesterday</div></div><div class="kcard k-red"><div class="k-label">Unsafe Conditions</div><div class="k-val red">5</div><div class="k-sub">2 unresolved</div></div><div class="kcard k-green"><div class="k-label">PTW Active</div><div class="k-val green">34</div><div class="k-sub">3 suspended</div></div><div class="kcard k-blue"><div class="k-label">Toolbox Talks</div><div class="k-val blue">28</div><div class="k-sub">of 30 teams</div></div><div class="kcard k-green"><div class="k-label">PPE Compliance</div><div class="k-val green">96%</div><div class="k-sub">Daily spot check</div></div><div class="kcard k-amber"><div class="k-label">Stop Work Orders</div><div class="k-val amber">2</div><div class="k-sub">1 unresolved</div></div><div class="kcard k-green"><div class="k-label">First Aid Ready</div><div class="k-val green">✓</div><div class="k-sub">All kits checked</div></div></div><div class="g2"><div class="panel"><div class="panel-head"><div class="ph-line"></div>Daily Inspection Register</div><div class="tscroll"><table class="dt"><thead><tr><th>Time</th><th>Area</th><th>Inspector</th><th>Finding</th><th>Status</th></tr></thead><tbody><tr><td>06:30</td><td>Drill Floor</td><td>S. Ahmed</td><td>PPE compliance ✓</td><td><span class="b b-green">Closed</span></td></tr><tr><td>07:15</td><td>Chemical Store</td><td>R. Kumar</td><td>SDS missing — Acid bin</td><td><span class="b b-red">Open</span></td></tr><tr><td>08:00</td><td>Helideck</td><td>J. Khalid</td><td>FOD — 2 items removed</td><td><span class="b b-green">Closed</span></td></tr><tr><td>08:42</td><td>Logistics Zone B</td><td>P. Selvaraj</td><td>Unguarded excavation</td><td><span class="b b-red">STOP WORK</span></td></tr><tr><td>09:10</td><td>Generator Room</td><td>M. Al-Rashid</td><td>Fire ext. expired</td><td><span class="b b-amber">Pending</span></td></tr></tbody></table></div></div><div class="panel"><div class="panel-head"><div class="ph-line amber"></div>Hot Work / CSE / WAH Status</div><div class="srow"><div class="srow-name">Hot Work Permits Active</div><div class="srow-val" style="color:var(--amber)">12</div></div><div class="srow"><div class="srow-name">Confined Space Entries</div><div class="srow-val" style="color:var(--blue)">4</div></div><div class="srow"><div class="srow-name">Work at Height</div><div class="srow-val" style="color:var(--teal)">18</div></div><div class="srow"><div class="srow-name">Gas Tests Today</div><div class="srow-val" style="color:var(--green)">47</div></div><div class="srow"><div class="srow-name">LOTO Active</div><div class="srow-val" style="color:var(--purple)">9</div></div><div class="srow"><div class="srow-name">Standby Man Deployed</div><div class="srow-val" style="color:var(--green)">6</div></div></div></div></div>
+<div class="page" id="page-risk"><div class="kgrid"><div class="kcard k-red"><div class="k-label">Extreme Risk Tasks</div><div class="k-val red">6</div><div class="k-sub">GM approval required</div></div><div class="kcard k-amber"><div class="k-label">High Risk Tasks</div><div class="k-val amber">24</div><div class="k-sub">HSE Manager review</div></div><div class="kcard k-blue"><div class="k-label">JSA Library</div><div class="k-val blue">148</div><div class="k-sub">Updated this quarter</div></div><div class="kcard k-green"><div class="k-label">Review Effectiveness</div><div class="k-val green">88%</div><div class="k-sub">Post-task assessment</div></div></div><div class="g2"><div class="panel"><div class="panel-head"><div class="ph-line red"></div>5×5 Risk Matrix</div><div class="rmatrix"><div class="rc" style="background:#3d0a0f;color:var(--red)">25</div><div class="rc" style="background:#3d0a0f;color:var(--red)">20</div><div class="rc" style="background:#3d2a06;color:var(--amber)">15</div><div class="rc" style="background:#3d2a06;color:var(--amber)">10</div><div class="rc" style="background:var(--green3);color:var(--green)">5</div><div class="rc" style="background:#3d0a0f;color:var(--red)">20</div><div class="rc" style="background:#3d2a06;color:var(--amber)">16</div><div class="rc" style="background:#3d2a06;color:var(--amber)">12</div><div class="rc" style="background:var(--green3);color:var(--green)">8</div><div class="rc" style="background:var(--green3);color:var(--green)">4</div><div class="rc" style="background:#3d2a06;color:var(--amber)">15</div><div class="rc" style="background:#3d2a06;color:var(--amber)">12</div><div class="rc" style="background:var(--green3);color:var(--green)">9</div><div class="rc" style="background:var(--green3);color:var(--green)">6</div><div class="rc" style="background:var(--blue3);color:var(--blue)">3</div><div class="rc" style="background:#3d2a06;color:var(--amber)">10</div><div class="rc" style="background:var(--green3);color:var(--green)">8</div><div class="rc" style="background:var(--green3);color:var(--green)">6</div><div class="rc" style="background:var(--blue3);color:var(--blue)">4</div><div class="rc" style="background:var(--blue3);color:var(--blue)">2</div><div class="rc" style="background:var(--green3);color:var(--green)">5</div><div class="rc" style="background:var(--green3);color:var(--green)">4</div><div class="rc" style="background:var(--blue3);color:var(--blue)">3</div><div class="rc" style="background:var(--blue3);color:var(--blue)">2</div><div class="rc" style="background:var(--bg4);color:var(--t3)">1</div></div></div><div class="panel"><div class="panel-head"><div class="ph-line red"></div>Active High-Risk Tasks</div><div class="tscroll"><table class="dt"><thead><tr><th>Task</th><th>Risk</th><th>Controls</th><th>Residual</th></tr></thead><tbody><tr><td>H2S entry Zone 7</td><td><span class="b b-red">25</span></td><td>BA set, standby, gas mon</td><td><span class="b b-amber">9</span></td></tr><tr><td>Crane lift 42T</td><td><span class="b b-red">20</span></td><td>Lift plan, exclusion zone</td><td><span class="b b-amber">8</span></td></tr><tr><td>Pressure test 600 bar</td><td><span class="b b-red">20</span></td><td>Isolation, witness, barrier</td><td><span class="b b-green">6</span></td></tr></tbody></table></div></div></div></div>
+<div class="page" id="page-emergency"><div class="kgrid"><div class="kcard k-amber"><div class="k-label">Drills Overdue</div><div class="k-val amber">5</div><div class="k-sub">Offshore Alpha (2), Beta (3)</div></div><div class="kcard k-green"><div class="k-label">ERP Status</div><div class="k-val green">CURRENT</div><div class="k-sub">Reviewed Apr 2025</div></div><div class="kcard k-green"><div class="k-label">Muster Points</div><div class="k-val green">4/4</div><div class="k-sub">All operational</div></div><div class="kcard k-blue"><div class="k-label">Drill Completion YTD</div><div class="k-val blue">83%</div><div class="k-sub">30 of 36 planned</div></div></div><div class="panel"><div class="panel-head"><div class="ph-line amber"></div>Emergency Drill Schedule</div><div class="tscroll"><table class="dt"><thead><tr><th>Drill Type</th><th>Planned</th><th>Done</th><th>Due</th><th>Status</th></tr></thead><tbody><tr><td>Fire Evacuation</td><td>6</td><td>5</td><td>Jul 2025</td><td><span class="b b-green">On Track</span></td></tr><tr><td>Helideck Crash</td><td>4</td><td>2</td><td>OVERDUE</td><td><span class="b b-red">Overdue</span></td></tr><tr><td>Medevac Scenario</td><td>4</td><td>3</td><td>Jun 2025</td><td><span class="b b-amber">Due Now</span></td></tr><tr><td>H2S Escape</td><td>6</td><td>4</td><td>OVERDUE</td><td><span class="b b-red">Overdue</span></td></tr><tr><td>Spill Response</td><td>4</td><td>4</td><td>—</td><td><span class="b b-green">Complete</span></td></tr><tr><td>Man Overboard</td><td>6</td><td>5</td><td>Jul 2025</td><td><span class="b b-green">On Track</span></td></tr><tr><td>CSE Rescue</td><td>4</td><td>3</td><td>OVERDUE</td><td><span class="b b-red">Overdue</span></td></tr></tbody></table></div></div></div>
+<div class="page" id="page-health"><div class="kgrid"><div class="kcard k-red"><div class="k-label">Heat Stress Cases</div><div class="k-val red">4</div><div class="k-sub">Jun 2025 peak season</div></div><div class="kcard k-amber"><div class="k-label">Medicals Overdue</div><div class="k-val amber">12</div><div class="k-sub">Periodic review</div></div><div class="kcard k-green"><div class="k-label">FFD Compliance</div><div class="k-val green">98%</div><div class="k-sub">Fitness for Duty</div></div><div class="kcard k-blue"><div class="k-label">Noise Exposure Hi-Risk</div><div class="k-val blue">8</div><div class="k-sub">Workers above 85dB(A)</div></div></div><div class="panel"><div class="panel-head"><div class="ph-line red"></div>Industrial Hygiene Monitoring</div><div class="tscroll"><table class="dt"><thead><tr><th>Agent</th><th>Area</th><th>Measured Level</th><th>OEL</th><th>Status</th></tr></thead><tbody><tr><td>H2S</td><td>Zone 7</td><td>12 ppm</td><td>1 ppm TLV</td><td><span class="b b-red">EXCEED</span></td></tr><tr><td>Noise</td><td>Drill Floor</td><td>89 dB(A)</td><td>85 dB(A)</td><td><span class="b b-amber">ABOVE</span></td></tr><tr><td>Dust (RCS)</td><td>Quarry Area</td><td>0.3 mg/m³</td><td>0.1 mg/m³</td><td><span class="b b-red">EXCEED</span></td></tr><tr><td>Heat WBGT</td><td>Outdoor</td><td>31°C</td><td>29°C Work</td><td><span class="b b-amber">WARNING</span></td></tr><tr><td>VOC</td><td>Paint Store</td><td>45 ppm</td><td>50 ppm</td><td><span class="b b-green">WITHIN</span></td></tr></tbody></table></div></div></div>
+<div class="page" id="page-env"><div class="kgrid"><div class="kcard k-amber"><div class="k-label">Spills YTD</div><div class="k-val amber">4</div><div class="k-sub">2 contained, 2 soil</div></div><div class="kcard k-green"><div class="k-label">Waste Segregation</div><div class="k-val green">91%</div><div class="k-sub">Target 95%</div></div><div class="kcard k-red"><div class="k-label">Haz Waste Pending</div><div class="k-val red">3.2T</div><div class="k-sub">Awaiting manifests</div></div><div class="kcard k-green"><div class="k-label">GHG YTD</div><div class="k-val green">1,847T</div><div class="k-sub">CO₂-eq estimate</div></div></div><div class="panel"><div class="panel-head"><div class="ph-line green"></div>Spill Register</div><div class="tscroll"><table class="dt"><thead><tr><th>Date</th><th>Material</th><th>Volume</th><th>Location</th><th>Contained?</th><th>Status</th></tr></thead><tbody><tr><td>09 Jun</td><td>Diesel</td><td>40L</td><td>Generator Bay</td><td><span class="b b-green">YES (bund)</span></td><td><span class="b b-green">Cleaned</span></td></tr><tr><td>21 May</td><td>Drilling mud</td><td>200L</td><td>Drill Site 3</td><td><span class="b b-amber">PARTIAL</span></td><td><span class="b b-amber">Remediation</span></td></tr><tr><td>03 May</td><td>Lubricant</td><td>15L</td><td>Pump Room</td><td><span class="b b-green">YES</span></td><td><span class="b b-green">Closed</span></td></tr><tr><td>14 Apr</td><td>Hydraulic oil</td><td>60L</td><td>Logistics Yard</td><td><span class="b b-red">NO</span></td><td><span class="b b-amber">Ongoing</span></td></tr></tbody></table></div></div></div>
+<div class="page" id="page-fire"><div class="kgrid"><div class="kcard k-green"><div class="k-label">Fire Extinguishers OK</div><div class="k-val green">312/318</div><div class="k-sub">6 require servicing</div></div><div class="kcard k-red"><div class="k-label">Process Safety Events</div><div class="k-val red">2</div><div class="k-sub">Gas release + alarm bypass</div></div><div class="kcard k-green"><div class="k-label">ESD System</div><div class="k-val green">ARMED</div><div class="k-sub">Last test: 1 Jun</div></div><div class="kcard k-amber"><div class="k-label">HAZOP Actions Open</div><div class="k-val amber">14</div><div class="k-sub">Due within 30 days</div></div></div><div class="g2"><div class="panel"><div class="panel-head"><div class="ph-line red"></div>Fire Equipment Inspection</div><div class="prog-row"><div class="prog-label">Fire Extinguishers</div><div class="prog-track"><div class="prog-fill" style="width:98%;background:var(--green)"></div></div><div class="prog-val" style="color:var(--green)">98%</div></div><div class="prog-row"><div class="prog-label">Fire Hoses/Reels</div><div class="prog-track"><div class="prog-fill" style="width:92%;background:var(--green)"></div></div><div class="prog-val" style="color:var(--green)">92%</div></div><div class="prog-row"><div class="prog-label">Smoke Detectors</div><div class="prog-track"><div class="prog-fill" style="width:100%;background:var(--green)"></div></div><div class="prog-val" style="color:var(--green)">100%</div></div><div class="prog-row"><div class="prog-label">Sprinkler System</div><div class="prog-track"><div class="prog-fill" style="width:88%;background:var(--amber)"></div></div><div class="prog-val" style="color:var(--amber)">88%</div></div><div class="prog-row"><div class="prog-label">Gas Detectors</div><div class="prog-track"><div class="prog-fill" style="width:95%;background:var(--green)"></div></div><div class="prog-val" style="color:var(--green)">95%</div></div><div class="prog-row"><div class="prog-label">Deluge Systems</div><div class="prog-track"><div class="prog-fill" style="width:82%;background:var(--amber)"></div></div><div class="prog-val" style="color:var(--amber)">82%</div></div></div><div class="panel"><div class="panel-head"><div class="ph-line amber"></div>Process Safety Events</div><div class="srow"><div class="srow-name">Gas releases (minor)</div><div class="srow-val" style="color:var(--amber)">4</div></div><div class="srow"><div class="srow-name">Alarm bypass active</div><div class="srow-val" style="color:var(--red)">3</div></div><div class="srow"><div class="srow-name">Pressure abnormalities</div><div class="srow-val" style="color:var(--amber)">6</div></div><div class="srow"><div class="srow-name">LOC Tier 1</div><div class="srow-val" style="color:var(--green)">0</div></div><div class="srow"><div class="srow-name">LOC Tier 2</div><div class="srow-val" style="color:var(--amber)">2</div></div><div class="srow"><div class="srow-name">HAZOP actions open</div><div class="srow-val" style="color:var(--red)">14</div></div></div></div></div>
+<div class="page" id="page-audit"><div class="kgrid"><div class="kcard k-amber"><div class="k-label">Open Findings</div><div class="k-val amber">22</div><div class="k-sub">of 84 total</div></div><div class="kcard k-red"><div class="k-label">Overdue Findings</div><div class="k-val red">8</div><div class="k-sub">Breach of target date</div></div><div class="kcard k-blue"><div class="k-label">Audits This Year</div><div class="k-val blue">14</div><div class="k-sub">Internal + external</div></div><div class="kcard k-green"><div class="k-label">Closure Rate</div><div class="k-val green">78%</div><div class="k-sub">Target 90%</div></div></div><div class="panel"><div class="panel-head"><div class="ph-line purple"></div>Audit Finding Register — audit_findings table</div><div class="tscroll"><table class="dt"><thead><tr><th>Finding ID</th><th>Audit</th><th>Finding</th><th>Grade</th><th>Owner</th><th>Due</th><th>Status</th></tr></thead><tbody><tr><td class="mono">AUD-088</td><td>ISO 45001</td><td>No PPE inspection records Q1</td><td><span class="b b-red">MAJOR</span></td><td>HSE Mgr</td><td>01 Jun</td><td><span class="b b-red">Overdue</span></td></tr><tr><td class="mono">AUD-087</td><td>Fire Safety</td><td>2 extinguishers expired</td><td><span class="b b-amber">MINOR</span></td><td>M. Al-Rashid</td><td>15 Jun</td><td><span class="b b-amber">Open</span></td></tr><tr><td class="mono">AUD-086</td><td>PTW Audit</td><td>Permit not displayed at worksite</td><td><span class="b b-amber">MINOR</span></td><td>S. Ahmed</td><td>10 Jun</td><td><span class="b b-green">Closed</span></td></tr><tr><td class="mono">AUD-085</td><td>Env Audit</td><td>Waste manifest missing Apr</td><td><span class="b b-red">MAJOR</span></td><td>Env Officer</td><td>20 May</td><td><span class="b b-red">Overdue</span></td></tr></tbody></table></div></div></div>
+<div class="page" id="page-transport"><div class="kgrid"><div class="kcard k-green"><div class="k-label">Vehicle Checks Done</div><div class="k-val green">38/40</div><div class="k-sub">Daily pre-use check</div></div><div class="kcard k-red"><div class="k-label">Speed Violations</div><div class="k-val red">3</div><div class="k-sub">Telematics alerts</div></div><div class="kcard k-green"><div class="k-label">Seatbelt Compliance</div><div class="k-val green">99%</div><div class="k-sub">Spot check</div></div><div class="kcard k-amber"><div class="k-label">Vehicle Incidents YTD</div><div class="k-val amber">6</div><div class="k-sub">3 reversing</div></div></div><div class="panel"><div class="panel-head"><div class="ph-line amber"></div>Vehicle Incident Register</div><div class="tscroll"><table class="dt"><thead><tr><th>Date</th><th>Vehicle</th><th>Type</th><th>Location</th><th>Injury</th><th>Status</th></tr></thead><tbody><tr><td>09 Jun</td><td>Forklift FL-04</td><td>Collision (low speed)</td><td>Logistics Yard</td><td>None</td><td><span class="b b-green">Closed</span></td></tr><tr><td>22 May</td><td>Pickup TK-12</td><td>Reversing incident</td><td>Drill Site</td><td>None</td><td><span class="b b-green">Closed</span></td></tr><tr><td>14 May</td><td>Bus BU-02</td><td>Speed violation</td><td>Access Road</td><td>None</td><td><span class="b b-amber">Pending</span></td></tr><tr><td>03 Apr</td><td>Crane CR-01</td><td>Near miss — pedestrian</td><td>Process Area</td><td>Near miss</td><td><span class="b b-amber">Action open</span></td></tr></tbody></table></div></div></div>
+<div class="page" id="page-chem"><div class="kgrid"><div class="kcard k-blue"><div class="k-label">Chemical Inventory</div><div class="k-val blue">84</div><div class="k-sub">Tracked chemicals</div></div><div class="kcard k-red"><div class="k-label">SDS Missing</div><div class="k-val red">3</div><div class="k-sub">Immediate action req</div></div><div class="kcard k-amber"><div class="k-label">Expired Chemicals</div><div class="k-val amber">7</div><div class="k-sub">Awaiting disposal</div></div><div class="kcard k-green"><div class="k-label">PPE Compliance</div><div class="k-val green">96%</div><div class="k-sub">Daily observation</div></div></div><div class="g2"><div class="panel"><div class="panel-head"><div class="ph-line blue"></div>Chemical Inventory — High Hazard</div><div class="tscroll"><table class="dt"><thead><tr><th>Chemical</th><th>Location</th><th>Qty</th><th>SDS</th><th>Storage</th><th>Expiry</th></tr></thead><tbody><tr><td>Hydrochloric Acid</td><td>Chem Store A</td><td>200L</td><td><span class="b b-green">Current</span></td><td><span class="b b-green">OK</span></td><td>Dec 2025</td></tr><tr><td>Caustic Soda</td><td>Process Area</td><td>500kg</td><td><span class="b b-green">Current</span></td><td><span class="b b-green">OK</span></td><td>Mar 2026</td></tr><tr><td>MEG (Glycol)</td><td>Pipeline Store</td><td>1,000L</td><td><span class="b b-red">MISSING</span></td><td><span class="b b-amber">CHECK</span></td><td style="color:var(--red)">Jun 2025</td></tr><tr><td>H₂SO₄ 98%</td><td>Lab</td><td>50L</td><td><span class="b b-green">Current</span></td><td><span class="b b-green">OK</span></td><td>Sep 2025</td></tr><tr><td>Biocide XL-400</td><td>Water Treatment</td><td>300L</td><td><span class="b b-amber">OUTDATED</span></td><td><span class="b b-green">OK</span></td><td style="color:var(--red)">Apr 2025</td></tr></tbody></table></div></div><div class="panel"><div class="panel-head"><div class="ph-line green"></div>PPE Stock Levels</div><div class="prog-row"><div class="prog-label">Hard Hats</div><div class="prog-track"><div class="prog-fill" style="width:14%;background:var(--red)"></div></div><div class="prog-val" style="color:var(--red)">LOW</div></div><div class="prog-row"><div class="prog-label">Safety Glasses</div><div class="prog-track"><div class="prog-fill" style="width:65%;background:var(--green)"></div></div><div class="prog-val" style="color:var(--green)">OK</div></div><div class="prog-row"><div class="prog-label">H2S Monitors</div><div class="prog-track"><div class="prog-fill" style="width:80%;background:var(--green)"></div></div><div class="prog-val" style="color:var(--green)">OK</div></div><div class="prog-row"><div class="prog-label">Coveralls</div><div class="prog-track"><div class="prog-fill" style="width:45%;background:var(--amber)"></div></div><div class="prog-val" style="color:var(--amber)">LOW</div></div><div class="prog-row"><div class="prog-label">Safety Gloves</div><div class="prog-track"><div class="prog-fill" style="width:90%;background:var(--green)"></div></div><div class="prog-val" style="color:var(--green)">OK</div></div><div class="prog-row"><div class="prog-label">Safety Boots</div><div class="prog-track"><div class="prog-fill" style="width:70%;background:var(--green)"></div></div><div class="prog-val" style="color:var(--green)">OK</div></div></div></div></div>
+<div class="page" id="page-waste"><div class="kgrid"><div class="kcard k-teal"><div class="k-label">Total Waste (Month)</div><div class="k-val teal">48.7T</div><div class="k-sub">June 2025</div></div><div class="kcard k-amber"><div class="k-label">Hazardous Waste</div><div class="k-val amber">12.3T</div><div class="k-sub">Manifests required</div></div><div class="kcard k-green"><div class="k-label">Segregation Rate</div><div class="k-val green">91%</div><div class="k-sub">Target 95%</div></div><div class="kcard k-red"><div class="k-label">Manifest Gaps</div><div class="k-val red">4</div><div class="k-sub">Regulatory risk</div></div></div><div class="panel"><div class="panel-head"><div class="ph-line green"></div>Waste Disposal Register</div><div class="tscroll"><table class="dt"><thead><tr><th>Date</th><th>Type</th><th>Volume</th><th>Vendor</th><th>Manifest</th><th>Status</th></tr></thead><tbody><tr><td>12 Jun</td><td>Oily rags</td><td>0.8T</td><td>EcoDispose</td><td><span class="b b-green">YES</span></td><td><span class="b b-green">Disposed</span></td></tr><tr><td>10 Jun</td><td>Chemical containers</td><td>0.3T</td><td>ChemSafe</td><td><span class="b b-red">MISSING</span></td><td><span class="b b-amber">Action Req</span></td></tr><tr><td>05 Jun</td><td>General waste</td><td>18T</td><td>GulfWaste</td><td><span class="b b-green">YES</span></td><td><span class="b b-green">Disposed</span></td></tr><tr><td>01 Jun</td><td>Drilling waste</td><td>22T</td><td>EcoDispose</td><td><span class="b b-red">MISSING</span></td><td><span class="b b-red">Overdue</span></td></tr></tbody></table></div></div></div>
+<div class="page" id="page-moc"><div class="kgrid"><div class="kcard k-blue"><div class="k-label">MOC Requests YTD</div><div class="k-val blue">18</div><div class="k-sub">Active changes</div></div><div class="kcard k-amber"><div class="k-label">HSE Impact Reviews</div><div class="k-val amber">14</div><div class="k-sub">4 pending review</div></div><div class="kcard k-red"><div class="k-label">Overdue Closures</div><div class="k-val red">3</div><div class="k-sub">Pre-implementation</div></div><div class="kcard k-green"><div class="k-label">Closure Rate</div><div class="k-val green">83%</div><div class="k-sub">Before start date</div></div></div><div class="panel"><div class="panel-head"><div class="ph-line amber"></div>MOC Register</div><div class="tscroll"><table class="dt"><thead><tr><th>MOC #</th><th>Description</th><th>HSE Impact</th><th>RA Updated</th><th>Training Done</th><th>Status</th></tr></thead><tbody><tr><td class="mono">MOC-031</td><td>Chemical injection point P-401</td><td><span class="b b-red">HIGH</span></td><td><span class="b b-green">Yes</span></td><td><span class="b b-red">No</span></td><td><span class="b b-red">BLOCKED</span></td></tr><tr><td class="mono">MOC-030</td><td>Revised PTW access procedure</td><td><span class="b b-amber">MED</span></td><td><span class="b b-green">Yes</span></td><td><span class="b b-green">Yes</span></td><td><span class="b b-green">Approved</span></td></tr><tr><td class="mono">MOC-029</td><td>Hot work zone extension Deck 3</td><td><span class="b b-red">HIGH</span></td><td><span class="b b-amber">In Review</span></td><td><span class="b b-red">No</span></td><td><span class="b b-amber">Pending</span></td></tr><tr><td class="mono">MOC-028</td><td>New contractor crew for drilling</td><td><span class="b b-amber">MED</span></td><td><span class="b b-green">Yes</span></td><td><span class="b b-green">Yes</span></td><td><span class="b b-green">Closed</span></td></tr></tbody></table></div></div></div>
+<div class="page" id="page-offshore"><div class="kgrid"><div class="kcard k-blue"><div class="k-label">POB — Offshore Alpha</div><div class="k-val blue">127</div><div class="k-sub">Manifest verified</div></div><div class="kcard k-green"><div class="k-label">Life Jackets</div><div class="k-val green">127/127</div><div class="k-sub">All serviceable</div></div><div class="kcard k-amber"><div class="k-label">Liferaft Service Due</div><div class="k-val amber">1</div><div class="k-sub">Due 25 Jun</div></div><div class="kcard k-green"><div class="k-label">Medevac Readiness</div><div class="k-val green">READY</div><div class="k-sub">Medic on board</div></div></div><div class="g2"><div class="panel"><div class="panel-head"><div class="ph-line blue"></div>POB Breakdown</div><div class="srow"><div class="srow-name">Company Staff</div><div class="srow-val" style="color:var(--blue)">42</div></div><div class="srow"><div class="srow-name">Contractors</div><div class="srow-val" style="color:var(--teal)">71</div></div><div class="srow"><div class="srow-name">Visitors</div><div class="srow-val" style="color:var(--amber)">8</div></div><div class="srow"><div class="srow-name">Management/Supervisors</div><div class="srow-val" style="color:var(--purple)">6</div></div><div class="srow"><div class="srow-name" style="font-weight:600">TOTAL POB</div><div class="srow-val" style="color:var(--green);font-size:14px">127</div></div></div><div class="panel"><div class="panel-head"><div class="ph-line green"></div>Lifesaving Appliances</div><div class="prog-row"><div class="prog-label">Liferafts</div><div class="prog-track"><div class="prog-fill" style="width:100%;background:var(--green)"></div></div><div class="prog-val" style="color:var(--green)">4/4</div></div><div class="prog-row"><div class="prog-label">Immersion Suits</div><div class="prog-track"><div class="prog-fill" style="width:100%;background:var(--green)"></div></div><div class="prog-val" style="color:var(--green)">145</div></div><div class="prog-row"><div class="prog-label">EPIRBs</div><div class="prog-track"><div class="prog-fill" style="width:100%;background:var(--green)"></div></div><div class="prog-val" style="color:var(--green)">OK</div></div><div class="prog-row"><div class="prog-label">Fast Rescue Craft</div><div class="prog-track"><div class="prog-fill" style="width:100%;background:var(--green)"></div></div><div class="prog-val" style="color:var(--green)">2/2</div></div><div class="prog-row"><div class="prog-label">MOB Marker Buoys</div><div class="prog-track"><div class="prog-fill" style="width:80%;background:var(--amber)"></div></div><div class="prog-val" style="color:var(--amber)">4/5</div></div></div></div></div>
+
+</div><!-- end content -->
+</div><!-- end shell -->
+
+<script>
+// ══════════════════════════════════════════════════════════════════
+// DATA MODEL — 7 CORE TABLES
+// All KPI calculations run against this live data model
+// ══════════════════════════════════════════════════════════════════
+
+const DB = {
+  incidents: [
+    {id:"INC-0047",date:"2025-06-15",type:"Near Miss",severity:"HIGH",facility:"alpha",shift:"Day",lost_days:0,contractor:null},
+    {id:"INC-0046",date:"2025-06-13",type:"FAC",severity:"MED",facility:"alpha",shift:"Day",lost_days:0,contractor:"aquadrill"},
+    {id:"INC-0045",date:"2025-06-11",type:"LTI",severity:"HIGH",facility:"beta",shift:"Night",lost_days:5,contractor:null},
+    {id:"INC-0044",date:"2025-06-09",type:"Vehicle",severity:"MED",facility:"logistics",shift:"Day",lost_days:0,contractor:null},
+    {id:"INC-0043",date:"2025-06-06",type:"Env",severity:"MED",facility:"beta",shift:"Day",lost_days:0,contractor:null},
+    {id:"INC-0042",date:"2025-06-03",type:"Process",severity:"HIGH",facility:"alpha",shift:"Night",lost_days:0,contractor:null},
+    {id:"INC-0041",date:"2025-06-01",type:"Near Miss",severity:"MED",facility:"logistics",shift:"Day",lost_days:0,contractor:"aquadrill"},
+    {id:"INC-0040",date:"2025-05-28",type:"LTI",severity:"HIGH",facility:"alpha",shift:"Night",lost_days:8,contractor:"safrig"},
+    {id:"INC-0039",date:"2025-05-22",type:"MTC",severity:"MED",facility:"beta",shift:"Day",lost_days:0,contractor:null},
+    {id:"INC-0035",date:"2025-05-05",type:"LTI",severity:"HIGH",facility:"refinery",shift:"Day",lost_days:14,contractor:"aquadrill"},
+    ...Array.from({length:81},(_,i)=>({id:`INC-${1000+i}`,date:`2025-0${Math.min(6,Math.floor(i/15)+1)}-${String((i%28)+1).padStart(2,'0')}`,type:"Near Miss",severity:"LOW",facility:["alpha","beta","logistics"][i%3],shift:i%3===0?"Night":"Day",lost_days:0,contractor:null}))
+  ],
+  permits: [
+    {id:"PTW-1847",type:"Hot Work",facility:"alpha",contractor:"safrig",status:"Active",jsa:true,gas_test:"PASS",field_compliant:true},
+    {id:"PTW-1848",type:"CSE",facility:"alpha",contractor:"petroflex",status:"Active",jsa:true,gas_test:"PASS",field_compliant:true},
+    {id:"PTW-1849",type:"Electrical",facility:"alpha",contractor:"powertech",status:"Suspended",jsa:true,gas_test:"N/A",field_compliant:true},
+    {id:"PTW-1850",type:"Lifting",facility:"alpha",contractor:"heavylift",status:"Active",jsa:true,gas_test:"N/A",field_compliant:true},
+    {id:"PTW-1843",type:"Hot Work",facility:"alpha",contractor:"safrig",status:"Expired",jsa:true,gas_test:"FAIL",field_compliant:false},
+    ...Array.from({length:33},(_,i)=>({id:`PTW-${1800+i}`,type:["Hot Work","Cold Work","CSE","Electrical","Lifting"][i%5],facility:["alpha","beta","logistics"][i%3],contractor:"petroflex",status:"Active",jsa:true,gas_test:"PASS",field_compliant:i%10!==0}))
+  ],
+  helicopter_movements: [
+    {id:"OH-411",date:"2025-06-15",type:"Personnel",pax:8,origin:"base",dest:"alpha",delay_min:0,status:"Landed"},
+    {id:"OH-412",date:"2025-06-15",type:"Cargo",pax:0,origin:"alpha",dest:"base",delay_min:0,status:"Departed"},
+    {id:"MED-03",date:"2025-06-15",type:"Medevac",pax:1,origin:"delta",dest:"hospital",delay_min:0,status:"Completed"},
+    {id:"OH-414",date:"2025-06-15",type:"Personnel",pax:12,origin:"base",dest:"alpha",delay_min:25,status:"Landed"},
+    {id:"OH-415",date:"2025-06-15",type:"Personnel",pax:6,origin:"alpha",dest:"delta",delay_min:0,status:"Departed"},
+    {id:"OH-417",date:"2025-06-15",type:"Personnel",pax:12,origin:"alpha",dest:"base",delay_min:0,status:"Scheduled"},
+    ...Array.from({length:242},(_,i)=>({id:`FL-${2000+i}`,date:`2025-0${Math.min(6,Math.floor(i/45)+1)}-15`,type:"Personnel",pax:Math.floor(Math.random()*14)+1,origin:"base",dest:"alpha",delay_min:i%8===0?20:0,status:"Completed"}))
+  ],
+  training_matrix: [
+    {id:"TM-001",person:"J. Khalid",course:"H2S Awareness",status:"Current",expiry:"2025-12-01"},
+    {id:"TM-002",person:"S. Ahmed",course:"First Aider",status:"Expiring Soon",expiry:"2025-07-10"},
+    {id:"TM-003",person:"R. Kumar",course:"Work at Height",status:"Expired",expiry:"2025-05-01"},
+    {id:"TM-004",person:"P. Selvaraj",course:"Helideck Safety",status:"Current",expiry:"2026-03-15"},
+    {id:"TM-005",person:"M. Al-Rashid",course:"Fire Warden",status:"Expired",expiry:"2025-04-20"},
+    ...Array.from({length:342},(_,i)=>({id:`TM-${100+i}`,person:`Person-${i}`,course:["H2S Awareness","Fire Warden","First Aider","Work at Height","Confined Space","PTW","Defensive Driving","Helideck Safety","Spill Response"][i%9],status:i%13===0?"Expired":i%7===0?"Expiring Soon":"Current",expiry:`2025-${String(Math.floor(i%12)+1).padStart(2,'0')}-15`}))
+  ],
+  contractor_scorecard: [
+    {id:"CS-001",contractor:"Petroflex Ltd",month:"2025-06",manhours:241000,incidents:1,induction_pct:100,training_pct:94,audit_score:91},
+    {id:"CS-002",contractor:"SafeRig Co",month:"2025-06",manhours:182000,incidents:2,induction_pct:100,training_pct:81,audit_score:74},
+    {id:"CS-003",contractor:"AquaDrill",month:"2025-06",manhours:98000,incidents:3,induction_pct:72,training_pct:65,audit_score:58},
+    {id:"CS-004",contractor:"HeavyLift",month:"2025-06",manhours:76000,incidents:0,induction_pct:100,training_pct:98,audit_score:96},
+    {id:"CS-005",contractor:"PowerTech",month:"2025-06",manhours:54000,incidents:1,induction_pct:88,training_pct:79,audit_score:71},
+  ],
+  audit_findings: [
+    {id:"AUD-088",audit:"ISO 45001",grade:"MAJOR",owner:"HSE Mgr",due:"2025-06-01",status:"Overdue"},
+    {id:"AUD-087",audit:"Fire Safety",grade:"MINOR",owner:"M. Al-Rashid",due:"2025-06-15",status:"Open"},
+    {id:"AUD-086",audit:"PTW Audit",grade:"MINOR",owner:"S. Ahmed",due:"2025-06-10",status:"Closed"},
+    {id:"AUD-085",audit:"Env Audit",grade:"MAJOR",owner:"Env Officer",due:"2025-05-20",status:"Overdue"},
+    ...Array.from({length:80},(_,i)=>({id:`AUD-${i+1}`,audit:"Various",grade:i%5===0?"MAJOR":"MINOR",owner:`Owner-${i}`,due:`2025-0${Math.min(6,i%6+1)}-15`,status:i%4===0?"Overdue":i%3===0?"Open":"Closed"}))
+  ],
+  action_tracker: [
+    {id:"ACT-201",source:"Incident",source_id:"INC-0047",description:"Helideck FOD procedure update",priority:"CRITICAL",owner:"J. Khalid",due:"2025-05-25",status:"Overdue"},
+    {id:"ACT-202",source:"Audit",source_id:"AUD-088",description:"PPE inspection records Q1",priority:"MAJOR",owner:"HSE Mgr",due:"2025-06-01",status:"Overdue"},
+    {id:"ACT-203",source:"Inspection",source_id:"INS-441",description:"Fire pump annual service",priority:"HIGH",owner:"M. Al-Rashid",due:"2025-06-03",status:"Overdue"},
+    {id:"ACT-204",source:"PTW Audit",source_id:"PTW-1843",description:"Gas test monitoring improvement",priority:"MEDIUM",owner:"S. Ahmed",due:"2025-06-20",status:"In Progress"},
+    {id:"ACT-205",source:"MOC",source_id:"MOC-031",description:"Train staff on chemical injection",priority:"HIGH",owner:"Trainer",due:"2025-06-18",status:"Planned"},
+    {id:"ACT-206",source:"Audit",source_id:"AUD-085",description:"Waste manifest filing Apr/May",priority:"MAJOR",owner:"Env Officer",due:"2025-05-20",status:"Overdue"},
+    {id:"ACT-207",source:"Drill Review",source_id:"DRL-012",description:"Helideck crash drill reschedule",priority:"HIGH",owner:"HSE Mgr",due:"2025-06-30",status:"Open"},
+    {id:"ACT-208",source:"Contractor",source_id:"CS-003",description:"AquaDrill improvement plan",priority:"CRITICAL",owner:"HSE Dir",due:"2025-06-17",status:"Escalated"},
+  ]
+};
+
+// ══════════════════════════════════════════════════════════════════
+// LIVE KPI ENGINE — recalculates on filter change
+// ══════════════════════════════════════════════════════════════════
+const MANHOURS = {all:2180000,alpha:820000,beta:640000,logistics:480000,refinery:240000};
+
+function getKPIs(facility="all",period="ytd"){
+  const now=new Date("2025-06-15");
+  let inc=DB.incidents;
+  if(facility!=="all") inc=inc.filter(i=>i.facility===facility);
+  if(period==="30d"){const c=new Date(now-30*864e5);inc=inc.filter(i=>new Date(i.date)>=c);}
+  else if(period==="q2"){inc=inc.filter(i=>new Date(i.date)>=new Date("2025-04-01"));}
+
+  const mh=MANHOURS[facility];
+  const recordables=inc.filter(i=>["LTI","MTC","RWC"].includes(i.type)).length;
+  const ltis=inc.filter(i=>i.type==="LTI");
+  const ltiCount=ltis.length;
+  const nearMiss=inc.filter(i=>i.type==="Near Miss").length;
+  const lostDays=ltis.reduce((s,i)=>s+(i.lost_days||0),0);
+
+  const ptw=DB.permits.filter(p=>facility==="all"||p.facility===facility);
+  const ptw_comply=ptw.length?Math.round(ptw.filter(p=>p.field_compliant).length/ptw.length*100):100;
+
+  const tm=DB.training_matrix;
+  const tm_curr=tm.filter(t=>t.status==="Current").length;
+  const tm_comply=Math.round(tm_curr/tm.length*100);
+
+  const findings=DB.audit_findings;
+  const closed_f=findings.filter(f=>f.status==="Closed").length;
+  const audit_rate=Math.round(closed_f/findings.length*100);
+
+  const heli=DB.helicopter_movements.filter(f=>f.date==="2025-06-15");
+  const ontime=heli.filter(f=>f.delay_min===0&&f.status!=="Scheduled").length;
+  const heli_otp=heli.length?Math.round(ontime/heli.filter(f=>f.status!=="Scheduled").length*100):89;
+
+  const trir=mh?+((recordables*200000)/mh).toFixed(2):0;
+  const ltifr=mh?+((ltiCount*1000000)/mh).toFixed(2):0;
+  const nmr=mh?+((nearMiss*200000)/mh).toFixed(1):0;
+
+  const lastLTI=ltis.sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
+  const ltiFree=lastLTI?Math.floor((now-new Date(lastLTI.date))/864e5):365;
+
+  const hseScore=Math.round((tm_comply*0.3+ptw_comply*0.3+audit_rate*0.2+84*0.2)*0.6+Math.max(0,100-(trir/1.5)*50)*0.4);
+
+  return{trir,ltifr,nmr,ltiCount,nearMiss,lostDays,ptw_comply,tm_comply,audit_rate,heli_otp,ltiFree,hseScore,mh:+(mh/1e6).toFixed(2)+"M"};
+}
+
+function recalcKPIs(){
+  const f=document.getElementById("f-facility")?.value||"all";
+  const p=document.getElementById("f-period")?.value||"ytd";
+  const k=getKPIs(f,p);
+  const set=(id,v)=>{const el=document.getElementById(id);if(el)el.textContent=v;};
+  set("kv-trir",k.trir);set("kv-ltifr",k.ltifr);set("kv-nmr",k.nmr);
+  set("kv-ptw",k.ptw_comply+"%");set("kv-ltifree",k.ltiFree);
+  set("kv-train",k.tm_comply+"%");set("kv-audit",k.audit_rate+"%");
+  set("kv-mh",k.mh);set("alert-trir",k.trir);
+  const mhTag=document.getElementById("manhour-tag");
+  if(mhTag)mhTag.textContent=k.mh+" manhours";
+}
+
+function switchFacility(v){
+  const el=document.getElementById("f-facility");
+  if(el)el.value=v;
+  recalcKPIs();
+}
+
+// ══════════════════════════════════════════════════════════════════
+// TAB NAVIGATION
+// ══════════════════════════════════════════════════════════════════
+const rendered=new Set();
+function goTab(id,btn){
+  document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
+  document.querySelectorAll(".tn").forEach(b=>b.classList.remove("active"));
+  const pg=document.getElementById("page-"+id);
+  if(pg)pg.classList.add("active");
+  if(btn)btn.classList.add("active");
+  setTimeout(()=>renderCharts(id),80);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// CHART.JS RENDERING — all charts rendered on tab activation
+// ══════════════════════════════════════════════════════════════════
+const COLORS={red:"#e8394a",amber:"#f5a623",green:"#23c97a",blue:"#2f8fff",teal:"#0dd8c8",purple:"#9b6bff",gray:"#4e6480"};
+const GRID={color:"rgba(31,45,66,.7)"};
+const TICK={color:"#4e6480",font:{size:10,family:"'DM Sans',sans-serif"}};
+const BASE={responsive:true,maintainAspectRatio:false,animation:{duration:500},plugins:{legend:{display:false}}};
+
+function mk(id,type,data,opts={}){
+  const el=document.getElementById(id);
+  if(!el||rendered.has(id))return;
+  rendered.add(id);
+  new Chart(el,{type,data,options:{...BASE,...opts}});
+}
+
+function renderCharts(tab){
+  if(tab==="exec"){
+    mk("c-exec-trend","line",{
+      labels:["Jul","Aug","Sep","Oct","Nov","Dec","Jan","Feb","Mar","Apr","May","Jun"],
+      datasets:[
+        {label:"Near Miss",data:[6,8,5,9,12,7,10,8,11,14,13,15],borderColor:COLORS.green,backgroundColor:"rgba(35,201,122,.08)",tension:.4,fill:true,borderWidth:2,pointRadius:3,pointBackgroundColor:COLORS.green},
+        {label:"First Aid",data:[2,3,1,4,2,3,4,2,3,4,3,4],borderColor:COLORS.amber,backgroundColor:"rgba(245,166,35,.06)",tension:.4,fill:true,borderWidth:2,pointRadius:3,pointBackgroundColor:COLORS.amber},
+        {label:"LTI",data:[0,1,0,0,1,0,0,1,0,0,0,1],borderColor:COLORS.red,tension:.4,borderWidth:2.5,pointRadius:5,pointBackgroundColor:COLORS.red}
+      ]
+    },{scales:{x:{grid:GRID,ticks:TICK},y:{grid:GRID,ticks:TICK}},plugins:{legend:{display:true,labels:{color:"#8fa3bc",font:{size:10},boxWidth:8}}}});
+
+    mk("c-inc-class","doughnut",{
+      labels:["Near Miss","First Aid","LTI","Property","Vehicle","Env"],
+      datasets:[{data:[44,22,5,8,6,4],backgroundColor:[COLORS.green,COLORS.amber,COLORS.red,COLORS.blue,COLORS.purple,COLORS.teal],borderWidth:2,borderColor:"#141923"}]
+    },{plugins:{legend:{display:true,position:"right",labels:{color:"#8fa3bc",font:{size:10},boxWidth:8}}}});
+
+    mk("c-severity","bar",{
+      labels:["Critical","High","Medium","Low","Min"],
+      datasets:[{data:[3,14,28,41,33],backgroundColor:["#2d0a0f",COLORS.red,COLORS.amber,COLORS.green,COLORS.blue],borderRadius:3,borderSkipped:false}]
+    },{scales:{x:{grid:{display:false},ticks:TICK},y:{grid:GRID,ticks:TICK}}});
+
+    mk("c-radar","radar",{
+      labels:["Near Miss Rate","Training%","PTW Comply","Inspect%","Drills%","Audit Close"],
+      datasets:[
+        {label:"Actual",data:[84,87,95,91,83,78],borderColor:COLORS.amber,backgroundColor:"rgba(245,166,35,.12)",pointBackgroundColor:COLORS.amber,borderWidth:2,pointRadius:3},
+        {label:"Target",data:[100,95,100,100,100,90],borderColor:COLORS.blue,backgroundColor:"rgba(47,143,255,.06)",borderDash:[4,3],borderWidth:1.5,pointRadius:0}
+      ]
+    },{scales:{r:{grid:{color:"rgba(31,45,66,.8)"},pointLabels:{color:"#8fa3bc",font:{size:9.5}},ticks:{display:false}}},plugins:{legend:{display:true,labels:{color:"#8fa3bc",font:{size:10},boxWidth:8}}}});
+  }
+
+  if(tab==="heli"){
+    mk("c-heli-monthly","bar",{
+      labels:["Jan","Feb","Mar","Apr","May","Jun"],
+      datasets:[
+        {label:"Arrivals",data:[42,38,51,47,44,48],backgroundColor:COLORS.blue,borderRadius:3},
+        {label:"Departures",data:[40,37,50,46,43,46],backgroundColor:COLORS.teal,borderRadius:3}
+      ]
+    },{scales:{x:{grid:{display:false},ticks:TICK},y:{grid:GRID,ticks:TICK}},plugins:{legend:{display:true,labels:{color:"#8fa3bc",font:{size:10},boxWidth:8}}}});
+
+    mk("c-delays","doughnut",{
+      labels:["Weather","Mechanical","ATC","Passenger","Cargo"],
+      datasets:[{data:[42,24,14,12,8],backgroundColor:[COLORS.blue,COLORS.red,COLORS.amber,COLORS.purple,COLORS.teal],borderWidth:2,borderColor:"#141923"}]
+    },{plugins:{legend:{display:true,position:"right",labels:{color:"#8fa3bc",font:{size:10},boxWidth:8}}}});
+  }
+
+  if(tab==="incident"){
+    mk("c-rootcause","bar",{
+      labels:["Procedure not followed","Inadequate supervision","Training gap","Fatigue/human error","Equipment failure","Environmental"],
+      datasets:[{data:[31,22,19,14,9,5],backgroundColor:[COLORS.red,COLORS.amber,COLORS.amber,COLORS.amber,COLORS.blue,COLORS.teal],borderRadius:3}]
+    },{indexAxis:"y",scales:{x:{grid:GRID,ticks:{...TICK,callback:v=>v+"%"}},y:{grid:{display:false},ticks:{...TICK,font:{size:10}}}},plugins:{legend:{display:false}}});
+  }
+
+  if(tab==="ptw"){
+    mk("c-ptw-types","bar",{
+      labels:["Hot Work","Cold Work","CSE","Electrical","Lifting","Excavation"],
+      datasets:[{data:[12,8,4,5,7,2],backgroundColor:[COLORS.red,COLORS.blue,COLORS.amber,COLORS.purple,COLORS.teal,COLORS.green],borderRadius:3,borderSkipped:false}]
+    },{scales:{x:{grid:{display:false},ticks:TICK},y:{grid:GRID,ticks:TICK}}});
+  }
+
+  if(tab==="contractor"){
+    mk("c-contractor-trir","bar",{
+      labels:["Petroflex","HeavyLift","SafeRig","PowerTech","AquaDrill"],
+      datasets:[
+        {label:"TRIR",data:[0.83,0.0,2.2,3.7,6.1],backgroundColor:[COLORS.green,COLORS.teal,COLORS.amber,COLORS.amber,COLORS.red],borderRadius:3,borderSkipped:false},
+        {label:"Target",data:[1.5,1.5,1.5,1.5,1.5],type:"line",borderColor:"rgba(255,255,255,.3)",borderDash:[4,3],borderWidth:1.5,pointRadius:0}
+      ]
+    },{scales:{x:{grid:{display:false},ticks:TICK},y:{grid:GRID,ticks:TICK}},plugins:{legend:{display:true,labels:{color:"#8fa3bc",font:{size:10},boxWidth:8}}}});
+  }
+
+  if(tab==="training"){
+    mk("c-expiry","bar",{
+      labels:["Month 1 (Jun)","Month 2 (Jul)","Month 3 (Aug)"],
+      datasets:[
+        {label:"H2S",data:[8,4,3],backgroundColor:COLORS.red,borderRadius:2},
+        {label:"First Aid",data:[6,3,2],backgroundColor:COLORS.amber,borderRadius:2},
+        {label:"Work@Height",data:[4,5,3],backgroundColor:COLORS.blue,borderRadius:2},
+        {label:"Other",data:[7,8,6],backgroundColor:COLORS.gray,borderRadius:2}
+      ]
+    },{scales:{x:{grid:{display:false},ticks:TICK,stacked:true},y:{grid:GRID,ticks:TICK,stacked:true}},plugins:{legend:{display:true,labels:{color:"#8fa3bc",font:{size:10},boxWidth:8}}}});
+  }
+
+  if(tab==="predict"){
+    mk("c-predict","line",{
+      labels:["Now","W1","W2","W3","W4","W5","W6","W7","W8","W9","W10","W11","W12","W13"],
+      datasets:[
+        {label:"Current Trajectory",data:[68,70,73,69,75,71,68,72,65,60,58,55,52,48],borderColor:COLORS.red,backgroundColor:"rgba(232,57,74,.1)",tension:.4,fill:true,borderWidth:2.5,pointRadius:3},
+        {label:"With Intervention",data:[68,62,55,48,44,38,32,28,24,20,18,15,12,10],borderColor:COLORS.green,backgroundColor:"rgba(35,201,122,.06)",tension:.4,fill:true,borderDash:[5,4],borderWidth:2,pointRadius:2}
+      ]
+    },{scales:{x:{grid:GRID,ticks:TICK},y:{min:0,max:100,grid:GRID,ticks:{...TICK,callback:v=>v+"%"}}},plugins:{legend:{display:true,labels:{color:"#8fa3bc",font:{size:10},boxWidth:8}}}});
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// CLOCK
+// ══════════════════════════════════════════════════════════════════
+function tick(){
+  const el=document.getElementById("clock");
+  if(el)el.textContent=new Date().toLocaleTimeString("en-GB",{hour12:false});
+}
+tick();setInterval(tick,1000);
+
+// Init
+renderCharts("exec");
+recalcKPIs();
+</script>
+</body>
+</html>
