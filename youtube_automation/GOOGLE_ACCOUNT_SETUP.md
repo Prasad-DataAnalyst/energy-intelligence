@@ -30,7 +30,7 @@ Do this once. After that, videos upload automatically every day.
    - Click **Save and Continue** through all screens (scopes/test users can be skipped for now)
 4. Back in Credentials → **+ Create Credentials → OAuth client ID**
    - Application type: **Desktop app**
-   - Name: `daily-drop-uploader`
+   - Name: `mind-fuel-daily-uploader`
    - Click **Create**
 5. In the popup, click **Download JSON**
 6. Rename the file to `client_secrets.json`
@@ -50,8 +50,8 @@ Do this once. After that, videos upload automatically every day.
 ## Step 5 — Create your channel if you don't have one yet
 
 1. Go to [youtube.com/create_channel](https://www.youtube.com/create_channel)
-2. Channel name: **Daily Drop with Prasad**
-3. Choose a custom URL: `@DailyDropPrasad` (or similar)
+2. Channel name: **Mind Fuel Daily**
+3. Choose a custom URL: `@MindFuelDaily` (or similar)
 4. Add a description: *"Learn something new every day. Money, career, health, tech, mindset & more — one video daily at 3 PM EST."*
 5. Then go back to Step 4 to get your channel ID.
 

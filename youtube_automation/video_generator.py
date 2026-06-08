@@ -333,7 +333,7 @@ def scene_outro(content: dict, n: int) -> Generator:
 
         if t > 0.84:
             draw.text((W//2, H-50),
-                      "Daily Drop with Prasad  |  New video every day at 3 PM EST",
+                      "Mind Fuel Daily  |  New video every day at 3 PM EST",
                       font=_font(24), fill=lc(PAPER, INK_MID, ease((t-0.84)/0.16)), anchor="mm")
 
         yield _post(img)

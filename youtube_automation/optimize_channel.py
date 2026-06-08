@@ -4,7 +4,7 @@ optimize_channel.py
 Full YouTube channel + video optimisation for maximum algorithm reach.
 
 Runs automatically after re-auth. Covers:
-  1. Channel rename  → "Daily Drop with Prasad"
+  1. Channel rename  → "Mind Fuel Daily"
   2. Channel description (keyword-rich, US-focused)
   3. Channel keywords  (50-char limit per keyword, space-separated)
   4. Channel country   → US
@@ -21,12 +21,12 @@ from google.oauth2.credentials import Credentials
 TOKEN   = pathlib.Path("youtube_token.json")
 LOG_SEP = "─" * 60
 
-CHANNEL_NAME = "Daily Drop with Prasad"
+CHANNEL_NAME = "Mind Fuel Daily"
 
 CHANNEL_DESCRIPTION = """\
 Learn something new every single day. 🧠
 
-Daily Drop with Prasad delivers punchy, pencil-sketch animated videos on:
+Mind Fuel Daily delivers punchy, pencil-sketch animated videos on:
 💰 Money & Personal Finance  |  🤖 Tech & AI
 🚀 Career & Salary Hacks     |  💪 Health & Fitness
 ✈️ Lifestyle & Travel         |  🔬 Science & Psychology
@@ -161,8 +161,8 @@ Personal finance | Career growth | Self improvement
 Productivity | Health & wellness | Tech & AI | Mindset
 {"─"*50}
 
-© Daily Drop with Prasad | prasad2t@gmail.com
-#DailyDrop #LearnEveryDay #SelfImprovement
+© Mind Fuel Daily | prasad2t@gmail.com
+#MindFuelDaily #LearnEveryDay #SelfImprovement
 """
 
     tags = [
@@ -252,7 +252,7 @@ def patch_content_generator():
 
 def run():
     print("\n╔══════════════════════════════════════════════════╗")
-    print("║  Daily Drop — Full Channel Optimisation          ║")
+    print("║  Mind Fuel Daily — Full Channel Optimisation          ║")
     print("╚══════════════════════════════════════════════════╝")
 
     sess = session()

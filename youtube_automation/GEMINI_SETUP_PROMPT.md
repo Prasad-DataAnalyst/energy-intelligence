@@ -25,9 +25,9 @@ This system generates a daily pencil-sketch animated video and uploads it to my 
 ### My account details
 
 - **Google account:** prasad2t@gmail.com
-- **Desired GCP project ID:** `daily-drop-prasad`
-- **Desired GCP project name:** Daily Drop Prasad
-- **YouTube channel name to create (if none exists):** Daily Drop with Prasad
+- **Desired GCP project ID:** `mind-fuel-daily`
+- **Desired GCP project name:** Mind Fuel Daily
+- **YouTube channel name to create (if none exists):** Mind Fuel Daily
 - **Free tier constraint:** stay within all Google Cloud free quotas
 
 ---
@@ -37,15 +37,15 @@ This system generates a daily pencil-sketch animated video and uploads it to my 
 1. Open Google Cloud Console at https://console.cloud.google.com
 2. Sign in with prasad2t@gmail.com
 3. Create a new project:
-   - Project name: `Daily Drop Prasad`
-   - Project ID: `daily-drop-prasad`
+   - Project name: `Mind Fuel Daily`
+   - Project ID: `mind-fuel-daily`
 4. Set this as the active project
 
 ---
 
 ### Task 2 — Enable YouTube Data API v3
 
-1. In the project `daily-drop-prasad`, go to **APIs & Services → Library**
+1. In the project `mind-fuel-daily`, go to **APIs & Services → Library**
 2. Search for **YouTube Data API v3**
 3. Click **Enable**
 4. Confirm it is active under **APIs & Services → Enabled APIs**
@@ -59,7 +59,7 @@ Free tier note: YouTube Data API v3 gives 10,000 units/day free. One video uploa
 1. Go to **APIs & Services → OAuth consent screen**
 2. Select **External** user type → Create
 3. Fill in:
-   - App name: `Daily Drop Uploader`
+   - App name: `Mind Fuel Daily Uploader`
    - User support email: `prasad2t@gmail.com`
    - Developer contact email: `prasad2t@gmail.com`
 4. Click **Save and Continue** through Scopes (no changes needed)
@@ -74,7 +74,7 @@ Free tier note: YouTube Data API v3 gives 10,000 units/day free. One video uploa
 2. Click **+ Create Credentials → OAuth client ID**
 3. Set:
    - Application type: **Desktop app**
-   - Name: `daily-drop-uploader`
+   - Name: `mind-fuel-daily-uploader`
 4. Click **Create**
 5. In the confirmation dialog, click **Download JSON**
 6. The file will be named something like `client_secret_XXXXXX.apps.googleusercontent.com.json`
@@ -91,8 +91,8 @@ Free tier note: YouTube Data API v3 gives 10,000 units/day free. One video uploa
 2. Check if a channel already exists:
    - If YES: note the channel ID (Settings → Advanced settings → Channel ID starts with UC...)
    - If NO: create one at https://www.youtube.com/create_channel
-     - Channel name: **Daily Drop with Prasad**
-     - Handle: `@DailyDropPrasad` (or closest available)
+     - Channel name: **Mind Fuel Daily**
+     - Handle: `@MindFuelDaily` (or closest available)
      - Description: *Learn something new every day. Money, career, health, tech, mindset and more — one video daily at 3 PM EST.*
 3. Record the Channel ID (format: `UCxxxxxxxxxxxxxxxxxxxxxxxx`)
 

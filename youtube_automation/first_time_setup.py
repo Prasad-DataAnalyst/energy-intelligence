@@ -16,7 +16,7 @@ What this script does automatically
 The ONE manual prerequisite (≈ 3 minutes, done once for ever)
 --------------------------------------------------------------
 See GOOGLE_ACCOUNT_SETUP.md  — but the short version:
-  a) console.cloud.google.com → New project "daily-drop-prasad"
+  a) console.cloud.google.com → New project "mind-fuel-daily"
   b) APIs & Services → Library → enable "YouTube Data API v3"
   c) APIs & Services → Credentials → Create OAuth Client ID
      (Application type: Desktop app, name: daily-drop)
@@ -72,7 +72,7 @@ def check_secrets():
      Sign in with  prasad2t@gmail.com
 
   2. Click the project drop-down (top-left) → New Project
-     Name: daily-drop-prasad  → Create
+     Name: mind-fuel-daily  → Create
 
   3. Left menu → APIs & Services → Library
      Search "YouTube Data API v3" → Enable
@@ -80,7 +80,7 @@ def check_secrets():
   4. Left menu → APIs & Services → Credentials
      + Create Credentials → OAuth client ID
      App type: Desktop app
-     Name: daily-drop-uploader
+     Name: mind-fuel-daily-uploader
      → Create
 
   5. In the dialog that appears, click  ↓ Download JSON
@@ -230,7 +230,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     print("\n╔══════════════════════════════════════════════════╗")
-    print("║  Daily Drop with Prasad — First-Time Setup       ║")
+    print("║  Mind Fuel Daily — First-Time Setup       ║")
     print("║  YouTube channel: prasad2t@gmail.com             ║")
     print("╚══════════════════════════════════════════════════╝")
 

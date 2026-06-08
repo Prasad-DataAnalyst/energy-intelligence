@@ -1,4 +1,4 @@
-# Daily Drop — YouTube Pencil-Sketch Animation (US Audience, Ages 18-40)
+# Mind Fuel Daily — YouTube Pencil-Sketch Animation (US Audience, Ages 18-40)
 
 Generates and uploads a fresh **pencil-sketch animated video** to your YouTube channel every single day.
 Content is designed for US viewers aged 18-40 and optimised for YouTube monetisation.
@@ -64,7 +64,7 @@ Place `client_secrets.json` (from Google Cloud Console) in this folder.
 ```bash
 source .venv/bin/activate
 python daily_runner.py --now --no-upload
-# → output/daily_drop_YYYY-MM-DD.mp4
+# → output/mind_fuel_YYYY-MM-DD.mp4
 ```
 
 ### First real upload (OAuth opens in browser once)
