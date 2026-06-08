@@ -160,6 +160,22 @@ def run_competitor_phase(memory):
     print(f"\nCompetitor DB: {formula.get('channels_analysed',0)} channels analysed")
 
 
+def run_meta_phase(memory):
+    from evolution.meta_learner import MetaLearner
+    ml = MetaLearner(memory)
+    # Force a cycle on manual invocation (don't wait for the milestone)
+    result = ml.run_cycle()
+    plan = result.get("plan", {})
+    print(f"\nMeta-learning cycle (milestone {result.get('milestone')}):")
+    print(f"  Diagnosis: {plan.get('diagnosis','')}")
+    print(f"  Priority:  {plan.get('priority','')}")
+    print(f"  Actions executed: {result['execution'].get('actions_done',0)}"
+          f"/{len(plan.get('actions',[]))}")
+    for r in result["execution"].get("results", []):
+        print(f"    - [{r.get('action')}] {r.get('status')}"
+              f"{(' — ' + r.get('why')) if r.get('why') else ''}")
+
+
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def main():
@@ -175,7 +191,8 @@ def main():
     parser.add_argument("--status",    action="store_true", help="Show performance summary")
     parser.add_argument("--phase",     type=str, metavar="PHASE",
                         choices=["trend","script","voice","visual","assemble",
-                                 "thumbnail","publish","audit","feedback","competitor"],
+                                 "thumbnail","publish","audit","feedback",
+                                 "competitor","meta"],
                         help="Run a specific phase only")
     parser.add_argument("--topic",     type=str, default="", help="Override topic")
     parser.add_argument("--style",     type=str, default="",
@@ -211,6 +228,16 @@ def main():
     if not args.phase:
         parser.print_help()
         sys.exit(0)
+
+    # Analysis/maintenance phases don't need a topic — run and return early
+    # (avoids wasteful trend-fetching network calls).
+    ANALYSIS_PHASES = {"audit", "feedback", "competitor", "meta"}
+    if args.phase in ANALYSIS_PHASES:
+        {"audit":      run_audit_phase,
+         "feedback":   run_feedback_phase,
+         "competitor": run_competitor_phase,
+         "meta":       run_meta_phase}[args.phase](memory)
+        return
 
     from core.brain import get_brain
     brain  = get_brain()
@@ -253,15 +280,6 @@ def main():
 
     elif args.phase == "publish":
         print("Publish phase requires a completed video. Run --all instead.")
-
-    elif args.phase == "audit":
-        run_audit_phase(memory)
-
-    elif args.phase == "feedback":
-        run_feedback_phase(memory)
-
-    elif args.phase == "competitor":
-        run_competitor_phase(memory)
 
 
 if __name__ == "__main__":

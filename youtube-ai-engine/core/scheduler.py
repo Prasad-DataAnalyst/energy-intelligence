@@ -141,6 +141,16 @@ class DailyPipeline:
             log.info(f"  Video saved: db_id={db_id}  yt={yt_id}")
             result["db_id"] = db_id
 
+            # ── Meta-learning: every 3rd video, the system reviews itself ──
+            try:
+                from evolution.meta_learner import MetaLearner
+                meta = MetaLearner(self.memory).maybe_run()
+                if meta:
+                    log.info(f"  Meta-learning cycle ran at milestone {meta['milestone']}")
+                    result["meta"] = meta
+            except Exception as e:
+                log.error(f"Meta-learner failed (non-fatal): {e}", exc_info=True)
+
         log.info("Daily pipeline complete.")
         return result
 

@@ -84,7 +84,10 @@ class SelfHealer:
                     # Try specific automatic fixes first
                     self._auto_fix(exc, func, args, kwargs)
 
-                time.sleep(min(2 ** attempt, 16))   # exponential backoff
+                # Don't waste a backoff sleep after the final attempt — we're
+                # about to give up and return the fallback anyway.
+                if attempt < MAX_FIX_ATTEMPTS:
+                    time.sleep(min(2 ** attempt, 16))   # exponential backoff
 
         log.error(
             f"[SelfHealer] All {MAX_FIX_ATTEMPTS} attempts failed for "

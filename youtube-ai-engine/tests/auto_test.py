@@ -301,6 +301,201 @@ class TestSchedulerOptimizer(unittest.TestCase):
         self.assertIn("next_slot", report)
 
 
+class TestMetaLearner(unittest.TestCase):
+
+    def setUp(self):
+        from core.memory import Memory
+        self.mem = Memory(":memory:")
+        try:
+            from evolution.meta_learner import MetaLearner, CADENCE
+            self.ML = MetaLearner
+            self.CADENCE = CADENCE
+            self.ml = MetaLearner(self.mem)
+        except ImportError:
+            self.skipTest("anthropic module not available")
+
+    def _add_videos(self, n, ctr=4.0):
+        base = self.mem.video_count()
+        for i in range(n):
+            idx = base + i
+            self.mem.save_video({
+                "date": f"2025-01-{(idx % 28) + 1:02d}", "topic": f"Topic {idx}",
+                "title": f"Video {idx}", "youtube_id": f"yt{idx}",
+                "script_style": "tech-dark", "video_length_s": 600,
+            })
+            # give it analytics so trend has data
+            vid = self.mem.get_video_stats(n=1)[0]["id"]
+            self.mem.update_video_analytics(vid, ctr=ctr, avd_pct=45.0, rpm=3.0)
+
+    def test_should_run_cadence(self):
+        self.assertFalse(self.ml.should_run())          # 0 videos
+        self._add_videos(self.CADENCE - 1)
+        self.assertFalse(self.ml.should_run())          # below milestone
+        self._add_videos(1)                             # now exactly CADENCE
+        self.assertTrue(self.ml.should_run())
+
+    def test_milestone_not_repeated(self):
+        self._add_videos(self.CADENCE)
+        self.assertTrue(self.ml.should_run())
+        self.mem.record_meta_run(
+            video_count=self.CADENCE, milestone=1,
+            report={}, plan={}, results={}, actions_done=0,
+        )
+        self.assertFalse(self.ml.should_run())          # milestone consumed
+
+    def test_gather_self_report(self):
+        self._add_videos(self.CADENCE)
+        report = self.ml.gather_self_report()
+        self.assertEqual(report["video_count"], self.CADENCE)
+        self.assertIn("trend", report)
+        self.assertIn("errors", report)
+        self.assertEqual(len(report["trend"]), self.CADENCE)
+
+    def test_fallback_plan_structure(self):
+        self._add_videos(self.CADENCE)
+        report = self.ml.gather_self_report()
+        plan   = self.ml._fallback_plan(report)
+        self.assertIn("actions", plan)
+        self.assertIsInstance(plan["actions"], list)
+        self.assertGreater(len(plan["actions"]), 0)
+
+    def test_execute_note_action(self):
+        plan = {"actions": [{"action": "note", "text": "all good"}]}
+        execd = self.ml.execute_plan(plan)
+        self.assertEqual(execd["actions_done"], 1)
+        self.assertEqual(execd["results"][0]["status"], "noted")
+
+    def test_tune_config_rejects_unlisted_key(self):
+        res = self.ml._do_tune_config({"key": "audio.voice_provider", "value": "x"})
+        self.assertEqual(res["status"], "skipped")
+
+    def test_tune_config_rejects_out_of_range(self):
+        res = self.ml._do_tune_config({"key": "video.fps", "value": 999})
+        self.assertEqual(res["status"], "skipped")
+
+    def test_prefer_style_rejects_invalid(self):
+        res = self.ml._do_prefer_style({"style": "not-a-real-style"})
+        self.assertEqual(res["status"], "skipped")
+
+    def test_audit_file_rejects_path_escape(self):
+        res = self.ml._do_audit_file({"path": "../../etc/passwd"})
+        self.assertEqual(res["status"], "skipped")
+
+
+class TestViewerPsychology(unittest.TestCase):
+
+    def setUp(self):
+        from production.viewer_psychology import ViewerPsychology, EngagementTooLow
+        self.VP  = ViewerPsychology
+        self.Err = EngagementTooLow
+        self.vp  = ViewerPsychology()
+
+    def _make_script(self, n_scenes=8, dur=30, hook="", outro=""):
+        scenes = []
+        for i in range(n_scenes):
+            scenes.append({
+                "id": i + 1,
+                "section": "value_loop",
+                "duration_s": dur,
+                "narration": f"Scene {i} narration with some why and how details.",
+                "text": "",
+            })
+        return {
+            "title": "The Secret Nobody Tells You About Solar Energy",
+            "hook":  hook or "You won't believe what solar panels actually cost in 2025.",
+            "outro": outro or "What do you think — hype or future? Comment below.",
+            "scenes": scenes,
+            "duration_s": n_scenes * dur,
+        }
+
+    def test_score_returns_float(self):
+        script = self._make_script()
+        score  = self.vp.score(script)
+        self.assertIsInstance(score, float)
+        self.assertGreater(score, 0)
+        self.assertLessEqual(score, 100)
+
+    def test_strong_script_passes_threshold(self):
+        script = self._make_script()
+        # Inject all the signals the scorer looks for
+        script["hook"]  = "Wait — you're losing money every month because of this solar mistake. Stay until the end to see the shocking proof."
+        script["outro"] = "Type A if you think solar is overhyped, B if it's the future — comment below, I read every reply."
+        for i, s in enumerate(script["scenes"]):
+            s["narration"] = (
+                "Coming up next: the one number that changes everything. "
+                "Wait — stop everything. Here's why most people get this wrong. "
+                "Stay with me — the next part is where it gets interesting. "
+                "By the end of this video you'll know exactly how to fix it."
+            )
+        try:
+            enhanced = self.vp.engineer(script)
+            self.assertGreaterEqual(enhanced.get("psychology_score", 0), 75)
+        except self.Err:
+            self.fail("Strong script should not raise EngagementTooLow")
+
+    def test_heuristic_upgrade_adds_hook(self):
+        script = self._make_script(hook="")
+        script["hook"] = ""
+        from production.viewer_psychology import ScoreBreakdown
+        bd = ScoreBreakdown(hook_strength=0)
+        upgraded = self.vp._heuristic_upgrade(script, bd)
+        self.assertNotEqual(upgraded.get("hook", ""), "")
+
+    def test_heuristic_upgrade_adds_comment_bait(self):
+        script = self._make_script(outro="")
+        script["outro"] = ""
+        from production.viewer_psychology import ScoreBreakdown
+        bd = ScoreBreakdown(comment_bait=0)
+        upgraded = self.vp._heuristic_upgrade(script, bd)
+        self.assertIn("comment", upgraded.get("outro", "").lower())
+
+    def test_emotional_arc_assigned(self):
+        # Use 10s scenes so early arc phases (shock 0-10s, relate 10-30s) are hit
+        script = self._make_script(n_scenes=10, dur=10)
+        scenes = self.vp.build_emotional_arc(script["scenes"])
+        emotions = [s["emotion"] for s in scenes]
+        self.assertIn("shock", emotions)
+        self.assertIn("relate", emotions)
+
+    def test_score_breakdown_sums_to_total(self):
+        script  = self._make_script()
+        bd      = self.vp._score_breakdown(script)
+        manual  = (
+            bd.hook_strength + bd.open_loops + bd.pattern_interrupts +
+            bd.curiosity_gaps + bd.emotional_arc + bd.retention_triggers +
+            bd.comment_bait + bd.pacing
+        )
+        self.assertAlmostEqual(bd.total, manual, places=5)
+
+    def test_score_breakdown_within_max_bounds(self):
+        script = self._make_script()
+        bd     = self.vp._score_breakdown(script)
+        self.assertLessEqual(bd.hook_strength,      20.0)
+        self.assertLessEqual(bd.open_loops,         15.0)
+        self.assertLessEqual(bd.pattern_interrupts, 10.0)
+        self.assertLessEqual(bd.curiosity_gaps,     10.0)
+        self.assertLessEqual(bd.emotional_arc,      15.0)
+        self.assertLessEqual(bd.retention_triggers, 10.0)
+        self.assertLessEqual(bd.comment_bait,       10.0)
+        self.assertLessEqual(bd.pacing,             10.0)
+
+    def test_engagement_too_low_raised_on_empty_script(self):
+        script = {"title": "x", "hook": "", "outro": "", "scenes": []}
+        with self.assertRaises(self.Err):
+            self.vp.engineer(script)
+
+    def test_fallback_comment_bait_is_string(self):
+        bait = self.vp._fallback_comment_bait("renewable energy")
+        self.assertIsInstance(bait, str)
+        self.assertGreater(len(bait), 10)
+
+    def test_arc_label_covers_full_duration(self):
+        for t in [0, 5, 15, 45, 120, 300, 600]:
+            label = self.vp._arc_label(t)
+            self.assertIsInstance(label, str)
+            self.assertGreater(len(label), 0)
+
+
 # ── Runner ─────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":

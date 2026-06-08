@@ -166,12 +166,25 @@ class ScriptWriter:
                     f"  Script: {len(script.get('scenes',[]))} scenes  "
                     f"title={script.get('title','')!r}"
                 )
-                return script
+                return self._apply_psychology(script)
             except Exception as e:
                 log.warning(f"  Claude script generation failed: {e}")
 
         # Fallback: minimal structure
-        return self._fallback_script(topic_title, style, target_length_s, platform)
+        return self._apply_psychology(
+            self._fallback_script(topic_title, style, target_length_s, platform)
+        )
+
+    def _apply_psychology(self, script: Dict) -> Dict:
+        """Run script through viewer psychology engine; log score; return enhanced script."""
+        try:
+            from production.viewer_psychology import ViewerPsychology, EngagementTooLow
+            vp = ViewerPsychology(self.memory)
+            script = vp.engineer(script)
+            log.info(f"  Psychology score: {script.get('psychology_score', '?')}/100")
+        except Exception as e:
+            log.warning(f"  Viewer psychology engine failed (non-fatal): {e}")
+        return script
 
     def _fallback_script(self, topic_title: str, style: str,
                           target_length_s: int, platform: str) -> Dict:

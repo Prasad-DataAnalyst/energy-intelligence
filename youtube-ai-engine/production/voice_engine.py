@@ -14,6 +14,7 @@ FFmpeg EQ for warmth and loudnorm.
 import asyncio
 import logging
 import os
+import re
 import subprocess
 import tempfile
 import time
@@ -284,6 +285,3 @@ class VoiceEngine:
             log.warning("Mix failed — returning voice-only")
 
         return voice_wav
-
-
-import re  # needed for slug in produce()

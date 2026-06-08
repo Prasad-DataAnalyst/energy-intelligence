@@ -16,7 +16,7 @@ import logging
 import os
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -68,9 +68,11 @@ class FeedbackLoop:
 
             yt_analytics = build("youtubeAnalytics", "v2",
                                   credentials=creds, cache_discovery=False)
-            end_date   = datetime.now().strftime("%Y-%m-%d")
-            start_date = (datetime.now().replace(day=max(1, datetime.now().day - days))
-                          .strftime("%Y-%m-%d"))
+            now        = datetime.now()
+            end_date   = now.strftime("%Y-%m-%d")
+            # Subtract a full timedelta so the window crosses month boundaries
+            # correctly (the old .replace(day=...) clamped to the current month).
+            start_date = (now - timedelta(days=days)).strftime("%Y-%m-%d")
 
             response = yt_analytics.reports().query(
                 ids="channel==MINE",

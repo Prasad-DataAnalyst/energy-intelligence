@@ -110,6 +110,19 @@ CREATE TABLE IF NOT EXISTS ab_tests (
     completed   INTEGER DEFAULT 0,
     created_at  TEXT
 );
+
+-- Meta-learning runs: the system analysing its own performance & code,
+-- writing an improvement plan, and recording what it executed.
+CREATE TABLE IF NOT EXISTS meta_runs (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp     TEXT    NOT NULL,
+    video_count   INTEGER,
+    milestone     INTEGER,    -- which N-video milestone triggered this run
+    report        TEXT,       -- JSON self-report snapshot
+    plan          TEXT,       -- JSON improvement plan
+    results       TEXT,       -- JSON execution results
+    actions_done  INTEGER DEFAULT 0
+);
 """
 
 
@@ -375,6 +388,85 @@ class Memory:
             "avg_rpm":      round(avg["ar"] or 0, 2),
             "last_video":   dict(recent) if recent else {},
         }
+
+    def video_count(self) -> int:
+        with self._conn() as conn:
+            return conn.execute("SELECT COUNT(*) AS n FROM videos").fetchone()["n"]
+
+    def error_summary(self) -> Dict[str, Any]:
+        """Aggregate error stats for the meta-learner's self-report."""
+        with self._conn() as conn:
+            total  = conn.execute("SELECT COUNT(*) n FROM errors").fetchone()["n"]
+            unfix  = conn.execute("SELECT COUNT(*) n FROM errors WHERE fixed=0").fetchone()["n"]
+            by_mod = conn.execute(
+                """SELECT module, error_type, COUNT(*) c FROM errors
+                   GROUP BY module, error_type ORDER BY c DESC LIMIT 10"""
+            ).fetchall()
+        return {
+            "total_errors":   total,
+            "unfixed_errors": unfix,
+            "recurring": [
+                {"module": r["module"], "error_type": r["error_type"], "count": r["c"]}
+                for r in by_mod
+            ],
+        }
+
+    def upgrade_summary(self) -> Dict[str, Any]:
+        """Aggregate code-upgrade stats (success vs rollback)."""
+        with self._conn() as conn:
+            total  = conn.execute("SELECT COUNT(*) n FROM upgrades").fetchone()["n"]
+            passed = conn.execute(
+                "SELECT COUNT(*) n FROM upgrades WHERE test_passed=1"
+            ).fetchone()["n"]
+        return {
+            "total_upgrades":  total,
+            "passed_upgrades": passed,
+            "failed_upgrades": total - passed,
+        }
+
+    def config_correlations(self, min_samples: int = 1) -> List[Dict]:
+        """All learned config→performance correlations, best CTR first."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                """SELECT config_key, config_value, avg_ctr, avg_avd, avg_rpm, sample_size
+                   FROM config_performance
+                   WHERE sample_size >= ?
+                   ORDER BY avg_ctr DESC""",
+                (min_samples,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    # ── Meta-learning runs ──────────────────────────────────────────────────────
+
+    def last_meta_milestone(self) -> int:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT MAX(milestone) AS m FROM meta_runs"
+            ).fetchone()
+        return int(row["m"] or 0)
+
+    def record_meta_run(self, video_count: int, milestone: int,
+                        report: Dict, plan: Dict, results: Dict,
+                        actions_done: int = 0) -> int:
+        with self._conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO meta_runs
+                   (timestamp, video_count, milestone, report, plan,
+                    results, actions_done)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (datetime.now(timezone.utc).isoformat(),
+                 video_count, milestone,
+                 json.dumps(report), json.dumps(plan), json.dumps(results),
+                 actions_done),
+            )
+            return cur.lastrowid
+
+    def recent_meta_runs(self, n: int = 5) -> List[Dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM meta_runs ORDER BY timestamp DESC LIMIT ?", (n,)
+            ).fetchall()
+        return [dict(r) for r in rows]
 
 
 # Module-level singleton

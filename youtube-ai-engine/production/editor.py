@@ -11,6 +11,7 @@ Assembles images + audio into a final video using FFmpeg:
 """
 import logging
 import os
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -228,6 +229,3 @@ class VideoEditor:
 
         log.info(f"Video assembled → {final_mp4}")
         return final_mp4
-
-
-import re  # needed for slug in assemble()

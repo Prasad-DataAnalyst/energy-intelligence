@@ -13,6 +13,7 @@ import logging
 import os
 import re
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Dict, List, Optional
 
 import anthropic
@@ -66,10 +67,7 @@ class SEOOptimizer:
     def _persona_summary(self) -> str:
         try:
             import yaml
-            path = (
-                __import__("pathlib").Path(__file__).parent.parent
-                / "config" / "channel_persona.yaml"
-            )
+            path = Path(__file__).parent.parent / "config" / "channel_persona.yaml"
             if path.exists():
                 with open(path) as f:
                     p = yaml.safe_load(f) or {}
