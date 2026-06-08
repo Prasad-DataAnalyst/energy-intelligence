@@ -7,7 +7,7 @@ load_dotenv()
 WIDTH  = int(os.getenv("VIDEO_WIDTH",  1920))
 HEIGHT = int(os.getenv("VIDEO_HEIGHT", 1080))
 FPS    = int(os.getenv("VIDEO_FPS",    24))
-DURATION = int(os.getenv("VIDEO_DURATION_SECONDS", 160))   # 10+5+90+30+25
+DURATION = int(os.getenv("VIDEO_DURATION_SECONDS", 92))    # 8+4+50+18+12
 
 # Directories
 OUTPUT_DIR = os.getenv("OUTPUT_DIR", "output")

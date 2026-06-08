@@ -1,44 +1,54 @@
 """
 Pencil-sketch animated video generator — 18-40 US audience.
 
-Pipeline:  scenes → PIL frames → OpenCV pencil-sketch → MoviePy MP4
+Memory strategy: scene functions are generators that yield one frame at a
+time. generate_video writes each frame as a JPEG to a temp dir, then calls
+ffmpeg to assemble the MP4. Peak RAM is ~3 MB (one frame) regardless of
+video length.
+
+Resolution: 1280×720 (YouTube HD, 4× less RAM than 1080p)
+FPS: 15 (smooth enough for sketch animation)
 
 Scenes
 ------
-  0  Hook card       (10 s) — big question/statement draws in
-  1  Category badge  ( 5 s) — day's category with icon
-  2  Main bullets    (90 s) — 5 bullet points appear one by one with icon
-  3  Takeaway slide  (30 s) — key insight with animated underline
-  4  CTA outro       (25 s) — subscribe, like, comment call-to-action
+  0  Hook card     ( 8 s) — big statement draws in word-by-word
+  1  Badge         ( 4 s) — category icon expands
+  2  Bullets       (50 s) — 5 key points slide in sequentially
+  3  Takeaway      (18 s) — single action with decorative brackets
+  4  CTA outro     (12 s) — LIKE / SHARE / SUB pulsing buttons
+                  --------
+                  92 s total
 """
 
 import os
 import math
+import shutil
+import subprocess
+import tempfile
 import textwrap
+from typing import Generator
+
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 import cv2
-from moviepy.editor import ImageSequenceClip
 
 import config
 
 # ---------------------------------------------------------------------------
-# Constants
+# Dimensions & palette
 # ---------------------------------------------------------------------------
 
-W, H = config.WIDTH, config.HEIGHT
-FPS = config.FPS
+W, H = 1280, 720
+FPS = 15
 
-# Warm cream paper palette
-PAPER    = (248, 245, 238)
-INK      = (22,  18,  12)
-INK_MID  = (75,  65,  55)
-INK_LITE = (160, 150, 135)
-RED      = (210,  60,  45)
-BLUE     = ( 40,  90, 170)
-GREEN    = ( 45, 140,  75)
-AMBER    = (200, 135,  30)
-PURPLE   = (120,  50, 170)
+PAPER   = (248, 245, 238)
+INK     = (22,  18,  12)
+INK_MID = (75,  65,  55)
+RED     = (210,  60,  45)
+BLUE    = ( 40,  90, 170)
+GREEN   = ( 45, 140,  75)
+AMBER   = (200, 135,  30)
+PURPLE  = (120,  50, 170)
 
 CATEGORY_COLORS = {
     "Money":     AMBER,
@@ -46,43 +56,29 @@ CATEGORY_COLORS = {
     "Health":    GREEN,
     "Tech":      BLUE,
     "Career":    RED,
-    "Lifestyle": (0, 160, 160),   # teal
-    "Science":   (170, 80, 0),    # burnt orange
+    "Lifestyle": (0, 160, 160),
+    "Science":   (170, 80, 0),
 }
 
 CATEGORY_ICONS = {
-    "Money":     "$",
-    "Mindset":   "~",
-    "Health":    "+",
-    "Tech":      "#",
-    "Career":    "^",
-    "Lifestyle": "@",
-    "Science":   "*",
+    "Money": "$", "Mindset": "~", "Health": "+",
+    "Tech": "#",  "Career": "^", "Lifestyle": "@", "Science": "*",
 }
-
-# Bullet check mark — plain ASCII for broad font compatibility
-BULLET_MARK = ">"
-
-
-# ---------------------------------------------------------------------------
-# Font helpers
-# ---------------------------------------------------------------------------
 
 _FONT_CACHE: dict = {}
 
-def _font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
+def _font(size: int, bold: bool = False) -> ImageFont.ImageFont:
     key = (size, bold)
     if key in _FONT_CACHE:
         return _FONT_CACHE[key]
-    candidates_bold = [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-    ]
-    candidates_reg = [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-    ]
-    for path in (candidates_bold if bold else candidates_reg):
+    candidates = (
+        ["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"]
+        if bold else
+        ["/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"]
+    )
+    for path in candidates:
         if os.path.exists(path):
             try:
                 f = ImageFont.truetype(path, size)
@@ -94,406 +90,296 @@ def _font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
     _FONT_CACHE[key] = f
     return f
 
-
-# ---------------------------------------------------------------------------
-# Frame utilities
-# ---------------------------------------------------------------------------
-
 def _blank() -> Image.Image:
     return Image.new("RGB", (W, H), PAPER)
 
-
-def _pencil_sketch(arr: np.ndarray) -> np.ndarray:
-    """OpenCV pencil-sketch filter — keeps the warm paper tone."""
-    gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
-    inv  = cv2.bitwise_not(gray)
-    blur = cv2.GaussianBlur(inv, (25, 25), 0)
-    sketch = cv2.divide(gray, cv2.bitwise_not(blur), scale=256.0)
-    # Blend sketch with warm paper
-    paper_layer = np.full_like(sketch, 245)
-    merged = cv2.addWeighted(sketch, 0.72, paper_layer, 0.28, 0)
-    return cv2.cvtColor(merged, cv2.COLOR_GRAY2RGB)
-
-
-def _paper_grain(arr: np.ndarray) -> np.ndarray:
-    noise = np.random.normal(0, 3.5, arr.shape).astype(np.int16)
-    return np.clip(arr.astype(np.int16) + noise, 0, 255).astype(np.uint8)
-
-
 def _post(img: Image.Image) -> np.ndarray:
     arr = np.array(img)
-    arr = _pencil_sketch(arr)
-    arr = _paper_grain(arr)
-    return arr
+    # Pencil-sketch effect
+    gray  = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
+    inv   = cv2.bitwise_not(gray)
+    blur  = cv2.GaussianBlur(inv, (21, 21), 0)
+    sk    = cv2.divide(gray, cv2.bitwise_not(blur), scale=256.0)
+    paper = np.full_like(sk, 245)
+    merged = cv2.addWeighted(sk, 0.72, paper, 0.28, 0)
+    rgb   = cv2.cvtColor(merged, cv2.COLOR_GRAY2RGB)
+    # Paper grain
+    noise = np.random.normal(0, 3, rgb.shape).astype(np.int16)
+    return np.clip(rgb.astype(np.int16) + noise, 0, 255).astype(np.uint8)
 
-
-def ease_in_out(t: float) -> float:
-    """Smooth cubic easing."""
+def ease(t: float) -> float:
+    t = max(0.0, min(t, 1.0))
     return t * t * (3 - 2 * t)
 
-
-def lerp_color(c1, c2, t: float):
+def lc(c1, c2, t: float):
+    t = max(0.0, min(t, 1.0))
     return tuple(int(a + (b - a) * t) for a, b in zip(c1, c2))
 
-
 # ---------------------------------------------------------------------------
-# Scene 0 — Hook card
+# Scene generators  (yield one np.ndarray per frame)
 # ---------------------------------------------------------------------------
 
-def scene_hook(content: dict, n_frames: int) -> list[np.ndarray]:
-    hook      = content["hook"]
-    category  = content["category"]
-    accent    = CATEGORY_COLORS.get(category, AMBER)
-    date_str  = content["date"].strftime("%A, %B %d")
+def scene_hook(content: dict, n: int) -> Generator:
+    hook     = content["hook"]
+    category = content["category"]
+    accent   = CATEGORY_COLORS.get(category, AMBER)
+    date_str = content["date"].strftime("%A, %B %d")
+    wrapped  = textwrap.wrap(hook, width=38)
 
-    f_hook    = _font(66, bold=True)
-    f_date    = _font(34)
-    f_cat     = _font(38, bold=True)
+    f_hook = _font(54, bold=True)
+    f_cat  = _font(30, bold=True)
+    f_date = _font(26)
 
-    # Wrap hook text
-    wrapped = textwrap.wrap(hook, width=42)
-
-    frames = []
-    for i in range(n_frames):
-        t  = i / n_frames
-        et = ease_in_out(min(t * 1.6, 1.0))
-
+    for i in range(n):
+        t = i / n
         img  = _blank()
         draw = ImageDraw.Draw(img)
 
-        # Top accent bar sweeps in
-        bar_w = int(W * et)
-        draw.rectangle([0, 0, bar_w, 14], fill=accent)
+        # Top accent bar
+        draw.rectangle([0, 0, int(W * ease(t * 1.8)), 10], fill=accent)
 
-        # Category label
-        if t > 0.1:
-            cat_alpha = ease_in_out(min((t - 0.1) / 0.25, 1.0))
-            cat_col   = lerp_color(PAPER, accent, cat_alpha)
-            draw.text((W // 2, 70), category.upper(),
-                      font=f_cat, fill=cat_col, anchor="mm")
+        if t > 0.08:
+            draw.text((W//2, 52), category.upper(),
+                      font=f_cat, fill=lc(PAPER, accent, ease((t-0.08)/0.25)), anchor="mm")
+        if t > 0.18:
+            draw.text((W//2, 86), date_str,
+                      font=f_date, fill=lc(PAPER, INK_MID, ease((t-0.18)/0.25)), anchor="mm")
 
-        # Date
-        if t > 0.2:
-            da = ease_in_out(min((t - 0.2) / 0.3, 1.0))
-            dc = lerp_color(PAPER, INK_MID, da)
-            draw.text((W // 2, 120), date_str,
-                      font=f_date, fill=dc, anchor="mm")
-
-        # Hook lines appear word-by-word
-        y_start = H // 2 - (len(wrapped) * 80) // 2
+        y0 = H//2 - len(wrapped) * 62 // 2
         for li, line in enumerate(wrapped):
-            line_t = max(0.0, min((t - 0.25 - li * 0.15) / 0.3, 1.0))
-            if line_t <= 0:
+            lt = ease(max(0, (t - 0.28 - li*0.14) / 0.28))
+            if lt <= 0:
                 continue
-            words  = line.split()
-            visible = max(1, int(len(words) * ease_in_out(line_t)))
-            partial = " ".join(words[:visible])
-            lc = lerp_color(PAPER, INK, ease_in_out(line_t))
-            draw.text((W // 2, y_start + li * 82), partial,
-                      font=f_hook, fill=lc, anchor="mm")
+            words = line.split()
+            partial = " ".join(words[:max(1, int(len(words)*lt))])
+            draw.text((W//2, y0 + li*62), partial,
+                      font=f_hook, fill=lc(PAPER, INK, lt), anchor="mm")
 
-        # Bottom rule
-        if t > 0.85:
-            ra = ease_in_out((t - 0.85) / 0.15)
-            rw = int((W - 400) * ra)
-            draw.line([(200, H - 80), (200 + rw, H - 80)],
-                      fill=accent, width=5)
+        if t > 0.88:
+            rw = int((W-300) * ease((t-0.88)/0.12))
+            draw.line([(150, H-60), (150+rw, H-60)], fill=accent, width=4)
 
-        frames.append(_post(img))
-    return frames
+        yield _post(img)
 
 
-# ---------------------------------------------------------------------------
-# Scene 1 — Category badge
-# ---------------------------------------------------------------------------
-
-def scene_badge(content: dict, n_frames: int) -> list[np.ndarray]:
+def scene_badge(content: dict, n: int) -> Generator:
     category = content["category"]
     accent   = CATEGORY_COLORS.get(category, AMBER)
     icon     = CATEGORY_ICONS.get(category, "?")
 
-    f_big  = _font(120, bold=True)
-    f_cat  = _font(58, bold=True)
-    f_sub  = _font(36)
+    f_big = _font(96, bold=True)
+    f_cat = _font(44, bold=True)
+    f_sub = _font(28)
 
-    frames = []
-    for i in range(n_frames):
-        t  = i / n_frames
-        et = ease_in_out(min(t * 2.0, 1.0))
-
+    for i in range(n):
+        t  = i / n
+        et = ease(min(t * 2.2, 1.0))
         img  = _blank()
         draw = ImageDraw.Draw(img)
 
-        # Expanding circle
-        r = int(220 * et)
-        cx, cy = W // 2, H // 2 - 60
+        r = int(180 * et)
+        cx, cy = W//2, H//2 - 50
         if r > 0:
-            ring_col = lerp_color(PAPER, accent, et * 0.18)
-            draw.ellipse([cx - r, cy - r, cx + r, cy + r],
-                         outline=accent, width=5, fill=ring_col)
-
-        # Icon
+            draw.ellipse([cx-r, cy-r, cx+r, cy+r],
+                         outline=accent, width=4,
+                         fill=lc(PAPER, accent, et * 0.15))
         if et > 0.4:
-            ia = ease_in_out((et - 0.4) / 0.6)
-            ic = lerp_color(PAPER, accent, ia)
-            draw.text((cx, cy), icon, font=f_big, fill=ic, anchor="mm")
-
-        # Category name
+            draw.text((cx, cy), icon, font=f_big,
+                      fill=lc(PAPER, accent, ease((et-0.4)/0.6)), anchor="mm")
         if t > 0.55:
-            na = ease_in_out((t - 0.55) / 0.3)
-            nc = lerp_color(PAPER, INK, na)
-            draw.text((W // 2, H // 2 + 200), category,
-                      font=f_cat, fill=nc, anchor="mm")
-
+            draw.text((W//2, H//2+160), category,
+                      font=f_cat, fill=lc(PAPER, INK, ease((t-0.55)/0.3)), anchor="mm")
         if t > 0.72:
-            sa = ease_in_out((t - 0.72) / 0.28)
-            sc = lerp_color(PAPER, INK_MID, sa)
-            draw.text((W // 2, H // 2 + 280), "Today's Drop",
-                      font=f_sub, fill=sc, anchor="mm")
+            draw.text((W//2, H//2+210), "Today's Drop",
+                      font=f_sub, fill=lc(PAPER, INK_MID, ease((t-0.72)/0.28)), anchor="mm")
 
-        frames.append(_post(img))
-    return frames
+        yield _post(img)
 
 
-# ---------------------------------------------------------------------------
-# Scene 2 — Five bullets
-# ---------------------------------------------------------------------------
-
-def scene_bullets(content: dict, n_frames: int) -> list[np.ndarray]:
+def scene_bullets(content: dict, n: int) -> Generator:
     title   = content["topic"]
     bullets = content["bullets"]
     accent  = CATEGORY_COLORS.get(content["category"], AMBER)
 
-    f_title  = _font(52, bold=True)
-    f_num    = _font(56, bold=True)
-    f_bullet = _font(40)
+    f_title  = _font(40, bold=True)
+    f_num    = _font(38, bold=True)
+    f_bullet = _font(30)
 
-    wrapped_title = textwrap.wrap(title, width=50)
+    wtitle = textwrap.wrap(title, width=50)
+    per_b  = 1.0 / max(len(bullets), 1)
 
-    # Each bullet gets an equal time slice
-    per_bullet = 1.0 / max(len(bullets), 1)
-
-    frames = []
-    for i in range(n_frames):
-        t = i / n_frames
-
+    for i in range(n):
+        t = i / n
         img  = _blank()
         draw = ImageDraw.Draw(img)
 
-        # Title header
-        for li, line in enumerate(wrapped_title):
-            ta = ease_in_out(min(t * 3, 1.0))
-            tc = lerp_color(PAPER, INK, ta)
-            draw.text((W // 2, 70 + li * 58), line,
-                      font=f_title, fill=tc, anchor="mm")
+        for li, line in enumerate(wtitle):
+            draw.text((W//2, 48 + li*46), line,
+                      font=f_title, fill=lc(PAPER, INK, ease(min(t*3, 1.0))), anchor="mm")
 
-        # Accent underline below title
-        ul_w = int((W - 400) * ease_in_out(min(t * 4, 1.0)))
-        draw.line([(200, 75 + len(wrapped_title) * 58),
-                   (200 + ul_w, 75 + len(wrapped_title) * 58)],
-                  fill=accent, width=4)
+        ul_w = int((W-300) * ease(min(t*4, 1.0)))
+        draw.line([(150, 50 + len(wtitle)*46),
+                   (150 + ul_w, 50 + len(wtitle)*46)], fill=accent, width=3)
 
-        y_top = 75 + len(wrapped_title) * 58 + 40
-
-        # Bullets appear sequentially
+        y0 = 50 + len(wtitle)*46 + 30
         for b_idx, bullet in enumerate(bullets):
-            b_start = b_idx * per_bullet * 0.9
-            b_t = max(0.0, min((t - b_start) / (per_bullet * 0.7), 1.0))
+            b_t = ease(max(0, (t - b_idx*per_b*0.88) / (per_b*0.65)))
             if b_t <= 0:
                 continue
-
-            et_b  = ease_in_out(b_t)
-            row_y = y_top + b_idx * 115
-
-            # Number circle
-            cx = 130
-            cy = row_y + 38
-            r  = int(38 * et_b)
-            nc = lerp_color(PAPER, accent, et_b)
-            draw.ellipse([cx - r, cy - r, cx + r, cy + r],
-                         fill=nc, outline=accent, width=2)
-            if et_b > 0.5:
-                draw.text((cx, cy), str(b_idx + 1),
+            ry  = y0 + b_idx * 92
+            ncx, ncy = 90, ry + 28
+            r   = int(28 * b_t)
+            draw.ellipse([ncx-r, ncy-r, ncx+r, ncy+r],
+                         fill=lc(PAPER, accent, b_t), outline=accent, width=2)
+            if b_t > 0.5:
+                draw.text((ncx, ncy), str(b_idx+1),
                           font=f_num, fill=PAPER, anchor="mm")
+            tx = int(132 + (1-b_t)*130)
+            for wl, wline in enumerate(textwrap.wrap(bullet, width=62)[:2]):
+                draw.text((tx, ry + wl*34), wline,
+                          font=f_bullet, fill=lc(PAPER, INK, b_t), anchor="lm")
 
-            # Bullet text slides in from left
-            txt_x = int(210 + (1 - et_b) * 180)
-            tc    = lerp_color(PAPER, INK, et_b)
-            # Wrap long bullets
-            wrapped_b = textwrap.wrap(bullet, width=58)
-            for wl, wline in enumerate(wrapped_b[:2]):
-                draw.text((txt_x, row_y + wl * 44), wline,
-                          font=f_bullet, fill=tc, anchor="lm")
-
-        frames.append(_post(img))
-    return frames
+        yield _post(img)
 
 
-# ---------------------------------------------------------------------------
-# Scene 3 — Takeaway
-# ---------------------------------------------------------------------------
-
-def scene_takeaway(content: dict, n_frames: int) -> list[np.ndarray]:
+def scene_takeaway(content: dict, n: int) -> Generator:
     takeaway = content["takeaway"]
     accent   = CATEGORY_COLORS.get(content["category"], AMBER)
 
-    f_label  = _font(44, bold=True)
-    f_text   = _font(52, bold=True)
-    f_sub    = _font(36)
+    f_label = _font(34, bold=True)
+    f_text  = _font(40, bold=True)
+    f_sub   = _font(26)
 
-    wrapped = textwrap.wrap(takeaway, width=44)
+    wrapped = textwrap.wrap(takeaway, width=42)
 
-    frames = []
-    for i in range(n_frames):
-        t  = i / n_frames
-        et = ease_in_out(min(t * 1.8, 1.0))
-
+    for i in range(n):
+        t  = i / n
         img  = _blank()
         draw = ImageDraw.Draw(img)
 
-        # "KEY TAKEAWAY" label
-        if t > 0.05:
-            la = ease_in_out(min((t - 0.05) / 0.25, 1.0))
-            lc = lerp_color(PAPER, accent, la)
-            draw.text((W // 2, 140), "KEY TAKEAWAY",
-                      font=f_label, fill=lc, anchor="mm")
+        if t > 0.04:
+            draw.text((W//2, 100), "KEY TAKEAWAY",
+                      font=f_label, fill=lc(PAPER, accent, ease((t-0.04)/0.22)), anchor="mm")
 
-        # Decorative brackets draw in
         if t > 0.2:
-            ba = ease_in_out(min((t - 0.2) / 0.3, 1.0))
-            bh = int(200 * ba)
-            lx, rx = 180, W - 180
-            # Left bracket
-            draw.line([(lx, H//2 - bh), (lx, H//2 + bh)], fill=accent, width=6)
-            draw.line([(lx, H//2 - bh), (lx + 50, H//2 - bh)], fill=accent, width=6)
-            draw.line([(lx, H//2 + bh), (lx + 50, H//2 + bh)], fill=accent, width=6)
-            # Right bracket
-            draw.line([(rx, H//2 - bh), (rx, H//2 + bh)], fill=accent, width=6)
-            draw.line([(rx - 50, H//2 - bh), (rx, H//2 - bh)], fill=accent, width=6)
-            draw.line([(rx - 50, H//2 + bh), (rx, H//2 + bh)], fill=accent, width=6)
+            bh = int(160 * ease((t-0.2)/0.28))
+            lx, rx = 130, W-130
+            for pts in [
+                [(lx, H//2-bh),(lx, H//2+bh)],
+                [(lx, H//2-bh),(lx+40, H//2-bh)],
+                [(lx, H//2+bh),(lx+40, H//2+bh)],
+                [(rx, H//2-bh),(rx, H//2+bh)],
+                [(rx-40, H//2-bh),(rx, H//2-bh)],
+                [(rx-40, H//2+bh),(rx, H//2+bh)],
+            ]:
+                draw.line(pts, fill=accent, width=5)
 
-        # Takeaway text
-        y_start = H // 2 - (len(wrapped) * 68) // 2
+        y0 = H//2 - len(wrapped)*54//2
         for li, line in enumerate(wrapped):
-            lt = max(0.0, min((t - 0.35 - li * 0.12) / 0.3, 1.0))
+            lt = ease(max(0, (t - 0.32 - li*0.1) / 0.28))
             if lt <= 0:
                 continue
-            lc = lerp_color(PAPER, INK, ease_in_out(lt))
-            draw.text((W // 2, y_start + li * 68), line,
-                      font=f_text, fill=lc, anchor="mm")
+            draw.text((W//2, y0 + li*54), line,
+                      font=f_text, fill=lc(PAPER, INK, lt), anchor="mm")
 
-        # Sub-prompt
-        if t > 0.82:
-            sa = ease_in_out((t - 0.82) / 0.18)
-            sc = lerp_color(PAPER, INK_MID, sa)
-            draw.text((W // 2, H - 110), "Save this. You'll thank yourself later.",
-                      font=f_sub, fill=sc, anchor="mm")
+        if t > 0.84:
+            draw.text((W//2, H-70), "Save this. You'll thank yourself later.",
+                      font=f_sub, fill=lc(PAPER, INK_MID, ease((t-0.84)/0.16)), anchor="mm")
 
-        frames.append(_post(img))
-    return frames
+        yield _post(img)
 
 
-# ---------------------------------------------------------------------------
-# Scene 4 — CTA outro
-# ---------------------------------------------------------------------------
-
-def scene_outro(content: dict, n_frames: int) -> list[np.ndarray]:
+def scene_outro(content: dict, n: int) -> Generator:
     accent = CATEGORY_COLORS.get(content["category"], AMBER)
 
-    f_big  = _font(82, bold=True)
-    f_med  = _font(50)
-    f_sm   = _font(38)
-    f_cta  = _font(44, bold=True)
+    f_big = _font(64, bold=True)
+    f_med = _font(38)
+    f_sm  = _font(28)
+    f_cta = _font(34, bold=True)
 
     ctas = [
-        ("LIKE", RED,   W // 2 - 340, H // 2 + 130),
-        ("SHARE", BLUE, W // 2,       H // 2 + 130),
-        ("SUB",   GREEN, W // 2 + 340, H // 2 + 130),
+        ("LIKE",  RED,   W//2 - 260, H//2 + 100),
+        ("SHARE", BLUE,  W//2,       H//2 + 100),
+        ("SUB",   GREEN, W//2 + 260, H//2 + 100),
     ]
 
-    frames = []
-    for i in range(n_frames):
-        t  = i / n_frames
-        et = ease_in_out(min(t * 2.5, 1.0))
-
+    for i in range(n):
+        t = i / n
         img  = _blank()
         draw = ImageDraw.Draw(img)
 
-        # Top bar
-        draw.rectangle([0, 0, W, 14], fill=accent)
+        draw.rectangle([0, 0, W, 10], fill=accent)
 
-        # "Thanks for watching!"
-        if t > 0.08:
-            ta = ease_in_out(min((t - 0.08) / 0.3, 1.0))
-            tc = lerp_color(PAPER, INK, ta)
-            draw.text((W // 2, 200), "Thanks for watching!",
-                      font=f_big, fill=tc, anchor="mm")
+        if t > 0.06:
+            draw.text((W//2, 150), "Thanks for watching!",
+                      font=f_big, fill=lc(PAPER, INK, ease((t-0.06)/0.28)), anchor="mm")
+        if t > 0.28:
+            draw.text((W//2, H//2-50), "New video every single day.",
+                      font=f_med, fill=lc(PAPER, INK_MID, ease((t-0.28)/0.28)), anchor="mm")
+            draw.text((W//2, H//2),    "Subscribe so you never miss one.",
+                      font=f_sm, fill=lc(PAPER, INK_MID, ease((t-0.28)/0.28)), anchor="mm")
 
-        if t > 0.3:
-            sa = ease_in_out(min((t - 0.3) / 0.3, 1.0))
-            sc = lerp_color(PAPER, INK_MID, sa)
-            draw.text((W // 2, H // 2 - 60),
-                      "New video every single day.",
-                      font=f_med, fill=sc, anchor="mm")
-            draw.text((W // 2, H // 2),
-                      "Subscribe so you never miss one.",
-                      font=f_sm, fill=sc, anchor="mm")
-
-        # Pulsing CTA buttons
         for c_idx, (label, col, cx, cy) in enumerate(ctas):
-            ct = max(0.0, min((t - 0.52 - c_idx * 0.1) / 0.3, 1.0))
+            ct = ease(max(0, (t - 0.48 - c_idx*0.08) / 0.28))
             if ct <= 0:
                 continue
-            pulse = abs(math.sin(t * math.pi * 3 + c_idx)) * 0.25 + 0.75
-            r = int(80 * ct * pulse)
-            draw.ellipse([cx - r, cy - r, cx + r, cy + r],
-                         fill=lerp_color(PAPER, col, ct * 0.2),
-                         outline=col, width=4)
+            pulse = abs(math.sin(t*math.pi*3 + c_idx)) * 0.22 + 0.78
+            r = int(64 * ct * pulse)
+            draw.ellipse([cx-r, cy-r, cx+r, cy+r],
+                         fill=lc(PAPER, col, ct*0.18), outline=col, width=3)
             if ct > 0.5:
                 draw.text((cx, cy), label, font=f_cta,
-                          fill=lerp_color(PAPER, col, ct), anchor="mm")
+                          fill=lc(PAPER, col, ct), anchor="mm")
 
-        # Channel name
-        if t > 0.82:
-            na = ease_in_out((t - 0.82) / 0.18)
-            nc = lerp_color(PAPER, INK_MID, na)
-            draw.text((W // 2, H - 80),
+        if t > 0.84:
+            draw.text((W//2, H-50),
                       "Daily Drop with Prasad  |  New video every day at 3 PM EST",
-                      font=_font(32), fill=nc, anchor="mm")
+                      font=_font(24), fill=lc(PAPER, INK_MID, ease((t-0.84)/0.16)), anchor="mm")
 
-        frames.append(_post(img))
-    return frames
+        yield _post(img)
 
 
 # ---------------------------------------------------------------------------
-# Main entry
+# Main entry — streams frames to disk, calls ffmpeg
 # ---------------------------------------------------------------------------
 
-# Scene durations must sum to config.DURATION (default 160 s; scene split below)
-SCENE_DURATIONS = [10, 5, 90, 30, 25]   # seconds — total = 160
+SCENE_FNS  = [scene_hook, scene_badge, scene_bullets, scene_takeaway, scene_outro]
+SCENE_SECS = [8,           4,           50,            18,             12]   # = 92 s
+
 
 def generate_video(content: dict, output_path: str) -> str:
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+    tmp = tempfile.mkdtemp(prefix="dd_frames_")
 
-    scene_fns = [scene_hook, scene_badge, scene_bullets, scene_takeaway, scene_outro]
+    try:
+        frame_idx = 0
+        for fn, dur in zip(SCENE_FNS, SCENE_SECS):
+            n = dur * FPS
+            print(f"  {fn.__name__}  {dur}s  ({n} frames)")
+            for arr in fn(content, n):
+                path = os.path.join(tmp, f"{frame_idx:06d}.jpg")
+                Image.fromarray(arr).save(path, quality=88)
+                frame_idx += 1
 
-    print("Rendering pencil-sketch scenes…")
-    all_frames: list[np.ndarray] = []
-    for fn, dur in zip(scene_fns, SCENE_DURATIONS):
-        n = dur * FPS
-        print(f"  {fn.__name__}  →  {n} frames  ({dur}s)")
-        all_frames.extend(fn(content, n))
+        total_s = sum(SCENE_SECS)
+        print(f"Frames on disk: {frame_idx} ({total_s}s) — running ffmpeg…")
 
-    total = sum(SCENE_DURATIONS)
-    print(f"Total: {len(all_frames)} frames ({total}s) — writing MP4…")
+        cmd = [
+            "ffmpeg", "-y",
+            "-framerate", str(FPS),
+            "-i", os.path.join(tmp, "%06d.jpg"),
+            "-c:v", "libx264",
+            "-crf", "22",
+            "-preset", "fast",
+            "-pix_fmt", "yuv420p",
+            output_path,
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(f"ffmpeg error:\n{result.stderr}")
 
-    clip = ImageSequenceClip(all_frames, fps=FPS)
-    clip.write_videofile(
-        output_path,
-        codec="libx264",
-        audio=False,
-        logger=None,
-        ffmpeg_params=["-crf", "22", "-preset", "fast"],
-    )
-    print(f"Video saved → {output_path}")
+        print(f"Video saved → {output_path}")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
     return output_path
