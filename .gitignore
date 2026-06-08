@@ -30,3 +30,13 @@ youtube_automation/.env
 # OS
 .DS_Store
 Thumbs.db
+
+# Runtime artifacts
+youtube-ai-engine/vault/
+youtube-ai-engine/data/*.sqlite
+youtube-ai-engine/data/*.json
+youtube-ai-engine/output/
+youtube-ai-engine/logs/
+youtube-ai-engine/data/input/
+youtube-ai-engine/__pycache__/
+youtube-ai-engine/**/__pycache__/
