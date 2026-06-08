@@ -51,7 +51,7 @@ Do this once. After that, videos upload automatically every day.
 
 1. Go to [youtube.com/create_channel](https://www.youtube.com/create_channel)
 2. Channel name: **Mind Fuel Daily**
-3. Choose a custom URL: `@MindFuelDaily` (or similar)
+3. Choose a custom URL: `@GetMindFuelNow` (or similar)
 4. Add a description: *"Learn something new every day. Money, career, health, tech, mindset & more — one video daily at 3 PM EST."*
 5. Then go back to Step 4 to get your channel ID.
 

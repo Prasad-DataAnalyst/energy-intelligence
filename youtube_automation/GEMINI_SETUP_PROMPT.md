@@ -92,7 +92,7 @@ Free tier note: YouTube Data API v3 gives 10,000 units/day free. One video uploa
    - If YES: note the channel ID (Settings → Advanced settings → Channel ID starts with UC...)
    - If NO: create one at https://www.youtube.com/create_channel
      - Channel name: **Mind Fuel Daily**
-     - Handle: `@MindFuelDaily` (or closest available)
+     - Handle: `@GetMindFuelNow` (or closest available)
      - Description: *Learn something new every day. Money, career, health, tech, mindset and more — one video daily at 3 PM EST.*
 3. Record the Channel ID (format: `UCxxxxxxxxxxxxxxxxxxxxxxxx`)
 
