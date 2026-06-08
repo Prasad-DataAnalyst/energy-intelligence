@@ -1,108 +1,141 @@
-# Energy Intelligence — YouTube Daily Animation
+# Daily Drop — YouTube Pencil-Sketch Animation (US Audience, Ages 18-40)
 
-Automatically generates and uploads a **pencil-sketch animated energy briefing** to YouTube every day.
+Generates and uploads a fresh **pencil-sketch animated video** to your YouTube channel every single day.
+Content is designed for US viewers aged 18-40 and optimised for YouTube monetisation.
 
-## What it does
+---
 
-| Step | What happens |
-|------|-------------|
-| **Content** | Fetches live Brent, WTI, Henry Hub, and LNG prices from EIA API |
-| **Animation** | Renders a 3-minute pencil-sketch video (5 scenes, 1080p) |
-| **Upload** | Pushes the MP4 to your YouTube channel via the Data API |
-| **Schedule** | Runs daily at the time you set in `.env` |
+## Content Strategy
 
-## Video structure (3 minutes)
+### Why this works for monetisation
 
-| Scene | Duration | Content |
-|-------|----------|---------|
-| 0 – Title card | 8 s | Channel logo + today's date + topic |
-| 1 – Price ticker | 40 s | Brent, WTI, Henry Hub, LNG JKM with change indicators |
-| 2 – Chart | 60 s | Brent vs WTI 30-day animated line chart |
-| 3 – Focus topic | 52 s | 4 key bullets on today's energy topic |
-| 4 – Outro | 20 s | Subscribe CTA + contact |
+| Factor | Decision | Impact |
+|--------|----------|--------|
+| **Location** | United States audience targeting | US CPM is 5-10× higher than global average |
+| **Category** | Education (ID 27) | Top CPM tier: $15-40 per 1,000 views |
+| **Upload time** | 3:00 PM EST | Peak US browsing → best initial view velocity |
+| **Frequency** | Daily uploads | YouTube algorithm rewards consistency strongly |
+| **Length** | ~2:40 | Meets monetisation threshold; short enough for high retention |
+
+### 7 rotating categories (one per day)
+
+| Day | Category | Avg US CPM |
+|-----|----------|------------|
+| Monday | 💰 Money & Finance | $20-40 |
+| Tuesday | 🤖 Tech & AI | $15-35 |
+| Wednesday | 🚀 Career & Salary | $12-25 |
+| Thursday | 💪 Health & Fitness | $10-20 |
+| Friday | 💰 Money & Finance | $20-40 (double Money day) |
+| Saturday | ✈️ Lifestyle & Travel | $7-15 |
+| Sunday | 🔬 Science & Psychology | $10-20 |
+
+---
+
+## Video structure (2:40, pencil-sketch on cream paper)
+
+| Scene | Duration | What happens |
+|-------|----------|-------------|
+| Hook card | 0:00–0:10 | Big statement draws in word-by-word |
+| Category badge | 0:10–0:15 | Day's category icon expands from centre |
+| 5 Bullet points | 0:15–1:45 | Each point slides in with a number circle |
+| Key Takeaway | 1:45–2:15 | Single actionable insight with decorative brackets |
+| CTA Outro | 2:15–2:40 | Like / Share / Subscribe pulsing buttons |
+
+---
 
 ## Quick start
 
 ```bash
 cd youtube_automation
-chmod +x setup.sh
-./setup.sh
+chmod +x setup.sh && ./setup.sh
 ```
 
-Then edit `.env`:
-
+Edit `.env`:
 ```
-EIA_API_KEY=your_eia_key         # free at eia.gov/opendata
-YOUTUBE_CHANNEL_ID=UCxxxxxxxx    # Your channel ID
+YOUTUBE_CHANNEL_ID=UCxxxxxxxxxxxxxxxxxx   ← your channel ID
 YOUTUBE_PRIVACY_STATUS=public
-UPLOAD_TIME=08:00
+UPLOAD_TIME=15:00                         ← 3 PM your server's local time
 ```
 
-Place your Google OAuth credentials file as `client_secrets.json` (see below).
+Place `client_secrets.json` (from Google Cloud Console) in this folder.
 
-### Test video generation (no upload)
+### Test without uploading
 
 ```bash
 source .venv/bin/activate
 python daily_runner.py --now --no-upload
-# Output: output/energy_daily_YYYY-MM-DD.mp4
+# → output/daily_drop_YYYY-MM-DD.mp4
 ```
 
-### First upload (triggers browser OAuth)
+### First real upload (OAuth opens in browser once)
 
 ```bash
 python daily_runner.py --now
 ```
 
-### Start daily scheduler
+### Start the daily scheduler
 
 ```bash
-# Option A — Python scheduler (stays running)
-nohup python daily_runner.py --schedule &
+# Option A — Python (stays running in background)
+nohup python daily_runner.py --schedule > logs/scheduler.log 2>&1 &
 
-# Option B — cron (recommended for servers)
+# Option B — cron (recommended for VPS/cloud servers)
 crontab crontab.txt
 ```
 
-## Google Cloud setup (one-time)
+---
 
-1. Go to [console.cloud.google.com](https://console.cloud.google.com)
-2. Create a project → **Enable YouTube Data API v3**
-3. APIs & Services → Credentials → **Create OAuth 2.0 Client ID** (Desktop App)
-4. Download JSON → save as `client_secrets.json` in `youtube_automation/`
+## Google Cloud setup (one-time, free)
 
-## EIA API key (free)
+1. [console.cloud.google.com](https://console.cloud.google.com) → New project
+2. **Enable** YouTube Data API v3
+3. APIs & Services → Credentials → **Create OAuth 2.0 Client ID** → Desktop App
+4. Download JSON → rename to `client_secrets.json` → place in `youtube_automation/`
 
-Register at [eia.gov/opendata](https://www.eia.gov/opendata/register.php) — instant approval, no credit card.
+---
 
 ## Upload log
 
-Every successful upload is appended to `logs/uploads.json`:
+Every upload is recorded in `logs/uploads.json`:
 
 ```json
 [
   {
-    "date": "2026-06-08",
-    "video_id": "abc123XYZ",
-    "title": "Energy Market Daily | 08 Jun 2026 | ...",
-    "url": "https://youtu.be/abc123XYZ"
+    "date": "2026-06-09",
+    "video_id": "dQw4w9WgXcQ",
+    "title": "5 Money Mistakes Americans in Their 20s & 30s Regret Most",
+    "url": "https://youtu.be/dQw4w9WgXcQ"
   }
 ]
 ```
+
+---
 
 ## File layout
 
 ```
 youtube_automation/
-├── daily_runner.py        # Orchestrator — run this
-├── video_generator.py     # Pencil-sketch animation engine
-├── youtube_uploader.py    # YouTube API upload
-├── content_generator.py   # EIA data + daily script builder
-├── config.py              # All settings (reads from .env)
+├── daily_runner.py        ← run this
+├── video_generator.py     ← pencil-sketch animation engine
+├── youtube_uploader.py    ← YouTube Data API v3 upload
+├── content_generator.py   ← daily topic & script builder (US-focused)
+├── config.py              ← settings (reads .env)
 ├── requirements.txt
 ├── setup.sh
 ├── crontab.txt
-├── .env.example           # Copy to .env and fill in
-├── output/                # Generated MP4s
-└── logs/                  # Run logs + uploads.json
+├── .env.example           ← copy to .env and fill in
+├── output/                ← generated MP4s
+└── logs/                  ← run logs + uploads.json
 ```
+
+---
+
+## Topics covered (sample)
+
+**Money** — 401k mistakes, side hustle, index funds, credit score hacks, salary negotiation  
+**Tech** — AI jobs impact, smartphone addiction, $100k tech skills, blockchain reality  
+**Career** — Getting promoted, LinkedIn secrets, negotiation scripts  
+**Health** — Ultra-processed food, Zone 2 training, sleep deprivation cost  
+**Lifestyle** — $500 Europe flights, 20-min morning routine, minimalism  
+**Science** — Dopamine & social media, memory science, cognitive biases  
+**Mindset** — Habit loops, stoicism, why goals fail  
