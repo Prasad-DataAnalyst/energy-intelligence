@@ -10,7 +10,7 @@ import os
 import sqlite3
 import threading
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -261,6 +261,56 @@ CREATE TABLE IF NOT EXISTS shadow_rankings (
     actual_avd      REAL,
     publish_decision TEXT,  -- approved | rejected
     created_at      TEXT    NOT NULL
+);
+
+-- Per-language translated metadata for each video
+CREATE TABLE IF NOT EXISTS translations (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_video_db_id   INTEGER REFERENCES videos(id),
+    language_code        TEXT NOT NULL,
+    translated_title     TEXT,
+    translated_description TEXT,
+    translated_tags      TEXT,  -- JSON
+    youtube_id           TEXT,
+    status               TEXT DEFAULT 'pending',
+    created_at           TEXT NOT NULL,
+    UNIQUE(source_video_db_id, language_code)
+);
+
+-- Per-country trend signals detected by RegionalTrendHunter
+CREATE TABLE IF NOT EXISTS regional_trends (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    country_code TEXT NOT NULL,
+    title        TEXT NOT NULL,
+    score        REAL DEFAULT 0,
+    source       TEXT,
+    trend_data   TEXT,  -- JSON
+    detected_at  TEXT NOT NULL
+);
+
+-- Per-language YouTube channel registry
+CREATE TABLE IF NOT EXISTS language_channels (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    language_code    TEXT NOT NULL UNIQUE,
+    channel_id       TEXT,
+    channel_name     TEXT,
+    subscriber_count INTEGER DEFAULT 0,
+    total_views      INTEGER DEFAULT 0,
+    video_count      INTEGER DEFAULT 0,
+    updated_at       TEXT NOT NULL
+);
+
+-- Async localization job queue (translate / voice / thumbnail / publish)
+CREATE TABLE IF NOT EXISTS localization_jobs (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_video_db_id INTEGER REFERENCES videos(id),
+    language_code      TEXT NOT NULL,
+    job_type           TEXT,   -- full | translate | voice | thumbnail | publish
+    status             TEXT DEFAULT 'queued',  -- queued | running | done | failed
+    result             TEXT,   -- JSON
+    error              TEXT,
+    created_at         TEXT NOT NULL,
+    completed_at       TEXT
 );
 """
 
@@ -1062,6 +1112,189 @@ class Memory:
             "ctr_mae":  round(ctr_mae, 4),
             "avd_mae":  round(avd_mae, 2),
         }
+
+
+    # ── Global expansion ──────────────────────────────────────────────────────
+
+    def save_translation(self, source_video_db_id: int,
+                          language_code: str, seo: Dict) -> int:
+        """Upsert a translated metadata record for a video."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO translations
+                   (source_video_db_id, language_code, translated_title,
+                    translated_description, translated_tags, status, created_at)
+                   VALUES (?,?,?,?,?,?,?)
+                   ON CONFLICT(source_video_db_id, language_code) DO UPDATE SET
+                       translated_title=excluded.translated_title,
+                       translated_description=excluded.translated_description,
+                       translated_tags=excluded.translated_tags,
+                       status=excluded.status""",
+                (
+                    source_video_db_id,
+                    language_code,
+                    seo.get("title", ""),
+                    seo.get("description", ""),
+                    json.dumps(seo.get("tags", [])),
+                    "done",
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            return cur.lastrowid
+
+    def get_translations(self, source_video_db_id: int) -> List[Dict]:
+        """Return all translations for a given source video."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM translations WHERE source_video_db_id=? "
+                "ORDER BY language_code",
+                (source_video_db_id,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def save_regional_trends(self, trends: List[Dict],
+                              source: str = "innertube") -> None:
+        """Bulk-insert regional trend signals."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self._conn() as conn:
+            for t in trends:
+                conn.execute(
+                    """INSERT INTO regional_trends
+                       (country_code, title, score, source, trend_data, detected_at)
+                       VALUES (?,?,?,?,?,?)""",
+                    (
+                        t.get("country_code", t.get("source_market", "XX")),
+                        t.get("title", ""),
+                        t.get("score", 0.0),
+                        source,
+                        json.dumps(t),
+                        now,
+                    ),
+                )
+
+    def get_regional_trends(self, country_code: str = None,
+                             days: int = 7, n: int = 50) -> List[Dict]:
+        """Return recent regional trend records."""
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        with self._conn() as conn:
+            if country_code:
+                rows = conn.execute(
+                    "SELECT * FROM regional_trends WHERE country_code=? "
+                    "AND detected_at >= ? ORDER BY score DESC LIMIT ?",
+                    (country_code, cutoff, n),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM regional_trends WHERE detected_at >= ? "
+                    "ORDER BY score DESC LIMIT ?",
+                    (cutoff, n),
+                ).fetchall()
+        return [dict(r) for r in rows]
+
+    def upsert_language_channel(self, language_code: str,
+                                 channel_id: str, channel_name: str) -> int:
+        """Insert or update a language channel record."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO language_channels
+                   (language_code, channel_id, channel_name, updated_at)
+                   VALUES (?,?,?,?)
+                   ON CONFLICT(language_code) DO UPDATE SET
+                       channel_id=excluded.channel_id,
+                       channel_name=excluded.channel_name,
+                       updated_at=excluded.updated_at""",
+                (language_code, channel_id, channel_name,
+                 datetime.now(timezone.utc).isoformat()),
+            )
+            return cur.lastrowid
+
+    def get_language_channel(self, language_code: str) -> Optional[Dict]:
+        """Return channel config for a given language code."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM language_channels WHERE language_code=?",
+                (language_code,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def get_all_language_channels(self) -> List[Dict]:
+        """Return all registered language channels."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM language_channels ORDER BY language_code"
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def update_language_channel_stats(self, language_code: str,
+                                       subscribers: int, total_views: int,
+                                       video_count: int = 0) -> None:
+        """Update subscriber and view counts for a language channel."""
+        with self._conn() as conn:
+            conn.execute(
+                """UPDATE language_channels
+                   SET subscriber_count=?, total_views=?, video_count=?, updated_at=?
+                   WHERE language_code=?""",
+                (subscribers, total_views, video_count,
+                 datetime.now(timezone.utc).isoformat(), language_code),
+            )
+
+    def save_localization_job(self, source_video_db_id: int,
+                               language_code: str, job_type: str,
+                               status: str, result: Dict = None,
+                               error: str = "") -> int:
+        """Insert or update a localization job record."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self._conn() as conn:
+            existing = conn.execute(
+                "SELECT id FROM localization_jobs "
+                "WHERE source_video_db_id=? AND language_code=? AND job_type=?",
+                (source_video_db_id, language_code, job_type),
+            ).fetchone()
+            if existing:
+                conn.execute(
+                    """UPDATE localization_jobs
+                       SET status=?, result=?, error=?, completed_at=?
+                       WHERE id=?""",
+                    (status,
+                     json.dumps(result) if result else None,
+                     error,
+                     now if status in ("done", "failed") else None,
+                     existing["id"]),
+                )
+                return existing["id"]
+            cur = conn.execute(
+                """INSERT INTO localization_jobs
+                   (source_video_db_id, language_code, job_type,
+                    status, result, error, created_at)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (
+                    source_video_db_id, language_code, job_type,
+                    status,
+                    json.dumps(result) if result else None,
+                    error, now,
+                ),
+            )
+            return cur.lastrowid
+
+    def get_localization_jobs(self, source_video_db_id: int) -> List[Dict]:
+        """Return all localization jobs for a source video."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM localization_jobs WHERE source_video_db_id=? "
+                "ORDER BY language_code, job_type",
+                (source_video_db_id,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_pending_localization_jobs(self, limit: int = 20) -> List[Dict]:
+        """Return queued or failed localization jobs for retry."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM localization_jobs WHERE status IN ('queued','failed') "
+                "ORDER BY created_at ASC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]
 
 
 # Module-level singleton

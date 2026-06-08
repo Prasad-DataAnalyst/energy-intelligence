@@ -1322,6 +1322,326 @@ class TestCompetitorDominator(unittest.TestCase):
         self.assertIsInstance(result, list)
 
 
+# ── TestGlobalExpansion ────────────────────────────────────────────────────────
+
+
+class TestGlobalExpansion(unittest.TestCase):
+
+    def setUp(self):
+        from core.memory import Memory
+        self.mem = Memory(":memory:")
+
+    def _make_script(self):
+        return {
+            "title": "The Future of Solar Energy",
+            "hook":  "Solar power is about to change everything.",
+            "scenes": [
+                {"title": "Intro",      "narration": "Welcome to this video about solar energy.",
+                 "text_overlay": "Solar Energy 2026"},
+                {"title": "Main Point", "narration": "Solar panels are getting cheaper every year.",
+                 "text_overlay": "Cost dropping fast"},
+                {"title": "Conclusion", "narration": "Now is the best time to invest in solar.",
+                 "text_overlay": "Invest now"},
+            ],
+            "cta": "Like and subscribe for more energy content.",
+        }
+
+    def _make_metadata(self):
+        return {
+            "title":       "The Future of Solar Energy",
+            "description": "In this video we explore the future of solar power.",
+            "tags":        ["solar", "energy", "renewable", "green"],
+        }
+
+    # ── LANGUAGE_PROFILES ───────────────────────────────────────────────────
+
+    def test_language_profiles_has_six_entries(self):
+        from intelligence.global_expansion import LANGUAGE_PROFILES
+        self.assertEqual(len(LANGUAGE_PROFILES), 6)
+
+    def test_language_profiles_required_keys(self):
+        from intelligence.global_expansion import LANGUAGE_PROFILES
+        for lang, profile in LANGUAGE_PROFILES.items():
+            for key in ("name", "native", "innertube_gl", "innertube_hl",
+                        "primary_market", "population_reach",
+                        "thumbnail_style", "rtl"):
+                self.assertIn(key, profile, f"[{lang}] missing key: {key}")
+
+    def test_total_reach_exceeds_2_billion(self):
+        from intelligence.global_expansion import TOTAL_REACH
+        self.assertGreater(TOTAL_REACH, 2_000_000_000)
+
+    def test_arabic_is_rtl(self):
+        from intelligence.global_expansion import LANGUAGE_PROFILES
+        self.assertTrue(LANGUAGE_PROFILES["ar"]["rtl"])
+
+    def test_non_arabic_are_ltr(self):
+        from intelligence.global_expansion import LANGUAGE_PROFILES
+        for lang in ("es", "hi", "pt", "fr", "id"):
+            self.assertFalse(LANGUAGE_PROFILES[lang]["rtl"], f"{lang} should be LTR")
+
+    # ── TranslationPipeline ─────────────────────────────────────────────────
+
+    def test_translate_no_key_returns_placeholder(self):
+        from intelligence.global_expansion import TranslationPipeline
+        with patch.dict("os.environ", {"DEEPL_API_KEY": "", "ANTHROPIC_API_KEY": ""}):
+            tp  = TranslationPipeline()
+            out = tp.translate("Hello world", "es")
+        self.assertIn("ES_TRANSLATION_NEEDED", out)
+        self.assertIn("Hello world", out)
+
+    def test_translate_empty_string_passthrough(self):
+        from intelligence.global_expansion import TranslationPipeline
+        with patch.dict("os.environ", {"DEEPL_API_KEY": "", "ANTHROPIC_API_KEY": ""}):
+            tp  = TranslationPipeline()
+            out = tp.translate("", "fr")
+        self.assertEqual(out, "")
+
+    def test_translate_metadata_adds_seo_boosters(self):
+        from intelligence.global_expansion import TranslationPipeline, SEO_BOOSTERS
+        with patch.dict("os.environ", {"DEEPL_API_KEY": "", "ANTHROPIC_API_KEY": ""}):
+            tp  = TranslationPipeline()
+            out = tp.translate_metadata("Solar Energy", "Great video", ["solar"], "es")
+        self.assertIn("title", out)
+        self.assertIn("tags", out)
+        # At least one Spanish booster should appear in the tags
+        boosters = SEO_BOOSTERS.get("es", [])
+        tag_set  = set(out["tags"])
+        self.assertTrue(any(b in tag_set for b in boosters),
+                        f"No booster found in tags: {tag_set}")
+
+    def test_translate_script_preserves_scene_count(self):
+        from intelligence.global_expansion import TranslationPipeline
+        with patch.dict("os.environ", {"DEEPL_API_KEY": "", "ANTHROPIC_API_KEY": ""}):
+            tp     = TranslationPipeline()
+            script = self._make_script()
+            out    = tp.translate_script(script, "pt")
+        self.assertEqual(len(out["scenes"]), len(script["scenes"]))
+        self.assertEqual(out["language"], "pt")
+
+    def test_translate_script_does_not_mutate_source(self):
+        from intelligence.global_expansion import TranslationPipeline
+        with patch.dict("os.environ", {"DEEPL_API_KEY": "", "ANTHROPIC_API_KEY": ""}):
+            tp     = TranslationPipeline()
+            script = self._make_script()
+            orig_hook = script["hook"]
+            tp.translate_script(script, "ar")
+        self.assertEqual(script["hook"], orig_hook)
+
+    # ── CulturalAdapter ─────────────────────────────────────────────────────
+
+    def test_cultural_adapter_brand_substitution(self):
+        from intelligence.global_expansion import CulturalAdapter
+        ca = CulturalAdapter()
+        script = {"hook": "Buy it on Amazon today.", "scenes": []}
+        adapted = ca.adapt_script(script, "id")
+        # "Amazon" → "Tokopedia" for Indonesian market
+        self.assertIn("Tokopedia", adapted["hook"])
+
+    def test_cultural_adapter_example_substitution(self):
+        from intelligence.global_expansion import CulturalAdapter
+        ca     = CulturalAdapter()
+        script = {"hook": "Like Silicon Valley startups do.", "scenes": []}
+        adapted = ca.adapt_script(script, "es")
+        self.assertNotIn("Silicon Valley", adapted["hook"])
+
+    def test_cultural_adapter_arabic_content_filter(self):
+        from intelligence.global_expansion import CulturalAdapter
+        ca   = CulturalAdapter()
+        text = ca.filter_inappropriate("Invest in gambling stocks now", "ar")
+        self.assertNotIn("gambling", text)
+
+    def test_cultural_adapter_urgency_phrase(self):
+        from intelligence.global_expansion import CulturalAdapter
+        ca     = CulturalAdapter()
+        phrase = ca.get_urgency_phrase("hi")
+        self.assertIsInstance(phrase, str)
+        self.assertGreater(len(phrase), 0)
+
+    def test_cultural_adapter_sets_cultural_region(self):
+        from intelligence.global_expansion import CulturalAdapter, LANGUAGE_PROFILES
+        ca     = CulturalAdapter()
+        script = {"hook": "Hello world.", "scenes": []}
+        adapted = ca.adapt_script(script, "hi")
+        self.assertEqual(adapted["cultural_region"],
+                         LANGUAGE_PROFILES["hi"]["primary_market"])
+
+    # ── MultilingualSEO ─────────────────────────────────────────────────────
+
+    def test_multilingual_seo_title_length_capped(self):
+        from intelligence.global_expansion import MultilingualSEO
+        with patch.dict("os.environ", {"DEEPL_API_KEY": "", "ANTHROPIC_API_KEY": ""}):
+            seo = MultilingualSEO()
+            out = seo.generate_local_seo(
+                "Solar Energy", "Great video about solar", ["solar"], "fr"
+            )
+        self.assertLessEqual(len(out["title"]), 100)
+
+    def test_multilingual_seo_tags_capped_at_30(self):
+        from intelligence.global_expansion import MultilingualSEO
+        with patch.dict("os.environ", {"DEEPL_API_KEY": "", "ANTHROPIC_API_KEY": ""}):
+            seo = MultilingualSEO()
+            out = seo.generate_local_seo(
+                "Solar", "Description", ["solar"] * 35, "pt"
+            )
+        self.assertLessEqual(len(out["tags"]), 30)
+
+    def test_multilingual_seo_volume_tier_returns_string(self):
+        from intelligence.global_expansion import MultilingualSEO
+        with patch.dict("os.environ", {"DEEPL_API_KEY": "", "ANTHROPIC_API_KEY": ""}):
+            seo  = MultilingualSEO()
+            tier = seo._estimate_volume_tier("solar energy tutorial", "hi")
+        self.assertIn(tier, ("high", "medium", "low"))
+
+    def test_multilingual_seo_generate_all_markets(self):
+        from intelligence.global_expansion import MultilingualSEO, LANGUAGE_PROFILES
+        with patch.dict("os.environ", {"DEEPL_API_KEY": "", "ANTHROPIC_API_KEY": ""}):
+            seo = MultilingualSEO()
+            out = seo.generate_all_markets("Solar Energy", "Description", ["solar"])
+        self.assertEqual(set(out.keys()), set(LANGUAGE_PROFILES.keys()))
+        for lang, pkg in out.items():
+            self.assertIn("title", pkg)
+            self.assertIn("tags",  pkg)
+
+    # ── ThumbnailLocalizer ──────────────────────────────────────────────────
+
+    def test_thumbnail_localizer_no_source_returns_none(self):
+        from intelligence.global_expansion import ThumbnailLocalizer
+        tl  = ThumbnailLocalizer()
+        out = tl.localize("/nonexistent/thumb.jpg", "es", "Test", "/tmp")
+        self.assertIsNone(out)
+
+    def test_thumbnail_hex_to_rgb(self):
+        from intelligence.global_expansion import ThumbnailLocalizer
+        tl = ThumbnailLocalizer()
+        self.assertEqual(tl._hex_to_rgb("#FF4136"), (255, 65, 54))
+        self.assertEqual(tl._hex_to_rgb("002395"), (0, 35, 149))
+
+    # ── ChannelManager ──────────────────────────────────────────────────────
+
+    def test_channel_manager_register_and_retrieve(self):
+        from intelligence.global_expansion import ChannelManager
+        cm = ChannelManager(self.mem)
+        cm.register_channel("es", "UC_ES_TEST", "My Spanish Channel")
+        config = cm.get_channel_config("es")
+        self.assertEqual(config.get("channel_id"),   "UC_ES_TEST")
+        self.assertEqual(config.get("channel_name"), "My Spanish Channel")
+
+    def test_channel_manager_get_all_returns_list(self):
+        from intelligence.global_expansion import ChannelManager
+        cm = ChannelManager(self.mem)
+        cm.register_channel("fr", "UC_FR", "French Channel")
+        cm.register_channel("ar", "UC_AR", "Arabic Channel")
+        all_ch = cm.get_all_channels()
+        self.assertIsInstance(all_ch, list)
+        self.assertGreaterEqual(len(all_ch), 2)
+
+    def test_channel_manager_end_screen_excludes_source(self):
+        from intelligence.global_expansion import ChannelManager
+        cm = ChannelManager(self.mem)
+        for lang, cid in [("es", "UC_ES"), ("hi", "UC_HI"), ("pt", "UC_PT")]:
+            cm.register_channel(lang, cid, f"{lang} channel")
+        links = cm.build_end_screen_links(source_language="es")
+        lang_codes = [l["language_code"] for l in links]
+        self.assertNotIn("es", lang_codes)
+
+    # ── Memory tables ───────────────────────────────────────────────────────
+
+    def test_memory_has_global_expansion_tables(self):
+        expected = {"translations", "regional_trends",
+                    "language_channels", "localization_jobs"}
+        with self.mem._conn() as conn:
+            rows   = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+            tables = {r["name"] for r in rows}
+        self.assertTrue(expected.issubset(tables),
+                        f"Missing: {expected - tables}")
+
+    def test_memory_save_and_get_translation(self):
+        vid_id = self.mem.save_video({
+            "date": "2026-06-08", "topic": "solar", "title": "Solar Video",
+            "youtube_id": "ytGlobal01",
+        })
+        row_id = self.mem.save_translation(vid_id, "es", {
+            "title": "El Futuro de la Energía Solar",
+            "description": "En este vídeo...",
+            "tags": ["solar", "energía"],
+        })
+        self.assertGreater(row_id, 0)
+        rows = self.mem.get_translations(vid_id)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["language_code"], "es")
+        self.assertEqual(rows[0]["translated_title"], "El Futuro de la Energía Solar")
+
+    def test_memory_save_regional_trends(self):
+        trends = [
+            {"source_market": "IN", "title": "Rooftop solar India", "score": 0.9},
+            {"source_market": "ID", "title": "EV bikes Indonesia",  "score": 0.7},
+        ]
+        self.mem.save_regional_trends(trends, source="test")
+        rows = self.mem.get_regional_trends(days=1)
+        self.assertGreaterEqual(len(rows), 2)
+
+    def test_memory_upsert_language_channel(self):
+        self.mem.upsert_language_channel("pt", "UC_PT_123", "Energia Solar BR")
+        ch = self.mem.get_language_channel("pt")
+        self.assertIsNotNone(ch)
+        self.assertEqual(ch["channel_id"], "UC_PT_123")
+        # Upsert again — should not raise and should update
+        self.mem.upsert_language_channel("pt", "UC_PT_456", "Nova Energia BR")
+        ch2 = self.mem.get_language_channel("pt")
+        self.assertEqual(ch2["channel_id"], "UC_PT_456")
+
+    def test_memory_localization_job_lifecycle(self):
+        vid_id = self.mem.save_video({
+            "date": "2026-06-08", "topic": "wind", "title": "Wind Energy",
+            "youtube_id": "ytJob01",
+        })
+        jid = self.mem.save_localization_job(vid_id, "hi", "full", "running")
+        self.assertGreater(jid, 0)
+        # Update to done
+        self.mem.save_localization_job(vid_id, "hi", "full", "done",
+                                       result={"seo_title": "हवा ऊर्जा"})
+        jobs = self.mem.get_localization_jobs(vid_id)
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(jobs[0]["status"], "done")
+
+    # ── GlobalExpansion orchestrator ────────────────────────────────────────
+
+    def test_global_expansion_expand_video_structure(self):
+        from intelligence.global_expansion import GlobalExpansion, LANGUAGE_PROFILES
+        with patch.dict("os.environ", {"DEEPL_API_KEY": "", "ANTHROPIC_API_KEY": "",
+                                       "ELEVENLABS_API_KEY": ""}):
+            ge = GlobalExpansion(self.mem)
+            result = ge.expand_video(
+                source_script   = self._make_script(),
+                source_metadata = self._make_metadata(),
+                languages       = ["es", "pt"],
+            )
+        self.assertIn("languages",     result)
+        self.assertIn("total_reach",   result)
+        self.assertIn("success_count", result)
+        self.assertIn("es", result["languages"])
+        self.assertIn("pt", result["languages"])
+
+    def test_global_expansion_seo_present_per_language(self):
+        from intelligence.global_expansion import GlobalExpansion
+        with patch.dict("os.environ", {"DEEPL_API_KEY": "", "ANTHROPIC_API_KEY": "",
+                                       "ELEVENLABS_API_KEY": ""}):
+            ge = GlobalExpansion(self.mem)
+            result = ge.expand_video(
+                source_script   = self._make_script(),
+                source_metadata = self._make_metadata(),
+                languages       = ["fr", "ar"],
+            )
+        for lang in ("fr", "ar"):
+            lang_result = result["languages"].get(lang, {})
+            self.assertIn("seo", lang_result)
+            self.assertIn("title", lang_result["seo"])
+            self.assertIn("tags",  lang_result["seo"])
+
+
 # ── Runner ─────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":

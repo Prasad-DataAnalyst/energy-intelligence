@@ -166,6 +166,28 @@ class DailyPipeline:
         except Exception as e:
             log.error(f"Monetization pass failed (non-fatal): {e}", exc_info=True)
 
+        # ── 7c. Global expansion — translate + localise for 6 languages ──────
+        log.info("[7c/9] Global language expansion…")
+        try:
+            from intelligence.global_expansion import GlobalExpansion
+            ge           = GlobalExpansion(self.memory)
+            video_data   = {
+                "script":    script,
+                "metadata":  metadata if "metadata" in dir() else {},
+                "thumbnails": thumbs,
+            }
+            geo_result   = ge.run_daily(video_data=video_data)
+            result["global_expansion"] = {
+                "early_trends":  geo_result.get("early_trend_count", 0),
+                "markets":       geo_result.get("market_trends", {}),
+                "lang_success":  (geo_result.get("expansion") or {}).get("success_count", 0),
+            }
+            log.info(f"  Early trends: {geo_result.get('early_trend_count', 0)} | "
+                     f"Languages expanded: "
+                     f"{(geo_result.get('expansion') or {}).get('success_count', 0)}/6")
+        except Exception as e:
+            log.error(f"Global expansion failed (non-fatal): {e}", exc_info=True)
+
         # ── 8. Shadow rank check + upload ──────────────────────────────────
         log.info("[8/9] Shadow-rank check then publishing to YouTube…")
         seo      = SEOOptimizer(self.memory)
@@ -291,6 +313,13 @@ class Scheduler:
                 max_instances=1, coalesce=True,
             )
 
+            # Regional trend sweep at 03:30 UTC daily (after daily pipeline)
+            sched.add_job(
+                self._run_global_expansion, CronTrigger(hour=3, minute=30),
+                id="global_expansion", name="Global language expansion & regional trends",
+                max_instances=1, coalesce=True,
+            )
+
             # Git snapshot every 6 hours
             sched.add_job(
                 self._run_version_snapshot, CronTrigger(hour="*/6", minute=30),
@@ -367,6 +396,16 @@ class Scheduler:
                      f"adjustments={len(analysis.get('auto_adjustments',[]))})")
         except Exception as e:
             log.error(f"Algorithm hacker crashed: {e}", exc_info=True)
+
+    def _run_global_expansion(self):
+        try:
+            from intelligence.global_expansion import GlobalExpansion
+            ge     = GlobalExpansion(self.memory)
+            result = ge.run_daily()
+            log.info(f"Global expansion: {result.get('early_trend_count', 0)} early trends | "
+                     f"markets={len(result.get('market_trends', {}))}")
+        except Exception as e:
+            log.error(f"Global expansion crashed: {e}", exc_info=True)
 
     def _run_version_snapshot(self):
         try:

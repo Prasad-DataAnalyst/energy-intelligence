@@ -179,6 +179,15 @@ def run_monetize_phase(memory):
     me.run_revenue_dashboard()
 
 
+def run_global_phase(memory):
+    from intelligence.global_expansion import GlobalExpansion
+    ge     = GlobalExpansion(memory)
+    result = ge.run_daily()
+    ge.print_report(result)
+    print(f"\nGlobal expansion: {result.get('early_trend_count', 0)} early-mover trends "
+          f"| markets sampled: {len(result.get('market_trends', {}))}")
+
+
 def run_dominator_phase(memory):
     from intelligence.competitor_dominator import CompetitorDominator
     cd     = CompetitorDominator(memory)
@@ -231,7 +240,7 @@ def main():
     parser.add_argument("--phase",     type=str, metavar="PHASE",
                         choices=["trend","script","voice","visual","assemble",
                                  "thumbnail","publish","audit","feedback",
-                                 "competitor","meta","algo","monetize","dominate"],
+                                 "competitor","meta","algo","monetize","dominate","global"],
                         help="Run a specific phase only")
     parser.add_argument("--topic",     type=str, default="", help="Override topic")
     parser.add_argument("--style",     type=str, default="",
@@ -271,7 +280,7 @@ def main():
     # Analysis/maintenance phases don't need a topic — run and return early
     # (avoids wasteful trend-fetching network calls).
     ANALYSIS_PHASES = {"audit", "feedback", "competitor", "meta", "algo",
-                        "monetize", "dominate"}
+                        "monetize", "dominate", "global"}
     if args.phase in ANALYSIS_PHASES:
         if args.phase == "algo":
             run_algo_phase(memory)
@@ -279,6 +288,8 @@ def main():
             run_monetize_phase(memory)
         elif args.phase == "dominate":
             run_dominator_phase(memory)
+        elif args.phase == "global":
+            run_global_phase(memory)
         else:
             {"audit":      run_audit_phase,
              "feedback":   run_feedback_phase,
