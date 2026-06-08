@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.pyo
+*.py.bak
+.venv/
+venv/
+data/*.sqlite
+data/*.json
+output/
+logs/
+*.log
+config/api_keys.env
+*.deb
