@@ -16,6 +16,7 @@ Prerequisites
 
 import os
 import json
+import time
 import datetime
 from pathlib import Path
 
@@ -23,6 +24,7 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload
 
 import config
@@ -109,11 +111,27 @@ def upload_video(video_path: str, content: dict) -> str:
     )
 
     response = None
+    retry = 0
     while response is None:
-        status, response = request.next_chunk()
-        if status:
-            pct = int(status.progress() * 100)
-            print(f"  Upload progress: {pct}%", end="\r")
+        try:
+            status, response = request.next_chunk()
+            if status:
+                pct = int(status.progress() * 100)
+                print(f"  Upload progress: {pct}%", end="\r")
+        except HttpError as e:
+            if e.resp.status in (500, 502, 503, 504) and retry < 5:
+                wait = 2 ** retry
+                print(f"\n  Server error {e.resp.status} — retrying in {wait}s…")
+                time.sleep(wait)
+                retry += 1
+            elif e.resp.status == 403:
+                raise RuntimeError(
+                    "YouTube API quota exceeded (10,000 units/day free limit).\n"
+                    "Quota resets at midnight Pacific time. "
+                    "The video is saved locally — it will upload tomorrow."
+                ) from e
+            else:
+                raise
 
     video_id = response["id"]
     print(f"\nUpload complete → https://youtu.be/{video_id}")

@@ -64,7 +64,7 @@ def run_pipeline(upload: bool = True):
     # 2. Render video
     log.info("Step 2/3 — rendering pencil-sketch video…")
     date_tag = content["date"].strftime("%Y-%m-%d")
-    output_path = str(Path(config.OUTPUT_DIR) / f"energy_daily_{date_tag}.mp4")
+    output_path = str(Path(config.OUTPUT_DIR) / f"daily_drop_{date_tag}.mp4")
     Path(config.OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
 
     generate_video(content, output_path)
