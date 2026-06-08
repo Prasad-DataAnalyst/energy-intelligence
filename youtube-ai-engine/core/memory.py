@@ -124,6 +124,64 @@ CREATE TABLE IF NOT EXISTS meta_runs (
     actions_done  INTEGER DEFAULT 0
 );
 
+-- Sponsorship CRM: brand prospects and deal pipeline
+CREATE TABLE IF NOT EXISTS sponsorships (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    brand_name      TEXT    NOT NULL,
+    email           TEXT,
+    category        TEXT,
+    niche           TEXT,
+    cpm_rate        REAL,
+    status          TEXT    DEFAULT 'prospect',  -- prospect/contacted/negotiating/active/declined
+    deal_value      REAL,
+    outreach_sent   INTEGER DEFAULT 0,
+    outreach_date   TEXT,
+    notes           TEXT,
+    created_at      TEXT    NOT NULL
+);
+
+-- Affiliate link placements and conversion tracking
+CREATE TABLE IF NOT EXISTS affiliate_links (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    video_db_id INTEGER REFERENCES videos(id),
+    youtube_id  TEXT,
+    product     TEXT    NOT NULL,
+    program     TEXT,
+    url         TEXT,
+    placement   TEXT,   -- description | pinned_comment
+    clicks      INTEGER DEFAULT 0,
+    conversions INTEGER DEFAULT 0,
+    revenue     REAL    DEFAULT 0,
+    created_at  TEXT    NOT NULL
+);
+
+-- Weekly revenue snapshots for trend tracking
+CREATE TABLE IF NOT EXISTS revenue_snapshots (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    date          TEXT    NOT NULL,
+    week_num      INTEGER,
+    total_views   INTEGER DEFAULT 0,
+    avg_rpm       REAL    DEFAULT 0,
+    ad_revenue    REAL    DEFAULT 0,
+    sponsor_rev   REAL    DEFAULT 0,
+    affiliate_rev REAL    DEFAULT 0,
+    merch_rev     REAL    DEFAULT 0,
+    total_rev     REAL    DEFAULT 0,
+    subscribers   INTEGER DEFAULT 0,
+    created_at    TEXT    NOT NULL
+);
+
+-- General monetization events (sponsor deals, milestone triggers, alerts)
+CREATE TABLE IF NOT EXISTS monetization_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp   TEXT    NOT NULL,
+    event_type  TEXT,   -- video_optimized | sponsor_deal | merch_milestone | revenue_alert
+    youtube_id  TEXT,
+    video_db_id INTEGER REFERENCES videos(id),
+    data        TEXT,   -- JSON blob
+    revenue     REAL    DEFAULT 0
+);
+
 -- Daily snapshots of what YouTube is currently boosting
 CREATE TABLE IF NOT EXISTS algorithm_snapshots (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -499,6 +557,160 @@ class Memory:
             ).fetchall()
         return [dict(r) for r in rows]
 
+
+    # ── Monetization ──────────────────────────────────────────────────────────
+
+    def save_sponsorship_prospect(self, data: Dict) -> int:
+        """Upsert a sponsorship prospect (dedup by brand name)."""
+        with self._conn() as conn:
+            existing = conn.execute(
+                "SELECT id FROM sponsorships WHERE brand_name=?",
+                (data.get("name", data.get("brand_name", "")),),
+            ).fetchone()
+            if existing:
+                return existing["id"]
+            cur = conn.execute(
+                """INSERT INTO sponsorships
+                   (brand_name, email, category, niche, status, created_at)
+                   VALUES (?,?,?,?,?,?)""",
+                (
+                    data.get("name", data.get("brand_name", "")),
+                    data.get("email", ""),
+                    data.get("category", ""),
+                    data.get("niche", ""),
+                    "prospect",
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            return cur.lastrowid
+
+    def update_sponsorship_status(self, brand_name: str, status: str,
+                                   deal_value: float = None,
+                                   notes: str = "") -> None:
+        with self._conn() as conn:
+            conn.execute(
+                """UPDATE sponsorships
+                   SET status=?, deal_value=?, notes=?, outreach_sent=1,
+                       outreach_date=?
+                   WHERE brand_name=?""",
+                (status, deal_value, notes,
+                 datetime.now(timezone.utc).isoformat()[:10], brand_name),
+            )
+
+    def get_sponsorship_prospects(self, status: str = None) -> List[Dict]:
+        with self._conn() as conn:
+            if status:
+                rows = conn.execute(
+                    "SELECT * FROM sponsorships WHERE status=? ORDER BY created_at DESC",
+                    (status,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM sponsorships ORDER BY created_at DESC"
+                ).fetchall()
+        return [dict(r) for r in rows]
+
+    def save_affiliate_link(self, data: Dict) -> int:
+        with self._conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO affiliate_links
+                   (video_db_id, youtube_id, product, program, url, placement, created_at)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (
+                    data.get("video_db_id"),
+                    data.get("youtube_id", ""),
+                    data.get("product", ""),
+                    data.get("program", ""),
+                    data.get("url", ""),
+                    data.get("placement", "description"),
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            return cur.lastrowid
+
+    def update_affiliate_stats(self, link_id: int, clicks: int = 0,
+                                conversions: int = 0, revenue: float = 0.0) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                """UPDATE affiliate_links
+                   SET clicks=clicks+?, conversions=conversions+?, revenue=revenue+?
+                   WHERE id=?""",
+                (clicks, conversions, revenue, link_id),
+            )
+
+    def affiliate_revenue_weekly(self, weeks: int = 4) -> List[Dict]:
+        """Aggregate affiliate revenue by week."""
+        cutoff = (datetime.now(timezone.utc) - timedelta(weeks=weeks)).isoformat()
+        with self._conn() as conn:
+            rows = conn.execute(
+                """SELECT strftime('%Y-W%W', created_at) AS week,
+                          SUM(revenue) AS revenue,
+                          SUM(clicks) AS clicks,
+                          SUM(conversions) AS conversions
+                   FROM affiliate_links
+                   WHERE created_at >= ?
+                   GROUP BY week ORDER BY week DESC""",
+                (cutoff,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def save_revenue_snapshot(self, data: Dict) -> int:
+        with self._conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO revenue_snapshots
+                   (date, week_num, total_views, avg_rpm,
+                    ad_revenue, sponsor_rev, affiliate_rev, merch_rev,
+                    total_rev, subscribers, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    data.get("date", datetime.now().strftime("%Y-%m-%d")),
+                    data.get("week_num", 0),
+                    data.get("total_views", 0),
+                    data.get("avg_rpm", 0.0),
+                    data.get("ad_revenue", 0.0),
+                    data.get("sponsor_rev", 0.0),
+                    data.get("affiliate_rev", 0.0),
+                    data.get("merch_rev", 0.0),
+                    data.get("total_rev", 0.0),
+                    data.get("subscribers", 0),
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            return cur.lastrowid
+
+    def save_monetization_event(self, data: Dict) -> int:
+        import json as _json
+        with self._conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO monetization_events
+                   (timestamp, event_type, youtube_id, video_db_id, data, revenue)
+                   VALUES (?,?,?,?,?,?)""",
+                (
+                    datetime.now(timezone.utc).isoformat(),
+                    data.get("event_type", ""),
+                    data.get("youtube_id", ""),
+                    data.get("video_db_id"),
+                    _json.dumps(data.get("data", {})),
+                    data.get("revenue", 0.0),
+                ),
+            )
+            return cur.lastrowid
+
+    def get_monetization_events(self, event_type: str = None,
+                                  n: int = 50) -> List[Dict]:
+        with self._conn() as conn:
+            if event_type:
+                rows = conn.execute(
+                    "SELECT * FROM monetization_events WHERE event_type=? "
+                    "ORDER BY timestamp DESC LIMIT ?",
+                    (event_type, n),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM monetization_events ORDER BY timestamp DESC LIMIT ?",
+                    (n,),
+                ).fetchall()
+        return [dict(r) for r in rows]
 
     # ── Algorithm hacker ───────────────────────────────────────────────────────
 

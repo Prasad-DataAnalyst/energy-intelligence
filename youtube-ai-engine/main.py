@@ -160,6 +160,25 @@ def run_competitor_phase(memory):
     print(f"\nCompetitor DB: {formula.get('channels_analysed',0)} channels analysed")
 
 
+def run_monetize_phase(memory):
+    from monetization.monetization_engine import MonetizationEngine
+    import yaml
+    cfg_path = Path(__file__).parent / "config" / "master_config.yaml"
+    niche    = "technology"
+    try:
+        with open(cfg_path) as f:
+            cfg = yaml.safe_load(f) or {}
+        niche = cfg.get("channel", {}).get("niche", "technology")
+    except Exception:
+        pass
+    me = MonetizationEngine(memory, niche=niche)
+    print("\n── Sponsor Discovery ───────────────────────────────")
+    sponsors = me.discover_sponsors()
+    print(f"Found {len(sponsors)} sponsor prospects")
+    print("\n── Revenue Dashboard ───────────────────────────────")
+    me.run_revenue_dashboard()
+
+
 def run_algo_phase(memory, n_sessions: int = 50):
     from intelligence.algorithm_hacker import AlgorithmHacker
     ah       = AlgorithmHacker(memory)
@@ -203,7 +222,7 @@ def main():
     parser.add_argument("--phase",     type=str, metavar="PHASE",
                         choices=["trend","script","voice","visual","assemble",
                                  "thumbnail","publish","audit","feedback",
-                                 "competitor","meta","algo"],
+                                 "competitor","meta","algo","monetize"],
                         help="Run a specific phase only")
     parser.add_argument("--topic",     type=str, default="", help="Override topic")
     parser.add_argument("--style",     type=str, default="",
@@ -242,10 +261,12 @@ def main():
 
     # Analysis/maintenance phases don't need a topic — run and return early
     # (avoids wasteful trend-fetching network calls).
-    ANALYSIS_PHASES = {"audit", "feedback", "competitor", "meta", "algo"}
+    ANALYSIS_PHASES = {"audit", "feedback", "competitor", "meta", "algo", "monetize"}
     if args.phase in ANALYSIS_PHASES:
         if args.phase == "algo":
             run_algo_phase(memory)
+        elif args.phase == "monetize":
+            run_monetize_phase(memory)
         else:
             {"audit":      run_audit_phase,
              "feedback":   run_feedback_phase,

@@ -655,6 +655,285 @@ class TestAlgorithmHacker(unittest.TestCase):
         self.assertTrue(expected.issubset(tables))
 
 
+class TestMonetizationEngine(unittest.TestCase):
+
+    def setUp(self):
+        from core.memory import Memory
+        self.mem = Memory(":memory:")
+        from monetization.monetization_engine import (
+            AdRevenueOptimizer, SponsorshipAutomation, AffiliateLinkEngine,
+            MerchandiseTrigger, RevenueDashboard, MonetizationEngine,
+            _midroll_slots, _midroll_timestamps,
+        )
+        self.AdOpt    = AdRevenueOptimizer
+        self.Sponsor  = SponsorshipAutomation
+        self.Affiliate = AffiliateLinkEngine
+        self.Merch    = MerchandiseTrigger
+        self.Dashboard = RevenueDashboard
+        self.ME        = MonetizationEngine
+        self._slots    = _midroll_slots
+        self._stamps   = _midroll_timestamps
+        self.ad_opt   = AdRevenueOptimizer()
+        self.me       = MonetizationEngine(self.mem)
+
+    def _make_script(self, duration_s=600, n_scenes=8):
+        scene_dur = duration_s / n_scenes
+        return {
+            "title":  "How to save money on your electricity bill",
+            "hook":   "You won't believe how much money you're wasting on power.",
+            "outro":  "Subscribe and hit the bell for more energy tips!",
+            "total_duration": duration_s,
+            "scenes": [
+                {
+                    "id": i + 1,
+                    "section": "value_loop",
+                    "duration_s": scene_dur,
+                    "duration": scene_dur,
+                    "narration": f"Scene {i}: here is how solar panels work and why tools matter.",
+                    "voiceover": f"Scene {i} voiceover",
+                }
+                for i in range(n_scenes)
+            ],
+        }
+
+    # ── Mid-roll slot formula ───────────────────────────────────────────────
+
+    def test_midroll_slots_below_threshold(self):
+        self.assertEqual(self._slots(479), 0)
+        self.assertEqual(self._slots(0),   0)
+
+    def test_midroll_slots_at_8_min(self):
+        self.assertEqual(self._slots(480), 1)
+
+    def test_midroll_slots_at_10_min(self):
+        self.assertEqual(self._slots(600), 2)
+
+    def test_midroll_slots_at_12_min(self):
+        self.assertEqual(self._slots(720), 3)
+
+    def test_midroll_timestamps_count(self):
+        stamps = self._stamps(600)
+        self.assertEqual(len(stamps), 2)
+        for s in stamps:
+            self.assertGreater(s, 0)
+            self.assertLess(s, 600)
+
+    # ── AdRevenueOptimizer ──────────────────────────────────────────────────
+
+    def test_ad_score_clean_script_high(self):
+        script = self._make_script()
+        result = self.ad_opt.score_advertiser_friendly(script)
+        self.assertGreaterEqual(result["score"], 60)
+        self.assertIn("grade", result)
+        self.assertIn("mid_roll_slots", result)
+
+    def test_ad_score_risky_script_lower(self):
+        script = self._make_script()
+        script["hook"] = "This video will kill the competition and bomb your rivals."
+        clean  = self._make_script()
+        risky_score  = self.ad_opt.score_advertiser_friendly(script)["score"]
+        clean_score  = self.ad_opt.score_advertiser_friendly(clean)["score"]
+        self.assertLess(risky_score, clean_score)
+
+    def test_replace_risky_words_substitutes(self):
+        cleaned, reps = self.ad_opt.replace_risky_words(
+            "We need to kill the noise and bomb the competition."
+        )
+        self.assertNotIn("kill", cleaned.lower())
+        self.assertNotIn("bomb", cleaned.lower())
+        self.assertGreater(len(reps), 0)
+
+    def test_replace_risky_camera_context_preserved(self):
+        text = "I shot this footage with my camera and captured the scene."
+        cleaned, reps = self.ad_opt.replace_risky_words(text, context_aware=True)
+        self.assertIn("shot", cleaned.lower())
+        self.assertEqual(len(reps), 0)
+
+    def test_optimize_length_recommendation(self):
+        rec = self.ad_opt.optimize_length_for_midrolls(300, target_slots=3)
+        self.assertGreaterEqual(rec["slot_count"], 3)
+        self.assertGreaterEqual(rec["recommended_duration_s"], 480)
+
+    def test_natural_ad_breaks_count(self):
+        script = self._make_script(duration_s=600, n_scenes=8)
+        breaks = self.ad_opt.find_natural_ad_breaks(script)
+        self.assertEqual(len(breaks), 2)  # 600s → 2 slots
+        for b in breaks:
+            self.assertIn("target_s", b)
+            self.assertIn("actual_s", b)
+
+    def test_optimize_script_adds_metadata(self):
+        script = self._make_script()
+        result = self.ad_opt.optimize_script(script)
+        self.assertIn("ad_optimization", result)
+        ao = result["ad_optimization"]
+        self.assertIn("advertiser_score", ao)
+        self.assertIn("mid_roll_slots", ao)
+
+    # ── SponsorshipAutomation ───────────────────────────────────────────────
+
+    def test_discover_niche_sponsors_returns_list(self):
+        sp = self.Sponsor(self.mem)
+        brands = sp.discover_niche_sponsors(niche="technology")
+        self.assertIsInstance(brands, list)
+        self.assertGreater(len(brands), 0)
+        self.assertIn("name", brands[0])
+
+    def test_estimate_deal_value_structure(self):
+        sp   = self.Sponsor(self.mem)
+        deal = sp.estimate_deal_value(avg_views=10000, niche="technology")
+        self.assertIn("deal_value", deal)
+        self.assertGreater(deal["deal_value"], 0)
+        self.assertGreater(deal["range_high"], deal["range_low"])
+
+    def test_outreach_email_template(self):
+        sp    = self.Sponsor(self.mem)
+        email = sp._template_outreach_email(
+            brand  = {"name": "NordVPN", "category": "privacy"},
+            stats  = {"channel_name": "TechChannel", "avg_views": 8000,
+                      "subscribers": 50000, "avg_ctr": 4.2,
+                      "avg_avd_pct": 48.0, "engagement_rate": 3.5},
+            niche  = "technology",
+        )
+        self.assertIn("NordVPN", email)
+        self.assertIn("TechChannel", email)
+        self.assertGreater(len(email), 200)
+
+    def test_insert_sponsor_at_35pct(self):
+        sp     = self.Sponsor(self.mem)
+        script = self._make_script(duration_s=600, n_scenes=8)
+        result = sp.insert_sponsor_segment(
+            script, {"name": "Brilliant", "promo_code": "TECH"}, position_pct=0.375
+        )
+        self.assertTrue(result.get("has_sponsor"))
+        sponsor_scenes = [s for s in result["scenes"] if s.get("is_sponsor")]
+        self.assertEqual(len(sponsor_scenes), 1)
+        # Sponsor should appear between scenes 2-4 (35-40% of 8 scenes)
+        all_ids = [s.get("id") for s in result["scenes"]]
+        sponsor_idx = next(i for i, s in enumerate(result["scenes"]) if s.get("is_sponsor"))
+        total_scenes = len(result["scenes"]) - 1   # minus the sponsor itself
+        self.assertGreater(sponsor_idx, 0)
+        self.assertLess(sponsor_idx, total_scenes)
+
+    # ── AffiliateLinkEngine ─────────────────────────────────────────────────
+
+    def test_detect_products_finds_mentions(self):
+        afl    = self.Affiliate(self.mem)
+        script = self._make_script()
+        script["scenes"][0]["narration"] = "You'll need a good camera and microphone for this."
+        products = afl.detect_products(script)
+        self.assertIn("camera", products)
+        self.assertIn("microphone", products)
+
+    def test_find_affiliate_programs_returns_programs(self):
+        afl      = self.Affiliate(self.mem)
+        products = ["camera", "vpn service", "course"]
+        programs = afl.find_affiliate_programs(products)
+        self.assertEqual(set(programs.keys()), set(products))
+        for p in programs.values():
+            self.assertIn("program", p)
+            self.assertIn("commission", p)
+
+    def test_format_description_links_appends(self):
+        afl   = self.Affiliate(self.mem)
+        desc  = "This is my video description."
+        links = {"solar panel": {"program": "amazon", "commission": 4.0,
+                                  "search_url": "https://amazon.com/s?k=solar+panel",
+                                  "cookie_days": 1}}
+        result = afl.format_description_links(desc, links)
+        self.assertIn("LINKS & RESOURCES", result)
+        self.assertIn("solar panel", result.lower())
+        self.assertTrue(result.startswith(desc))
+
+    def test_monthly_affiliate_revenue_estimate(self):
+        afl = self.Affiliate(self.mem)
+        est = afl.estimate_monthly_affiliate_revenue(monthly_views=100_000)
+        self.assertIn("revenue", est)
+        self.assertGreater(est["revenue"], 0)
+
+    # ── MerchandiseTrigger ──────────────────────────────────────────────────
+
+    def test_milestone_detection_crosses(self):
+        merch = self.Merch(self.mem)
+        result = merch.check_milestones(current_subs=10_500, previous_subs=9_800)
+        milestones = [m["milestone"] for m in result]
+        self.assertIn(10_000, milestones)
+
+    def test_milestone_no_cross(self):
+        merch = self.Merch(self.mem)
+        result = merch.check_milestones(current_subs=8_000, previous_subs=7_500)
+        self.assertEqual(result, [])
+
+    def test_fallback_merch_ideas_count(self):
+        merch  = self.Merch(self.mem)
+        ideas  = merch._fallback_merch_ideas("TechChannel", "technology",
+                                              ["Stay Curious"])
+        self.assertEqual(len(ideas), 5)
+        for idea in ideas:
+            self.assertIn("product_type", idea)
+            self.assertIn("slogan", idea)
+
+    # ── RevenueDashboard ────────────────────────────────────────────────────
+
+    def test_niche_rpm_comparison_structure(self):
+        dash   = self.Dashboard(self.mem, niche="technology")
+        result = dash.niche_rpm_comparison()
+        self.assertIn("channel_rpm", result)
+        self.assertIn("niche_avg_rpm", result)
+        self.assertIn("status", result)
+
+    def test_revenue_report_is_string(self):
+        dash   = self.Dashboard(self.mem, niche="technology")
+        report = dash.generate_report(include_forecast=False)
+        self.assertIsInstance(report, str)
+        self.assertIn("REVENUE DASHBOARD", report)
+
+    def test_alerts_stable_when_no_data(self):
+        dash   = self.Dashboard(self.mem)
+        alerts = dash.check_alerts()
+        self.assertIsInstance(alerts, list)
+
+    # ── Memory tables ───────────────────────────────────────────────────────
+
+    def test_memory_has_monetization_tables(self):
+        expected = {"sponsorships", "affiliate_links", "revenue_snapshots", "monetization_events"}
+        with self.mem._conn() as conn:
+            rows   = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+            tables = {r["name"] for r in rows}
+        self.assertTrue(expected.issubset(tables))
+
+    def test_save_and_retrieve_sponsorship(self):
+        row_id = self.mem.save_sponsorship_prospect(
+            {"name": "NordVPN", "email": "creators@nordvpn.com", "category": "privacy"}
+        )
+        self.assertGreater(row_id, 0)
+        prospects = self.mem.get_sponsorship_prospects()
+        self.assertEqual(len(prospects), 1)
+        self.assertEqual(prospects[0]["brand_name"], "NordVPN")
+
+    def test_save_monetization_event(self):
+        eid = self.mem.save_monetization_event({
+            "event_type": "video_optimized",
+            "youtube_id": "yt_test",
+            "data":       {"score": 85},
+        })
+        self.assertGreater(eid, 0)
+        events = self.mem.get_monetization_events(event_type="video_optimized")
+        self.assertEqual(len(events), 1)
+
+    # ── Full optimization pass ──────────────────────────────────────────────
+
+    def test_full_optimize_video_returns_three_values(self):
+        script   = self._make_script()
+        metadata = {"title": "How to save on electricity", "description": "My video",
+                    "tags": ["energy", "solar"]}
+        result = self.me.optimize_video(script, metadata)
+        self.assertEqual(len(result), 3)
+        new_script, new_metadata, report = result
+        self.assertIn("ad", report)
+        self.assertIn("advertiser_score", report["ad"])
+
+
 # ── Runner ─────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":

@@ -56,6 +56,7 @@ class DailyPipeline:
         from publishing.youtube_publisher     import YouTubePublisher
         from publishing.seo_optimizer         import SEOOptimizer
         from evolution.ab_tester              import ABTester
+        from monetization.monetization_engine import MonetizationEngine
 
         brain  = get_brain()
         result = {}
@@ -129,6 +130,25 @@ class DailyPipeline:
         ta       = ThumbnailAI(self.memory)
         thumbs   = ta.generate_variants(topic, style=style)
         result["thumbnails"] = thumbs
+
+        # ── 7b. Monetization pass (ad-opt + affiliate + sponsor + merch) ─────
+        log.info("[7b/9] Monetization pass…")
+        try:
+            me = MonetizationEngine(self.memory)
+            script, _, mon_report = me.optimize_video(
+                script           = script,
+                metadata         = {},
+                subscriber_count = 0,
+            )
+            log.info(
+                f"  Ad score={mon_report.get('ad',{}).get('advertiser_score','?')} "
+                f"grade={mon_report.get('ad',{}).get('grade','?')} "
+                f"mid-rolls={mon_report.get('ad',{}).get('mid_roll_slots','?')} "
+                f"affiliate={len(mon_report.get('affiliate',{}).get('products_found',[]))} products"
+            )
+            result["monetization"] = mon_report
+        except Exception as e:
+            log.error(f"Monetization pass failed (non-fatal): {e}", exc_info=True)
 
         # ── 8. Shadow rank check + upload ──────────────────────────────────
         log.info("[8/9] Shadow-rank check then publishing to YouTube…")
@@ -234,6 +254,13 @@ class Scheduler:
                 max_instances=1, coalesce=True,
             )
 
+            # Revenue dashboard every Monday 09:00 UTC
+            sched.add_job(
+                self._run_revenue_dashboard, CronTrigger(day_of_week="mon", hour=9, minute=0),
+                id="revenue_dashboard", name="Weekly revenue dashboard",
+                max_instances=1, coalesce=True,
+            )
+
             # Algorithm hacker at 01:00 UTC daily (before trend hunting at 02:00)
             sched.add_job(
                 self._run_algorithm_hacker, CronTrigger(hour=1, minute=0),
@@ -283,6 +310,15 @@ class Scheduler:
             log.info(f"Code audit: {result.get('upgraded', [])} files upgraded")
         except Exception as e:
             log.error(f"Code audit crashed: {e}", exc_info=True)
+
+    def _run_revenue_dashboard(self):
+        try:
+            from monetization.monetization_engine import MonetizationEngine
+            me     = MonetizationEngine(self.memory)
+            report = me.run_revenue_dashboard()
+            log.info("Revenue dashboard generated")
+        except Exception as e:
+            log.error(f"Revenue dashboard crashed: {e}", exc_info=True)
 
     def _run_algorithm_hacker(self):
         try:
