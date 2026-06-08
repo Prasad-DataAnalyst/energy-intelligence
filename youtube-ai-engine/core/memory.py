@@ -513,6 +513,140 @@ CREATE TABLE IF NOT EXISTS quality_standards (
     active       INTEGER DEFAULT 1,
     created_at   TEXT    NOT NULL
 );
+
+-- ── Universal Ingestion ──────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS ingested_files (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_path    TEXT    NOT NULL UNIQUE,
+    file_hash    TEXT,
+    file_type    TEXT,
+    title        TEXT,
+    char_count   INTEGER DEFAULT 0,
+    insight_count INTEGER DEFAULT 0,
+    processed    INTEGER DEFAULT 0,
+    created_at   TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS insights (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_file    TEXT,
+    source_type    TEXT,
+    text           TEXT    NOT NULL,
+    category       TEXT,
+    emotion        TEXT,
+    surprise_score REAL    DEFAULT 0,
+    video_potential REAL   DEFAULT 0,
+    key_stat       TEXT,
+    angle          TEXT,
+    used           INTEGER DEFAULT 0,
+    created_at     TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS external_items (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    source       TEXT,
+    title        TEXT    NOT NULL,
+    url          TEXT,
+    description  TEXT,
+    category     TEXT,
+    score        REAL    DEFAULT 0,
+    published_at TEXT,
+    fetched_at   TEXT    NOT NULL,
+    used         INTEGER DEFAULT 0
+);
+
+-- ── Content Planning ─────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS content_ideas (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    title        TEXT    NOT NULL,
+    topic        TEXT,
+    category     TEXT,
+    angle        TEXT,
+    hook         TEXT,
+    sources      TEXT,   -- JSON list
+    score        REAL    DEFAULT 0,
+    rpm_tier     INTEGER DEFAULT 3,
+    status       TEXT    DEFAULT 'pending',
+    created_at   TEXT    NOT NULL,
+    used_at      TEXT
+);
+
+CREATE TABLE IF NOT EXISTS category_stats (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    category     TEXT    NOT NULL,
+    videos_made  INTEGER DEFAULT 0,
+    avg_views    REAL    DEFAULT 0,
+    avg_rpm      REAL    DEFAULT 0,
+    avg_ctr      REAL    DEFAULT 0,
+    last_used    TEXT,
+    next_due     TEXT,
+    notes        TEXT,
+    updated_at   TEXT    NOT NULL
+);
+
+-- ── Data Storyteller ─────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS data_projects (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_path    TEXT,
+    title        TEXT,
+    dataset_name TEXT,
+    row_count    INTEGER DEFAULT 0,
+    key_finding  TEXT,
+    chart_type   TEXT,
+    chart_path   TEXT,
+    narrative    TEXT,   -- JSON script outline
+    score        REAL    DEFAULT 0,
+    status       TEXT    DEFAULT 'pending',
+    created_at   TEXT    NOT NULL
+);
+
+-- ── Archive Miner ────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS archive_items (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    topic        TEXT,
+    title        TEXT    NOT NULL,
+    source       TEXT,
+    url          TEXT,
+    year         INTEGER,
+    age_years    INTEGER,
+    content_type TEXT,
+    angle        TEXT,
+    hook         TEXT,
+    lesson       TEXT,
+    video_score  REAL    DEFAULT 0,
+    metadata     TEXT,   -- JSON blob
+    used         INTEGER DEFAULT 0,
+    created_at   TEXT    NOT NULL
+);
+
+-- ── Private Vault ────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS vault_items (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    vault_id       TEXT    NOT NULL UNIQUE,
+    original_name  TEXT,
+    file_type      TEXT,
+    encrypted_path TEXT,
+    insight_count  INTEGER DEFAULT 0,
+    processing_mode TEXT,
+    anonymized     INTEGER DEFAULT 0,
+    created_at     TEXT    NOT NULL
+);
+
+-- ── Monetization Sprint ──────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS sprint_milestones (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    milestone_type  TEXT,
+    target_value    REAL    DEFAULT 0,
+    current_value   REAL    DEFAULT 0,
+    days_estimated  INTEGER DEFAULT 0,
+    date_estimated  TEXT,
+    label           TEXT,
+    importance      TEXT,
+    achieved        INTEGER DEFAULT 0,
+    achieved_at     TEXT,
+    notes           TEXT,
+    created_at      TEXT    NOT NULL
+);
 """
 
 
@@ -2129,6 +2263,335 @@ class Memory:
                 "ORDER BY created_at DESC LIMIT 1"
             ).fetchone()
         return dict(row) if row else None
+
+    # ── Universal Ingestion ────────────────────────────────────────────────
+
+    def save_ingested_file(self, data: Dict) -> int:
+        with self._conn() as conn:
+            cur = conn.execute(
+                """INSERT OR REPLACE INTO ingested_files
+                   (file_path, file_hash, file_type, title,
+                    char_count, insight_count, processed, created_at)
+                   VALUES (?,?,?,?,?,?,?,?)""",
+                (
+                    data.get("file_path", ""),
+                    data.get("file_hash", ""),
+                    data.get("file_type", ""),
+                    data.get("title", ""),
+                    int(data.get("char_count", 0)),
+                    int(data.get("insight_count", 0)),
+                    int(data.get("processed", True)),
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            return cur.lastrowid
+
+    def get_ingested_file(self, file_path: str) -> Optional[Dict]:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM ingested_files WHERE file_path=?", (file_path,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def save_insight(self, data: Dict) -> int:
+        with self._conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO insights
+                   (source_file, source_type, text, category, emotion,
+                    surprise_score, video_potential, key_stat, angle, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    data.get("source_file", ""),
+                    data.get("source_type", ""),
+                    data.get("text", ""),
+                    data.get("category", ""),
+                    data.get("emotion", ""),
+                    float(data.get("surprise_score", 0)),
+                    float(data.get("video_potential", 0)),
+                    data.get("key_stat", ""),
+                    data.get("angle", ""),
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            return cur.lastrowid
+
+    def get_top_insights(
+        self, n: int = 20, unused_only: bool = True, min_score: float = 0
+    ) -> List[Dict]:
+        clauses = []
+        if unused_only:
+            clauses.append("used=0")
+        if min_score > 0:
+            clauses.append(f"video_potential >= {float(min_score)}")
+        where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+        with self._conn() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM insights {where} "
+                "ORDER BY video_potential DESC, surprise_score DESC LIMIT ?",
+                (n,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def save_external_item(self, data: Dict) -> int:
+        with self._conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO external_items
+                   (source, title, url, description, category,
+                    score, published_at, fetched_at)
+                   VALUES (?,?,?,?,?,?,?,?)""",
+                (
+                    data.get("source", ""),
+                    data.get("title", ""),
+                    data.get("url", ""),
+                    data.get("description", ""),
+                    data.get("category", ""),
+                    float(data.get("score", 0)),
+                    data.get("published_at", ""),
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            return cur.lastrowid
+
+    def get_external_items(
+        self, category: str = None, n: int = 50, unused_only: bool = True
+    ) -> List[Dict]:
+        clauses = ["used=0"] if unused_only else []
+        if category:
+            clauses.append("category=?")
+        where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+        params: List = []
+        if category:
+            params.append(category)
+        params.append(n)
+        with self._conn() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM external_items {where} "
+                "ORDER BY score DESC, fetched_at DESC LIMIT ?",
+                params,
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    # ── Content Planning ───────────────────────────────────────────────────
+
+    def save_content_idea(self, data: Dict) -> int:
+        with self._conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO content_ideas
+                   (title, topic, category, angle, hook, sources,
+                    score, rpm_tier, status, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    data.get("title", ""),
+                    data.get("topic", ""),
+                    data.get("category", ""),
+                    data.get("angle", ""),
+                    data.get("hook", ""),
+                    json.dumps(data.get("sources", [])),
+                    float(data.get("score", 0)),
+                    int(data.get("rpm_tier", 3)),
+                    data.get("status", "pending"),
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            return cur.lastrowid
+
+    def get_content_ideas(
+        self, status: str = "pending", n: int = 20
+    ) -> List[Dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM content_ideas WHERE status=? "
+                "ORDER BY score DESC, rpm_tier ASC LIMIT ?",
+                (status, n),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def save_category_stat(self, data: Dict) -> int:
+        with self._conn() as conn:
+            cur = conn.execute(
+                """INSERT OR REPLACE INTO category_stats
+                   (category, videos_made, avg_views, avg_rpm, avg_ctr,
+                    last_used, next_due, notes, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?)""",
+                (
+                    data.get("category", ""),
+                    int(data.get("videos_made", 0)),
+                    float(data.get("avg_views", 0)),
+                    float(data.get("avg_rpm", 0)),
+                    float(data.get("avg_ctr", 0)),
+                    data.get("last_used", ""),
+                    data.get("next_due", ""),
+                    data.get("notes", ""),
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            return cur.lastrowid
+
+    def get_category_stats(self, n: int = 30) -> List[Dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM category_stats ORDER BY avg_rpm DESC LIMIT ?",
+                (n,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    # ── Data Storyteller ───────────────────────────────────────────────────
+
+    def save_data_project(self, data: Dict) -> int:
+        with self._conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO data_projects
+                   (file_path, title, dataset_name, row_count, key_finding,
+                    chart_type, chart_path, narrative, score, status, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    data.get("file_path", ""),
+                    data.get("title", ""),
+                    data.get("dataset_name", ""),
+                    int(data.get("row_count", 0)),
+                    data.get("key_finding", ""),
+                    data.get("chart_type", ""),
+                    data.get("chart_path", ""),
+                    json.dumps(data.get("narrative", {})),
+                    float(data.get("score", 0)),
+                    data.get("status", "pending"),
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            return cur.lastrowid
+
+    def get_data_projects(
+        self, status: str = None, n: int = 20
+    ) -> List[Dict]:
+        clause = "WHERE status=?" if status else ""
+        params = [status, n] if status else [n]
+        with self._conn() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM data_projects {clause} "
+                "ORDER BY score DESC, created_at DESC LIMIT ?",
+                params,
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    # ── Archive Miner ──────────────────────────────────────────────────────
+
+    def save_archive_item(self, data: Dict) -> int:
+        with self._conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO archive_items
+                   (topic, title, source, url, year, age_years,
+                    content_type, angle, hook, lesson, video_score,
+                    metadata, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    data.get("topic", ""),
+                    data.get("title", ""),
+                    data.get("source", ""),
+                    data.get("url", ""),
+                    data.get("year"),
+                    data.get("age_years"),
+                    data.get("content_type", ""),
+                    data.get("angle", ""),
+                    data.get("hook", ""),
+                    data.get("lesson", ""),
+                    float(data.get("video_score", 0)),
+                    data.get("metadata", "{}"),
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            return cur.lastrowid
+
+    def get_archive_items(
+        self, topic: str = None, n: int = 20, unused_only: bool = True
+    ) -> List[Dict]:
+        clauses = ["used=0"] if unused_only else []
+        if topic:
+            clauses.append("topic LIKE ?")
+        where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+        params: List = []
+        if topic:
+            params.append(f"%{topic}%")
+        params.append(n)
+        with self._conn() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM archive_items {where} "
+                "ORDER BY video_score DESC LIMIT ?",
+                params,
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    # ── Private Vault ──────────────────────────────────────────────────────
+
+    def save_vault_item(self, data: Dict) -> int:
+        with self._conn() as conn:
+            cur = conn.execute(
+                """INSERT OR REPLACE INTO vault_items
+                   (vault_id, original_name, file_type, encrypted_path,
+                    insight_count, processing_mode, anonymized, created_at)
+                   VALUES (?,?,?,?,?,?,?,?)""",
+                (
+                    data.get("vault_id", ""),
+                    data.get("original_name", ""),
+                    data.get("file_type", ""),
+                    data.get("encrypted_path", ""),
+                    int(data.get("insight_count", 0)),
+                    data.get("processing_mode", "local"),
+                    int(data.get("anonymized", False)),
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            return cur.lastrowid
+
+    def get_vault_items(self, n: int = 50) -> List[Dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM vault_items ORDER BY created_at DESC LIMIT ?",
+                (n,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    # ── Sprint Milestones ─────────────────────────────────────────────────
+
+    def save_sprint_milestone(self, data: Dict) -> int:
+        with self._conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO sprint_milestones
+                   (milestone_type, target_value, current_value,
+                    days_estimated, date_estimated, label, importance,
+                    achieved, achieved_at, notes, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    data.get("milestone_type", ""),
+                    float(data.get("target_value", 0)),
+                    float(data.get("current_value", 0)),
+                    int(data.get("days_estimated", 0)),
+                    data.get("date_estimated", ""),
+                    data.get("label", ""),
+                    data.get("importance", ""),
+                    int(data.get("achieved", False)),
+                    data.get("achieved_at", ""),
+                    data.get("notes", ""),
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            return cur.lastrowid
+
+    def get_sprint_milestones(
+        self, achieved: bool = None, n: int = 20
+    ) -> List[Dict]:
+        clause = ""
+        params: List = []
+        if achieved is not None:
+            clause = "WHERE achieved=?"
+            params.append(int(achieved))
+        params.append(n)
+        with self._conn() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM sprint_milestones {clause} "
+                "ORDER BY created_at DESC LIMIT ?",
+                params,
+            ).fetchall()
+        return [dict(r) for r in rows]
 
 
 # Module-level singleton

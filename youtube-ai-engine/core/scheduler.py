@@ -377,6 +377,65 @@ class Scheduler:
                 max_instances=1, coalesce=True,
             )
 
+            # Master Brain morning brief at 05:00 UTC
+            sched.add_job(
+                self._run_morning_brief, CronTrigger(hour=5, minute=0),
+                id="morning_brief", name="Master Brain morning intelligence brief",
+                max_instances=1, coalesce=True,
+            )
+
+            # Document ingestion every 5 minutes
+            sched.add_job(
+                self._run_ingest_documents, CronTrigger(minute="*/5"),
+                id="ingest_documents", name="Document ingestion scan",
+                max_instances=1, coalesce=True,
+            )
+
+            # External feeds: breaking news every 15 min
+            sched.add_job(
+                self._run_external_feeds_breaking,
+                CronTrigger(minute="*/15"),
+                id="external_feeds_breaking", name="External feeds breaking news",
+                max_instances=1, coalesce=True,
+            )
+
+            # External feeds: daily news every 2 hours
+            sched.add_job(
+                self._run_external_feeds_daily,
+                CronTrigger(hour="*/2", minute=10),
+                id="external_feeds_daily", name="External feeds daily news",
+                max_instances=1, coalesce=True,
+            )
+
+            # External feeds: research every 6 hours
+            sched.add_job(
+                self._run_external_feeds_research,
+                CronTrigger(hour="*/6", minute=20),
+                id="external_feeds_research", name="External feeds research",
+                max_instances=1, coalesce=True,
+            )
+
+            # Archive mining daily at 03:00 UTC
+            sched.add_job(
+                self._run_archive_mining, CronTrigger(hour=3, minute=0),
+                id="archive_mining", name="Archive miner daily",
+                max_instances=1, coalesce=True,
+            )
+
+            # Category planning daily at 05:00 UTC
+            sched.add_job(
+                self._run_category_planning, CronTrigger(hour=5, minute=15),
+                id="category_planning", name="Category universe planning",
+                max_instances=1, coalesce=True,
+            )
+
+            # Fast track sprint check daily at 05:30 UTC
+            sched.add_job(
+                self._run_fast_track_sprint, CronTrigger(hour=5, minute=30),
+                id="fast_track_sprint", name="Monetization fast track sprint",
+                max_instances=1, coalesce=True,
+            )
+
             return sched
         except ImportError:
             log.warning("APScheduler not installed — using sleep-loop fallback")
@@ -511,6 +570,119 @@ class Scheduler:
             )
         except Exception as e:
             log.error(f"Future proof crashed: {e}", exc_info=True)
+
+    def _run_morning_brief(self):
+        try:
+            from content.category_universe import CategoryUniverse
+            from data.external_feeds import ExternalFeedEngine
+            from monetization.fast_track import FastTrackEngine
+            from content.archive_miner import ArchiveMinerEngine
+
+            cat_engine  = CategoryUniverse(self.memory)
+            feed_engine = ExternalFeedEngine(self.memory)
+            ft_engine   = FastTrackEngine(self.memory)
+            archive     = ArchiveMinerEngine(self.memory)
+
+            plan        = cat_engine.run_daily_planning()
+            feed_result = feed_engine.run_full_fetch()
+            sprint      = ft_engine.get_sprint_summary()
+            recent_topics = self.memory.get_recent_topics(days=3) if self.memory else []
+            if recent_topics:
+                archive_result = archive.mine_for_topic(recent_topics[0], n_per_source=3)
+                top_angle = archive_result["top_angles"][0]["title"] if archive_result["top_angles"] else "none"
+            else:
+                top_angle = "none"
+
+            suggestion = plan.get("suggestion", {})
+            log.info(
+                "Morning brief: "
+                f"today={suggestion.get('category','?')} | "
+                f"new_feeds={feed_result.get('unique_items',0)} | "
+                f"archive_angle={top_angle[:60]} | "
+                f"sprint={sprint[:80]}"
+            )
+        except Exception as e:
+            log.error(f"Morning brief crashed: {e}", exc_info=True)
+
+    def _run_ingest_documents(self):
+        try:
+            from data.ingest_documents import DocumentIngestionEngine
+            engine = DocumentIngestionEngine(self.memory)
+            result = engine.run_full_scan()
+            new = result.get("new_files", 0)
+            if new:
+                log.info(f"Document ingest: {new} new files, {result.get('total_insights',0)} insights")
+        except Exception as e:
+            log.error(f"Document ingest crashed: {e}", exc_info=True)
+
+    def _run_external_feeds_breaking(self):
+        try:
+            from data.external_feeds import ExternalFeedEngine
+            engine = ExternalFeedEngine(self.memory)
+            result = engine.run_full_fetch()
+            unique = result.get("unique_items", 0)
+            if unique:
+                log.info(f"External feeds (breaking): {unique} new items")
+        except Exception as e:
+            log.error(f"External feeds (breaking) crashed: {e}", exc_info=True)
+
+    def _run_external_feeds_daily(self):
+        try:
+            from data.external_feeds import ExternalFeedEngine
+            engine = ExternalFeedEngine(self.memory)
+            result = engine.run_full_fetch()
+            log.info(f"External feeds (daily): {result.get('unique_items',0)} items saved")
+        except Exception as e:
+            log.error(f"External feeds (daily) crashed: {e}", exc_info=True)
+
+    def _run_external_feeds_research(self):
+        try:
+            from data.external_feeds import ExternalFeedEngine
+            engine = ExternalFeedEngine(self.memory)
+            result = engine.run_full_fetch()
+            log.info(f"External feeds (research): {result.get('unique_items',0)} items saved")
+        except Exception as e:
+            log.error(f"External feeds (research) crashed: {e}", exc_info=True)
+
+    def _run_archive_mining(self):
+        try:
+            from content.archive_miner import ArchiveMinerEngine
+            engine = ArchiveMinerEngine(self.memory)
+            result = engine.run_daily_mining()
+            log.info(
+                f"Archive mining: {result.get('topics_mined',0)} topics, "
+                f"{result.get('total_angles_saved',0)} angles saved"
+            )
+        except Exception as e:
+            log.error(f"Archive mining crashed: {e}", exc_info=True)
+
+    def _run_category_planning(self):
+        try:
+            from content.category_universe import CategoryUniverse
+            engine = CategoryUniverse(self.memory)
+            plan   = engine.run_daily_planning()
+            suggestion = plan.get("suggestion", {})
+            log.info(
+                f"Category planning: primary={suggestion.get('category','?')} | "
+                f"ideas={len(plan.get('top_intersections',[]))}"
+            )
+        except Exception as e:
+            log.error(f"Category planning crashed: {e}", exc_info=True)
+
+    def _run_fast_track_sprint(self):
+        try:
+            from monetization.fast_track import FastTrackEngine
+            engine = FastTrackEngine(self.memory)
+            result = engine.run_daily_sprint()
+            phase  = result.get("phase", 0)
+            gap    = result.get("ypp_gap", {})
+            log.info(
+                f"Fast track: phase={phase} | "
+                f"watch_hours={gap.get('watch_hours_pct',0):.1f}% | "
+                f"subs={gap.get('subscribers_pct',0):.1f}%"
+            )
+        except Exception as e:
+            log.error(f"Fast track sprint crashed: {e}", exc_info=True)
 
     def _run_version_snapshot(self):
         try:

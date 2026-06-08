@@ -3,23 +3,38 @@ main.py — Single entry point for the Self-Evolving YouTube AI Engine
 =====================================================================
 
 Usage:
-  python main.py --all                   Run full daily pipeline now
-  python main.py --test                  Run test suite
-  python main.py --dry-run               Pick topic only, no media production
-  python main.py --phase trend           Run trend hunter only
-  python main.py --phase script          Run script writer only (needs --topic)
-  python main.py --phase voice           Run voice engine only
-  python main.py --phase visual          Run visual engine only
-  python main.py --phase assemble        Run video editor only
-  python main.py --phase thumbnail       Run thumbnail AI only
-  python main.py --phase publish         Run publisher only
-  python main.py --phase audit           Run weekly code audit now
-  python main.py --phase feedback        Run analytics feedback loop now
-  python main.py --phase competitor      Run competitor spy now
-  python main.py --schedule              Start the continuous scheduler (daemon)
-  python main.py --topic "Your topic"   Override topic selection
-  python main.py --style tech-dark       Override style preset
-  python main.py --status                Print channel performance summary
+  python main.py --all                          Run full daily pipeline now
+  python main.py --test                         Run test suite
+  python main.py --dry-run                      Pick topic only, no media production
+  python main.py --schedule                     Start the continuous scheduler (daemon)
+  python main.py --status                       Print channel performance summary
+
+  python main.py --mode full                    Run everything: ingest + feeds + archive +
+                                                 competitor + score + select + produce
+  python main.py --mode ingest /path/file.pdf   Ingest a single document and extract ideas
+  python main.py --mode brief                   Print the Master Brain morning intelligence report
+  python main.py --mode sprint                  Run monetization fast-track sprint check
+  python main.py --mode archive --topic AI      Mine archives for a specific topic
+
+  python main.py --phase trend                  Run trend hunter only
+  python main.py --phase script                 Run script writer (needs --topic)
+  python main.py --phase voice                  Run voice engine only
+  python main.py --phase visual                 Run visual engine only
+  python main.py --phase assemble               Run video editor only
+  python main.py --phase thumbnail              Run thumbnail AI only
+  python main.py --phase publish                Run publisher only
+  python main.py --phase audit                  Run weekly code audit now
+  python main.py --phase feedback               Run analytics feedback loop now
+  python main.py --phase competitor             Run competitor spy now
+  python main.py --phase ingest                 Scan /input folders for new documents
+  python main.py --phase feeds                  Fetch all external news/research feeds
+  python main.py --phase archive                Mine archive sources for content angles
+  python main.py --phase category               Run category planning for today
+  python main.py --phase synthesize             Run content synthesis engine
+  python main.py --phase sprint                 Run monetization fast-track sprint
+  python main.py --topic "Your topic"           Override topic selection
+  python main.py --style tech-dark              Override style preset
+  python main.py --length 600                   Override video length (seconds)
 """
 import argparse
 import logging
@@ -250,6 +265,268 @@ def run_future_phase(memory):
           f"resolution={result.get('quality',{}).get('current_resolution','?')}")
 
 
+def run_ingest_phase(memory, file_path: str = ""):
+    from data.ingest_documents import DocumentIngestionEngine
+    engine = DocumentIngestionEngine(memory)
+    if file_path:
+        result = engine.ingest_single_file(file_path)
+        print(f"\nIngested: {file_path}")
+        print(f"Insights extracted: {result.get('insight_count', 0)}")
+        ideas = result.get("ideas", [])
+        for i, idea in enumerate(ideas[:5], 1):
+            print(f"  {i}. {idea.get('title', '')}")
+    else:
+        result = engine.run_full_scan()
+        print(f"\nDocument scan complete:")
+        print(f"  New files processed:  {result.get('new_files', 0)}")
+        print(f"  Total insights saved: {result.get('total_insights', 0)}")
+        ideas = engine.get_top_content_ideas(n=5)
+        if ideas:
+            print(f"\nTop content ideas:")
+            for i, idea in enumerate(ideas, 1):
+                print(f"  {i}. [{idea.get('video_potential', 0):.0f}] {idea.get('text', '')[:80]}")
+    return result
+
+
+def run_feeds_phase(memory, categories: list = None):
+    from data.external_feeds import ExternalFeedEngine
+    engine = ExternalFeedEngine(memory)
+    result = engine.run_full_fetch()
+    print(f"\nExternal feeds complete:")
+    print(f"  Sources fetched:  {len(result.get('sources', []))}")
+    print(f"  Items fetched:    {result.get('total_fetched', 0)}")
+    print(f"  Unique items:     {result.get('unique_items', 0)}")
+    top = result.get("top_items", [])
+    if top:
+        print(f"\nTop items:")
+        for i, item in enumerate(top[:5], 1):
+            score = item.get('video_score', item.get('score', 0))
+            print(f"  {i}. [{score:.0f}] {item.get('title','')[:80]}")
+    return result
+
+
+def run_archive_phase(memory, topic: str = ""):
+    from content.archive_miner import ArchiveMinerEngine
+    engine = ArchiveMinerEngine(memory)
+    if topic:
+        result = engine.mine_for_topic(topic)
+        print(f"\nArchive mining for '{topic}':")
+        print(f"  Items fetched:  {result.get('total_fetched', 0)}")
+        print(f"  Angles built:   {result.get('total_angles', 0)}")
+        for i, angle in enumerate(result.get("top_angles", [])[:5], 1):
+            score = angle.get("video_score", 0)
+            title = angle.get("title", "")
+            print(f"  {i}. [{score:.0f}] {title}")
+    else:
+        result = engine.run_daily_mining()
+        print(f"\nArchive mining complete:")
+        print(f"  Topics mined:      {result.get('topics_mined', 0)}")
+        print(f"  Angles saved:      {result.get('total_angles_saved', 0)}")
+        for s in result.get("summary", [])[:5]:
+            print(f"  {s['topic']}: {s['angles']} angles — {s['top_title'][:60]}")
+    return result
+
+
+def run_category_phase(memory):
+    from content.category_universe import CategoryUniverse
+    engine = CategoryUniverse(memory)
+    plan   = engine.run_daily_planning()
+    suggestion = plan.get("suggestion", {})
+    print(f"\nCategory plan for today:")
+    print(f"  Primary:   {suggestion.get('category', '')} "
+          f"(RPM ~${suggestion.get('predicted_rpm', 0):.0f})")
+    print(f"  Reason:    {suggestion.get('reason', '')[:60]}")
+    intersections = plan.get("top_intersections", [])
+    if intersections:
+        print(f"\nCross-category intersections ({len(intersections)}):")
+        for i, inter in enumerate(intersections[:3], 1):
+            print(f"  {i}. {inter.get('label', '')[:80]}")
+    return plan
+
+
+def run_synthesize_phase(memory):
+    from content.synthesizer import ContentSynthesizer
+    synth  = ContentSynthesizer(memory)
+    result = synth.run_daily_synthesis()
+    print(f"\nSynthesis complete:")
+    print(f"  Sources used:   {result.get('sources_used', 0)}")
+    print(f"  Ideas generated:{result.get('ideas_generated', 0)}")
+    print(f"  Ideas saved:    {result.get('ideas_saved', 0)}")
+    top = result.get("top_ideas", [])
+    if top:
+        print(f"\nTop synthesized ideas:")
+        for i, idea in enumerate(top[:5], 1):
+            print(f"  {i}. [{idea.get('score', 0):.0f}] {idea.get('title', '')[:80]}")
+    return result
+
+
+def run_sprint_phase(memory):
+    from monetization.fast_track import FastTrackEngine
+    engine  = FastTrackEngine(memory)
+    result  = engine.run_daily_sprint()
+    summary = engine.get_sprint_summary()
+    phase   = result.get("phase", 0)
+    gap     = result.get("ypp_gap", {})
+    tl      = result.get("timeline", {})
+    rev     = result.get("revenue_projection", {})
+
+    print(f"\n{'='*60}")
+    print(f"  MONETIZATION FAST TRACK — SPRINT STATUS")
+    print(f"{'='*60}")
+    print(f"  Phase {phase}: {result.get('phase_name', '')}")
+    print(f"  Watch hours: {gap.get('watch_hours_pct', 0):.1f}% of 4,000h")
+    print(f"  Subscribers: {gap.get('subscribers_pct', 0):.1f}% of 1,000")
+    print(f"  YPP ready:   {'YES' if gap.get('ypp_ready') else 'NO'}")
+    if not gap.get("ypp_ready"):
+        print(f"  Est. days to YPP: {tl.get('days_to_ypp', '?')} "
+              f"({tl.get('date_estimate', '?')})")
+        print(f"  Bottleneck: {tl.get('bottleneck', '?')}")
+    print(f"\n  Revenue projection:")
+    print(f"    AdSense:      ${rev.get('adsense', 0):,.2f}/month")
+    print(f"    Affiliate:    ${rev.get('affiliate', 0):,.2f}/month")
+    print(f"    Sponsorships: ${rev.get('sponsorships', 0):,.2f}/month")
+    print(f"    TOTAL:        ${rev.get('total_monthly', 0):,.2f}/month")
+    print(f"    Annual est.:  ${rev.get('annual_est', 0):,.0f}/year")
+    print(f"\n  TODAY: {result.get('today_action', '')}")
+
+    milestones = result.get("sprint_plan", {}).get("milestones", [])
+    if milestones:
+        print(f"\n  Next milestones:")
+        for m in milestones[:3]:
+            print(f"    {m['label']:30s}  in {m['days_est']:4d} days  ({m['date_est']})")
+
+    active = result.get("active_streams", [])
+    if active:
+        print(f"\n  Active revenue streams: {', '.join(s['stream_id'] for s in active)}")
+
+    upcoming = result.get("upcoming_streams", [])
+    if upcoming:
+        print(f"  Upcoming in 6 months:")
+        for s in upcoming:
+            print(f"    {s['stream_id']:20s}  in {s['months_away']} months — {s['notes'][:50]}")
+    return result
+
+
+def run_brief_phase(memory):
+    """Master Brain morning intelligence brief."""
+    print(f"\n{'='*60}")
+    print(f"  MASTER BRAIN — MORNING INTELLIGENCE BRIEF")
+    print(f"  {datetime.now().strftime('%A, %B %d %Y at %H:%M')}")
+    print(f"{'='*60}")
+
+    # 1. Channel status
+    try:
+        from core.brain import get_brain
+        print(f"\n[CHANNEL STATUS]")
+        print(get_brain().daily_brief())
+    except Exception as e:
+        print(f"  Channel status unavailable: {e}")
+
+    # 2. Top external feed items
+    try:
+        items = memory.get_external_items(n=5)
+        if items:
+            print(f"\n[TOP NEWS ({len(items)} items)]")
+            for item in items[:5]:
+                print(f"  [{item.get('score',0):.0f}] {item.get('title','')[:75]}")
+        else:
+            print(f"\n[TOP NEWS] No items yet — run: python main.py --mode feeds")
+    except Exception:
+        pass
+
+    # 3. Top content ideas
+    try:
+        ideas = memory.get_content_ideas(status="pending", n=5)
+        if ideas:
+            print(f"\n[TOP CONTENT IDEAS]")
+            for idea in ideas[:5]:
+                print(f"  [{idea.get('score',0):.0f}] {idea.get('title','')[:75]}")
+        else:
+            print(f"\n[CONTENT IDEAS] None yet — run: python main.py --mode full")
+    except Exception:
+        pass
+
+    # 4. Archive angles
+    try:
+        archive = memory.get_archive_items(n=3)
+        if archive:
+            print(f"\n[ARCHIVE ANGLES]")
+            for a in archive[:3]:
+                print(f"  [{a.get('video_score',0):.0f}] {a.get('title','')[:75]}")
+    except Exception:
+        pass
+
+    # 5. Sprint summary
+    try:
+        from monetization.fast_track import FastTrackEngine
+        summary = FastTrackEngine(memory).get_sprint_summary()
+        print(f"\n[MONETIZATION SPRINT]")
+        print(f"  {summary}")
+    except Exception as e:
+        print(f"\n[SPRINT] Unavailable: {e}")
+
+    # 6. Category for today
+    try:
+        from content.category_universe import CategoryUniverse
+        plan       = CategoryUniverse(memory).run_daily_planning()
+        suggestion = plan.get("suggestion", {})
+        print(f"\n[TODAY'S FOCUS]")
+        print(f"  Category: {suggestion.get('category','?')} "
+              f"(RPM ~${suggestion.get('predicted_rpm',0):.0f})")
+        print(f"  Reason:   {suggestion.get('reason','')[:60]}")
+    except Exception as e:
+        print(f"\n[TODAY'S FOCUS] Unavailable: {e}")
+
+    print(f"\n{'='*60}")
+
+
+def run_full_mode(memory):
+    """--mode full: ingest → feeds → archive → competitor → synthesize → plan."""
+    print(f"\n{'='*60}")
+    print(f"  FULL MODE — UNIVERSAL CONTENT ENGINE")
+    print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    print(f"{'='*60}\n")
+
+    print("[1/6] Scanning input folders for new documents…")
+    try:
+        run_ingest_phase(memory)
+    except Exception as e:
+        print(f"  Ingest failed: {e}")
+
+    print("\n[2/6] Pulling external feeds (news, research, data)…")
+    try:
+        run_feeds_phase(memory)
+    except Exception as e:
+        print(f"  Feeds failed: {e}")
+
+    print("\n[3/6] Mining archives for historical parallels…")
+    try:
+        run_archive_phase(memory)
+    except Exception as e:
+        print(f"  Archive failed: {e}")
+
+    print("\n[4/6] Running competitor intelligence scan…")
+    try:
+        run_competitor_phase(memory)
+    except Exception as e:
+        print(f"  Competitor failed: {e}")
+
+    print("\n[5/6] Synthesizing content ideas across sources…")
+    try:
+        run_synthesize_phase(memory)
+    except Exception as e:
+        print(f"  Synthesis failed: {e}")
+
+    print("\n[6/6] Planning today's content schedule…")
+    try:
+        run_category_phase(memory)
+    except Exception as e:
+        print(f"  Category planning failed: {e}")
+
+    print("\n✓ Full mode complete. Run --mode brief for your intelligence summary.")
+    print("  Best idea: python main.py --phase script --topic \"<title from above>\"")
+
+
 def run_dominator_phase(memory):
     from intelligence.competitor_dominator import CompetitorDominator
     cd     = CompetitorDominator(memory)
@@ -299,11 +576,17 @@ def main():
     parser.add_argument("--dry-run",   action="store_true", help="Topic selection only")
     parser.add_argument("--schedule",  action="store_true", help="Start continuous scheduler")
     parser.add_argument("--status",    action="store_true", help="Show performance summary")
+    parser.add_argument("--mode",      type=str, metavar="MODE",
+                        choices=["full","ingest","brief","sprint","archive","feeds",
+                                 "category","synthesize"],
+                        help="High-level operation mode")
     parser.add_argument("--phase",     type=str, metavar="PHASE",
                         choices=["trend","script","voice","visual","assemble",
                                  "thumbnail","publish","audit","feedback",
                                  "competitor","meta","algo","monetize","dominate",
-                                 "global","shorts","community","growth","future"],
+                                 "global","shorts","community","growth","future",
+                                 "ingest","feeds","archive","category","synthesize",
+                                 "sprint"],
                         help="Run a specific phase only")
     parser.add_argument("--topic",     type=str, default="", help="Override topic")
     parser.add_argument("--style",     type=str, default="",
@@ -335,6 +618,28 @@ def main():
         log.info(f"Pipeline result: {list(result.keys())}")
         return
 
+    # ── --mode handling ────────────────────────────────────────────────────────
+    if args.mode:
+        if args.mode == "full":
+            run_full_mode(memory)
+        elif args.mode == "ingest":
+            # Extra positional argument: file path
+            file_path = args.topic  # re-use --topic as file path when mode=ingest
+            run_ingest_phase(memory, file_path=file_path)
+        elif args.mode == "brief":
+            run_brief_phase(memory)
+        elif args.mode == "sprint":
+            run_sprint_phase(memory)
+        elif args.mode == "archive":
+            run_archive_phase(memory, topic=args.topic)
+        elif args.mode == "feeds":
+            run_feeds_phase(memory)
+        elif args.mode == "category":
+            run_category_phase(memory)
+        elif args.mode == "synthesize":
+            run_synthesize_phase(memory)
+        return
+
     # Single-phase execution
     if not args.phase:
         parser.print_help()
@@ -344,7 +649,8 @@ def main():
     # (avoids wasteful trend-fetching network calls).
     ANALYSIS_PHASES = {"audit", "feedback", "competitor", "meta", "algo",
                         "monetize", "dominate", "global", "shorts", "community",
-                        "growth", "future"}
+                        "growth", "future", "ingest", "feeds", "archive",
+                        "category", "synthesize", "sprint"}
     if args.phase in ANALYSIS_PHASES:
         if args.phase == "algo":
             run_algo_phase(memory)
@@ -362,6 +668,18 @@ def main():
             run_growth_phase(memory)
         elif args.phase == "future":
             run_future_phase(memory)
+        elif args.phase == "ingest":
+            run_ingest_phase(memory, file_path=args.topic)
+        elif args.phase == "feeds":
+            run_feeds_phase(memory)
+        elif args.phase == "archive":
+            run_archive_phase(memory, topic=args.topic)
+        elif args.phase == "category":
+            run_category_phase(memory)
+        elif args.phase == "synthesize":
+            run_synthesize_phase(memory)
+        elif args.phase == "sprint":
+            run_sprint_phase(memory)
         else:
             {"audit":      run_audit_phase,
              "feedback":   run_feedback_phase,

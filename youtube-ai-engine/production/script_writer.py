@@ -22,7 +22,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import anthropic
+try:
+    import anthropic
+except ImportError:
+    anthropic = None  # type: ignore
 
 log = logging.getLogger("brain.script_writer")
 
@@ -87,9 +90,11 @@ class ScriptWriter:
         from core.memory import get_memory
         self.memory = memory or get_memory()
         self.model  = model
-        self._client: Optional[anthropic.Anthropic] = None
+        self._client = None
 
-    def _claude(self) -> Optional[anthropic.Anthropic]:
+    def _claude(self):
+        if anthropic is None:
+            return None
         key = os.getenv("ANTHROPIC_API_KEY", "")
         if not key:
             return None

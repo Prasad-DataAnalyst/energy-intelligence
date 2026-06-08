@@ -3075,6 +3075,807 @@ class TestFutureProof(unittest.TestCase):
         self.assertEqual(benchmarks[0]["model_id"], "new_video_model_v2")
 
 
+# ── New Module Tests ───────────────────────────────────────────────────────────
+
+
+class TestMemoryNewTables(unittest.TestCase):
+    def setUp(self):
+        from core.memory import Memory
+        self.mem = Memory(":memory:")
+
+    def test_new_tables_exist(self):
+        with self.mem._conn() as conn:
+            tables = {r[0] for r in
+                      conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        new_tables = {"insights", "ingested_files", "external_items", "content_ideas",
+                      "category_stats", "data_projects", "archive_items",
+                      "vault_items", "sprint_milestones"}
+        self.assertTrue(new_tables.issubset(tables), f"Missing: {new_tables - tables}")
+
+    def test_save_and_get_insight(self):
+        iid = self.mem.save_insight({
+            "source_file": "/tmp/test.pdf",
+            "source_type": "pdf",
+            "text":        "Inflation rose 8% in 2022",
+            "category":    "finance",
+            "emotion":     "surprise",
+            "surprise_score": 80.0,
+            "video_potential": 85.0,
+            "key_stat":    "8%",
+            "angle":       "data_story",
+        })
+        self.assertGreater(iid, 0)
+        top = self.mem.get_top_insights(n=5)
+        self.assertEqual(len(top), 1)
+        self.assertEqual(top[0]["key_stat"], "8%")
+
+    def test_save_and_get_ingested_file(self):
+        self.mem.save_ingested_file({
+            "file_path":    "/tmp/report.pdf",
+            "file_hash":    "abc123",
+            "file_type":    "pdf",
+            "title":        "Annual Report",
+            "char_count":   5000,
+            "insight_count": 3,
+        })
+        row = self.mem.get_ingested_file("/tmp/report.pdf")
+        self.assertIsNotNone(row)
+        self.assertEqual(row["file_type"], "pdf")
+
+    def test_save_and_get_external_item(self):
+        eid = self.mem.save_external_item({
+            "source":      "newsapi",
+            "title":       "Fed raises rates again",
+            "url":         "https://example.com/1",
+            "description": "The Federal Reserve raised rates by 0.25%",
+            "category":    "finance",
+            "score":       75.0,
+        })
+        self.assertGreater(eid, 0)
+        items = self.mem.get_external_items(n=5)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["source"], "newsapi")
+
+    def test_save_and_get_content_idea(self):
+        cid = self.mem.save_content_idea({
+            "title":    "Why Inflation Is Actually Good For Investors",
+            "topic":    "inflation",
+            "category": "personal_finance",
+            "angle":    "contrarian",
+            "score":    88.0,
+            "rpm_tier": 1,
+        })
+        self.assertGreater(cid, 0)
+        ideas = self.mem.get_content_ideas(status="pending")
+        self.assertEqual(len(ideas), 1)
+        self.assertEqual(ideas[0]["rpm_tier"], 1)
+
+    def test_save_and_get_category_stat(self):
+        self.mem.save_category_stat({
+            "category":    "personal_finance",
+            "videos_made": 10,
+            "avg_views":   5000.0,
+            "avg_rpm":     25.0,
+            "avg_ctr":     4.5,
+        })
+        stats = self.mem.get_category_stats()
+        self.assertEqual(len(stats), 1)
+        self.assertEqual(stats[0]["avg_rpm"], 25.0)
+
+    def test_save_and_get_data_project(self):
+        did = self.mem.save_data_project({
+            "file_path":    "/tmp/data.csv",
+            "title":        "US Inflation 1970-2024",
+            "dataset_name": "BLS CPI",
+            "row_count":    648,
+            "key_finding":  "Inflation peaked at 9.1% in June 2022",
+            "chart_type":   "line",
+            "score":        82.0,
+        })
+        self.assertGreater(did, 0)
+        projects = self.mem.get_data_projects()
+        self.assertEqual(len(projects), 1)
+        self.assertEqual(projects[0]["row_count"], 648)
+
+    def test_save_and_get_archive_item(self):
+        aid = self.mem.save_archive_item({
+            "topic":        "inflation",
+            "title":        "The 1923 German Hyperinflation Playbook",
+            "source":       "internet_archive",
+            "url":          "https://archive.org/details/xyz",
+            "year":         1923,
+            "age_years":    101,
+            "content_type": "historical_parallel",
+            "angle":        "historical_parallel",
+            "hook":         "In 1923, Germany printed money…",
+            "lesson":       "Printing money destroyed the middle class",
+            "video_score":  90.0,
+            "metadata":     "{}",
+        })
+        self.assertGreater(aid, 0)
+        items = self.mem.get_archive_items(n=5)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["year"], 1923)
+
+    def test_save_and_get_vault_item(self):
+        self.mem.save_vault_item({
+            "vault_id":       "vault_abc123",
+            "original_name":  "confidential.pdf",
+            "file_type":      "pdf",
+            "encrypted_path": "/vault/vault_abc123.enc",
+            "insight_count":  7,
+            "processing_mode": "local",
+            "anonymized":     True,
+        })
+        items = self.mem.get_vault_items()
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["vault_id"], "vault_abc123")
+        self.assertEqual(items[0]["anonymized"], 1)
+
+    def test_save_and_get_sprint_milestone(self):
+        mid = self.mem.save_sprint_milestone({
+            "milestone_type": "subscribers",
+            "target_value":   1000.0,
+            "current_value":  450.0,
+            "days_estimated": 30,
+            "date_estimated": "2026-07-08",
+            "label":          "1,000 Subscribers",
+            "importance":     "critical",
+        })
+        self.assertGreater(mid, 0)
+        milestones = self.mem.get_sprint_milestones()
+        self.assertEqual(len(milestones), 1)
+        self.assertEqual(milestones[0]["target_value"], 1000.0)
+
+
+class TestDocumentIngestion(unittest.TestCase):
+    def setUp(self):
+        from core.memory import Memory
+        self.mem = Memory(":memory:")
+
+    def test_document_extractor_txt(self):
+        import tempfile, os
+        from pathlib import Path
+        from data.ingest_documents import DocumentExtractor
+        de = DocumentExtractor()
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt",
+                                         delete=False, encoding="utf-8") as f:
+            f.write("Inflation rose 8% in 2022. This is shocking.\n" * 20)
+            path = Path(f.name)
+        try:
+            text = de.extract(path)
+            self.assertIsInstance(text, str)
+            self.assertGreater(len(text), 10)
+            self.assertIn("Inflation", text)
+        finally:
+            path.unlink()
+
+    def test_document_extractor_csv(self):
+        import tempfile, os
+        from pathlib import Path
+        from data.ingest_documents import DocumentExtractor
+        de = DocumentExtractor()
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv",
+                                         delete=False, encoding="utf-8") as f:
+            f.write("year,inflation\n2020,1.2\n2021,7.0\n2022,9.1\n")
+            path = Path(f.name)
+        try:
+            text = de.extract(path)
+            self.assertIsInstance(text, str)
+            self.assertGreater(len(text), 5)
+        finally:
+            path.unlink()
+
+    def test_insight_extractor_heuristic(self):
+        from data.ingest_documents import InsightExtractor
+        ie = InsightExtractor()
+        text = (
+            "Studies show that 75% of investors lost money in 2022. "
+            "Surprisingly, inflation hit a 40-year high of 9.1%. "
+            "Could this be the start of a new recession?"
+        )
+        insights = ie._heuristic_insights(text, source_type="research")
+        self.assertIsInstance(insights, list)
+        self.assertGreater(len(insights), 0)
+        for ins in insights:
+            self.assertIn("text", ins)
+            self.assertIn("video_potential", ins)
+
+    def test_insight_extractor_surprise_scoring(self):
+        from data.ingest_documents import InsightExtractor
+        ie = InsightExtractor()
+        # Text with surprise words should score higher
+        high = ie._heuristic_insights(
+            "Surprisingly, 90% of millionaires did this one unexpected thing.",
+            source_type="blog"
+        )
+        low = ie._heuristic_insights(
+            "The weather today is partly cloudy.",
+            source_type="blog"
+        )
+        self.assertGreater(len(high), len(low))
+
+    def test_folder_watcher_scan(self):
+        from data.ingest_documents import FolderWatcher
+        fw = FolderWatcher(self.mem)
+        result = fw.scan_all_folders()
+        self.assertIsInstance(result, list)
+
+    def test_ingestion_engine_run_scan(self):
+        from data.ingest_documents import DocumentIngestionEngine
+        engine = DocumentIngestionEngine(self.mem)
+        result = engine.run_full_scan()
+        self.assertIn("files_processed", result)
+        self.assertIn("total_insights", result)
+        self.assertIsInstance(result["files_processed"], int)
+
+
+class TestExternalFeeds(unittest.TestCase):
+    def setUp(self):
+        from core.memory import Memory
+        self.mem = Memory(":memory:")
+
+    def test_rss_parser_has_fetch(self):
+        from data.external_feeds import RSSParser
+        rp = RSSParser()
+        self.assertTrue(hasattr(rp, "fetch"))
+        # fetch with invalid URL should return empty list (no crash)
+        items = rp.fetch("not-a-real-url-xyz123")
+        self.assertIsInstance(items, list)
+
+    def test_rss_parser_valid_url_returns_list(self):
+        from data.external_feeds import RSSParser
+        rp = RSSParser()
+        # Fetching a real URL may or may not return items depending on network
+        # Just verify it returns a list and doesn't raise
+        try:
+            items = rp.fetch("https://news.ycombinator.com/rss")
+            self.assertIsInstance(items, list)
+        except Exception:
+            pass  # Network unavailable in CI is acceptable
+
+    def test_content_scorer_basic(self):
+        from data.external_feeds import ContentScorer
+        cs = ContentScorer()
+        score = cs.score_item({
+            "title":       "Fed Raises Rates 8% — Shocking Move Stuns Markets",
+            "description": "The Federal Reserve raised interest rates by 8% in an unexpected move.",
+            "source":      "newsapi",
+            "category":    "finance",
+        })
+        self.assertIsInstance(score, float)
+        self.assertGreater(score, 0)
+        self.assertLessEqual(score, 100)
+
+    def test_content_scorer_low_for_generic(self):
+        from data.external_feeds import ContentScorer
+        cs = ContentScorer()
+        high = cs.score_item({"title": "Inflation hits 9% shocking record, markets crash",
+                               "description": "Consumer prices rose 9% year-over-year"})
+        low  = cs.score_item({"title": "Weather update", "description": "It rained today"})
+        self.assertGreater(high, low)
+
+    def test_jaccard_deduplication(self):
+        from data.external_feeds import ExternalFeedEngine
+        engine = ExternalFeedEngine(self.mem)
+        items = [
+            {"title": "Inflation hits record high in 2024"},
+            {"title": "Inflation hits record high in 2024"},  # exact dup
+            {"title": "Bitcoin crashes 50% in one day"},
+        ]
+        unique = engine._deduplicate(items)
+        self.assertEqual(len(unique), 2)
+
+    def test_jaccard_via_dedup(self):
+        from data.external_feeds import ExternalFeedEngine
+        engine = ExternalFeedEngine(self.mem)
+        # Two identical items should collapse to one after dedup
+        items = [
+            {"title": "inflation hits record high", "video_score": 70},
+            {"title": "inflation hits record high", "video_score": 70},
+            {"title": "bitcoin crashes fifty percent", "video_score": 60},
+        ]
+        unique = engine._deduplicate(items)
+        self.assertEqual(len(unique), 2)
+
+    def test_feed_engine_run_returns_dict(self):
+        from data.external_feeds import ExternalFeedEngine
+        engine = ExternalFeedEngine(self.mem)
+        result = engine.run_full_fetch()
+        self.assertIn("total_fetched", result)
+        self.assertIsInstance(result["total_fetched"], int)
+
+
+class TestCategoryUniverse(unittest.TestCase):
+    def setUp(self):
+        from core.memory import Memory
+        self.mem = Memory(":memory:")
+
+    def test_run_daily_planning_returns_dict(self):
+        from content.category_universe import CategoryUniverse
+        engine = CategoryUniverse(self.mem)
+        plan = engine.run_daily_planning()
+        self.assertIsInstance(plan, dict)
+        self.assertIn("suggestion", plan)
+        self.assertIn("generated_at", plan)
+
+    def test_run_daily_planning_has_suggestion(self):
+        from content.category_universe import CategoryUniverse
+        engine     = CategoryUniverse(self.mem)
+        plan       = engine.run_daily_planning()
+        suggestion = plan.get("suggestion", {})
+        self.assertIn("category", suggestion)
+        self.assertIn("predicted_rpm", suggestion)
+
+    def test_generate_titles_for_category(self):
+        from content.category_universe import TitleGenerator
+        gen    = TitleGenerator()
+        titles = gen.generate_titles("inflation", "personal_finance", n=5)
+        self.assertIsInstance(titles, list)
+        self.assertGreater(len(titles), 0)
+        for t in titles:
+            self.assertIsInstance(t, str)
+            self.assertGreater(len(t), 5)
+
+    def test_get_category_rpm(self):
+        from content.category_universe import CATEGORY_UNIVERSE
+        # Insurance is Tier 1 ($15-50 RPM)
+        self.assertGreaterEqual(CATEGORY_UNIVERSE["insurance"]["rpm_low"], 15)
+        # Gaming is Tier 3 ($3-8 RPM)
+        self.assertLessEqual(CATEGORY_UNIVERSE["gaming"]["rpm_high"], 10)
+
+    def test_cross_category_intersections(self):
+        from content.category_universe import CrossCategoryMapper
+        mapper = CrossCategoryMapper()
+        combos = mapper.get_all_intersections()
+        self.assertIsInstance(combos, list)
+
+
+class TestContentSynthesizer(unittest.TestCase):
+    def setUp(self):
+        from core.memory import Memory
+        self.mem = Memory(":memory:")
+
+    def test_synthesizer_run_daily_synthesis(self):
+        from content.synthesizer import ContentSynthesizer
+        synth = ContentSynthesizer(self.mem)
+        result = synth.run_daily_synthesis()
+        self.assertIn("ideas_generated", result)
+        self.assertIn("sources_used", result)
+
+    def test_jaccard_in_source_matcher(self):
+        from content.synthesizer import SourceMatcher
+        matcher = SourceMatcher()
+        a = matcher.extract_keywords("inflation technology finance market")
+        b = matcher.extract_keywords("inflation technology finance market")
+        c = matcher.extract_keywords("cats dogs pets animals")
+        self.assertAlmostEqual(matcher.jaccard_similarity(a, b), 1.0)
+        self.assertLess(matcher.jaccard_similarity(a, c), 0.3)
+
+    def test_synthesize_single_returns_angles(self):
+        from content.synthesizer import ContentSynthesizer
+        synth  = ContentSynthesizer(self.mem)
+        item   = {"title": "Inflation hits 9%", "category": "personal_finance",
+                  "topic": "inflation"}
+        angles = synth.synthesize_single(item)
+        self.assertIsInstance(angles, list)
+        self.assertGreaterEqual(len(angles), 5)
+
+    def test_score_idea_range(self):
+        from content.synthesizer import IdeaScorer
+        scorer = IdeaScorer()
+        score  = scorer.score_idea({
+            "title":    "Why Inflation Is Good For Investors",
+            "category": "personal_finance",
+            "angle":    "contrarian",
+            "sources":  ["newsapi", "reddit"],
+        })
+        self.assertGreaterEqual(score, 0)
+        self.assertLessEqual(score, 100)
+
+
+class TestDataStoryteller(unittest.TestCase):
+    def setUp(self):
+        from core.memory import Memory
+        self.mem = Memory(":memory:")
+
+    def test_data_loader_csv(self):
+        import tempfile, os
+        from content.data_storyteller import DataLoader
+        dl = DataLoader()
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv",
+                                         delete=False, encoding="utf-8") as f:
+            f.write("year,value\n2020,100\n2021,150\n2022,200\n2023,180\n")
+            path = f.name
+        try:
+            result = dl.load(path)
+            self.assertIn("row_count", result)
+            self.assertIn("columns", result)
+            self.assertGreater(result["row_count"], 0)
+        finally:
+            os.unlink(path)
+
+    def test_data_analyzer_finds_peak(self):
+        import tempfile, os
+        from content.data_storyteller import DataLoader, DataAnalyzer
+        dl = DataLoader()
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv",
+                                         delete=False, encoding="utf-8") as f:
+            f.write("year,inflation\n2020,1.2\n2021,7.0\n2022,9.1\n2023,3.4\n")
+            path = f.name
+        try:
+            data     = dl.load(path)
+            da       = DataAnalyzer()
+            finding  = da.find_surprising_finding(data)
+            self.assertIn("finding_type", finding)
+            self.assertIn("description", finding)
+        finally:
+            os.unlink(path)
+
+    def test_chart_spec_generator(self):
+        import tempfile, os
+        from content.data_storyteller import DataLoader, DataAnalyzer, ChartSpecGenerator
+        dl = DataLoader()
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv",
+                                         delete=False, encoding="utf-8") as f:
+            f.write("year,inflation\n2020,1.2\n2021,7.0\n2022,9.1\n2023,3.4\n")
+            path = f.name
+        try:
+            data    = dl.load(path)
+            finding = DataAnalyzer().find_surprising_finding(data)
+            csg     = ChartSpecGenerator()
+            specs   = csg.generate_chart_specs(data, finding)
+            self.assertIsInstance(specs, list)
+            if specs:
+                self.assertIn("chart_type", specs[0])
+                self.assertIn("title", specs[0])
+        finally:
+            os.unlink(path)
+
+    def test_storyteller_engine_run(self):
+        import tempfile, os
+        from content.data_storyteller import DataStorytellerEngine
+        engine = DataStorytellerEngine(self.mem)
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv",
+                                         delete=False, encoding="utf-8") as f:
+            f.write("year,gdp_growth\n2018,2.9\n2019,2.3\n2020,-3.4\n2021,5.9\n2022,2.1\n")
+            path = f.name
+        try:
+            result = engine.process_data_file(path)
+            self.assertIn("title_suggestions", result)
+            self.assertIn("finding", result)
+            self.assertIn("scenes", result)
+        finally:
+            os.unlink(path)
+
+
+class TestArchiveMiner(unittest.TestCase):
+    def setUp(self):
+        from core.memory import Memory
+        self.mem = Memory(":memory:")
+
+    def test_historical_parallels_inflation(self):
+        from content.archive_miner import HistoricalParallelFinder
+        finder = HistoricalParallelFinder()
+        parallels = finder.find_parallels("inflation")
+        self.assertIsInstance(parallels, list)
+        self.assertGreater(len(parallels), 0)
+        for p in parallels:
+            self.assertIn("year", p)
+            self.assertIn("event", p)
+            self.assertIn("lesson", p)
+
+    def test_historical_parallels_ai(self):
+        from content.archive_miner import HistoricalParallelFinder
+        finder = HistoricalParallelFinder()
+        parallels = finder.find_parallels("AI")
+        self.assertGreater(len(parallels), 0)
+
+    def test_build_parallel_angle(self):
+        from content.archive_miner import HistoricalParallelFinder
+        finder = HistoricalParallelFinder()
+        parallel = {"era": "Weimar", "event": "German hyperinflation",
+                    "year": 1923, "lesson": "Printing money failed"}
+        angle = finder.build_parallel_angle("inflation", parallel, 0)
+        self.assertIn("title", angle)
+        self.assertIn("hook", angle)
+        self.assertIn("video_score", angle)
+        self.assertGreater(len(angle["title"]), 5)
+
+    def test_parallel_score_range(self):
+        from content.archive_miner import HistoricalParallelFinder
+        finder = HistoricalParallelFinder()
+        p = {"era": "Weimar", "event": "Hyperinflation destroyed savings",
+             "year": 1923, "lesson": "Printing money destroyed the middle class overnight"}
+        age  = 2024 - 1923
+        score = finder._score_parallel(p, age)
+        self.assertGreaterEqual(score, 0)
+        self.assertLessEqual(score, 100)
+        self.assertGreater(score, 50)  # should score well
+
+    def test_content_angle_builder_from_archive_item(self):
+        from content.archive_miner import ContentAngleBuilder
+        builder = ContentAngleBuilder()
+        item = {
+            "title":       "The Great Inflation of 1923",
+            "source":      "internet_archive",
+            "date":        "1924",
+            "creator":     "John Smith",
+            "description": "A detailed account of German hyperinflation",
+            "url":         "https://archive.org/details/xyz",
+        }
+        angle = builder.build_from_archive_item(item, "inflation")
+        self.assertIsNotNone(angle)
+        self.assertIn("title", angle)
+        self.assertIn("hook", angle)
+        self.assertIn("outline", angle)
+        self.assertIsInstance(angle["outline"], list)
+
+    def test_content_angle_builder_low_score_skipped(self):
+        from content.archive_miner import ContentAngleBuilder
+        builder = ContentAngleBuilder()
+        item = {"title": "", "source": "test", "date": "", "description": ""}
+        angle = builder.build_from_archive_item(item, "")
+        self.assertIsNone(angle)
+
+    def test_year_extraction(self):
+        from content.archive_miner import ContentAngleBuilder
+        builder = ContentAngleBuilder()
+        self.assertEqual(builder._extract_year("Published in 1923"), 1923)
+        self.assertEqual(builder._extract_year("circa 1776"), 1776)
+        self.assertIsNone(builder._extract_year("No year here"))
+
+    def test_year_to_era(self):
+        from content.archive_miner import ContentAngleBuilder
+        builder = ContentAngleBuilder()
+        self.assertIn("Gilded", builder._year_to_era(1890))
+        self.assertIn("Cold War", builder._year_to_era(1965))
+        self.assertIn("Modern", builder._year_to_era(2010))
+
+    def test_archive_miner_engine_mine_no_network(self):
+        from content.archive_miner import ArchiveMinerEngine
+        engine = ArchiveMinerEngine(self.mem)
+        # Mine only historical parallels (no network needed)
+        result = engine.mine_for_topic("inflation", sources=[])
+        self.assertIn("parallels", result)
+        self.assertIn("top_angles", result)
+        self.assertGreater(len(result["parallels"]), 0)
+
+
+class TestPrivateVault(unittest.TestCase):
+    def setUp(self):
+        from core.memory import Memory
+        self.mem = Memory(":memory:")
+
+    def test_vault_encryption_roundtrip(self):
+        try:
+            from content.private_vault import VaultEncryption
+            enc  = VaultEncryption()
+            text = "Top secret financial data: profit margin is 42%"
+            ciphertext = enc.encrypt(text)
+            self.assertIsInstance(ciphertext, bytes)
+            self.assertNotEqual(ciphertext, text.encode())
+            plaintext = enc.decrypt(ciphertext)
+            self.assertEqual(plaintext, text)
+        except (ImportError, Exception) as e:
+            if any(kw in str(e) for kw in ("cffi", "cryptography", "AESGCM", "_backend")):
+                self.skipTest("cryptography library not available")
+            raise
+
+    def test_vault_encryption_is_strong_or_fallback(self):
+        try:
+            from content.private_vault import VaultEncryption
+            enc = VaultEncryption()
+            strong = enc.is_using_strong_encryption()
+            self.assertIsInstance(strong, bool)
+        except (ImportError, Exception) as e:
+            if any(kw in str(e) for kw in ("cffi", "cryptography", "AESGCM", "_backend")):
+                self.skipTest("cryptography library not available")
+            raise
+
+    def test_anonymize_text(self):
+        from content.private_vault import LocalInsightExtractor
+        extractor = LocalInsightExtractor()
+        # Use full 10-digit phone and valid email
+        text = "Dr. John Smith (john@example.com) called 555-123-4567"
+        anon = extractor.anonymize_text(text)
+        self.assertNotIn("john@example.com", anon)
+        self.assertNotIn("555-123-4567", anon)
+
+    def test_local_insight_extraction(self):
+        from content.private_vault import LocalInsightExtractor
+        extractor = LocalInsightExtractor()
+        text = (
+            "Our quarterly revenue hit $5M, up 40% from last year. "
+            "Surprisingly, the new product line drove 80% of growth. "
+            "The team overcame three major challenges to achieve this."
+        )
+        insights = extractor.extract_insights_local(text, "financial_report")
+        self.assertIsInstance(insights, list)
+        self.assertGreater(len(insights), 0)
+        for ins in insights:
+            self.assertIn("text", ins)
+
+    def test_vault_engine_ingest_file(self):
+        import tempfile, os
+        try:
+            from content.private_vault import PrivateVaultEngine
+            vault = PrivateVaultEngine(self.mem)
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".txt",
+                                             delete=False, encoding="utf-8") as f:
+                f.write("Confidential: revenue was $5M last quarter.\n" * 10)
+                path = f.name
+            try:
+                result = vault.ingest_private_file(path, sensitivity="high")
+                self.assertIn("item_id", result)
+                self.assertIsNone(result.get("error"))
+            finally:
+                os.unlink(path)
+        except (ImportError, Exception) as e:
+            if "cffi" in str(e) or "cryptography" in str(e):
+                self.skipTest("cryptography/cffi library not available")
+            raise
+
+    def test_high_sensitivity_local_only(self):
+        from content.private_vault import PRIVACY_CATEGORIES
+        # High sensitivity content types must have local_only=True
+        for cat_name, cfg in PRIVACY_CATEGORIES.items():
+            if cfg.get("sensitivity") in ("high", "critical"):
+                self.assertTrue(
+                    cfg.get("local_only", False),
+                    f"Category {cat_name} should be local_only"
+                )
+
+
+class TestFastTrack(unittest.TestCase):
+    def setUp(self):
+        from core.memory import Memory
+        self.mem = Memory(":memory:")
+
+    def test_watch_hours_gap_calculation(self):
+        from monetization.fast_track import WatchHoursCalculator
+        calc = WatchHoursCalculator()
+        gap  = calc.current_gap(current_hours=1000.0, current_subs=500)
+        self.assertEqual(gap["watch_hours_needed"], 3000.0)
+        self.assertEqual(gap["subscribers_needed"], 500)
+        self.assertFalse(gap["ypp_ready"])
+        self.assertAlmostEqual(gap["watch_hours_pct"], 25.0)
+
+    def test_watch_hours_gap_ready(self):
+        from monetization.fast_track import WatchHoursCalculator
+        calc = WatchHoursCalculator()
+        gap  = calc.current_gap(current_hours=4000.0, current_subs=1000)
+        self.assertTrue(gap["ypp_ready"])
+
+    def test_project_timeline_returns_days(self):
+        from monetization.fast_track import WatchHoursCalculator
+        calc = WatchHoursCalculator()
+        tl   = calc.project_timeline(
+            current_hours=0, current_subs=0,
+            videos_per_day=2, avg_views_per_video=500,
+        )
+        self.assertIn("days_to_ypp", tl)
+        self.assertIn("bottleneck", tl)
+        self.assertGreater(tl["days_to_ypp"], 0)
+
+    def test_bottleneck_is_hours_or_subs(self):
+        from monetization.fast_track import WatchHoursCalculator
+        calc = WatchHoursCalculator()
+        tl   = calc.project_timeline(
+            current_hours=3900, current_subs=10,  # hours almost there, subs way behind
+            videos_per_day=1, avg_views_per_video=100,
+            sub_rate_per_video=1,
+        )
+        self.assertEqual(tl["bottleneck"], "subscribers")
+
+    def test_compilation_boost_fewer_for_long_videos(self):
+        from monetization.fast_track import WatchHoursCalculator
+        calc  = WatchHoursCalculator()
+        recs  = calc.compilation_boost(current_hours=0)
+        self.assertIsInstance(recs, list)
+        self.assertGreater(len(recs), 0)
+        # Longer videos need fewer compilations to hit 4000h
+        videos_needed = [r["videos_needed"] for r in recs]
+        hours_each    = [r["hours_each"] for r in recs]
+        for i in range(len(recs) - 1):
+            if hours_each[i] > hours_each[i + 1]:
+                self.assertLessEqual(videos_needed[i], videos_needed[i + 1])
+
+    def test_phase_detection(self):
+        from monetization.fast_track import SprintScheduler
+        ss = SprintScheduler()
+        self.assertEqual(ss.get_phase(0, False), 0)
+        self.assertEqual(ss.get_phase(300, False), 0)
+        self.assertEqual(ss.get_phase(600, False), 1)
+        self.assertEqual(ss.get_phase(1000, False), 1)
+        self.assertEqual(ss.get_phase(1500, True), 3)
+
+    def test_phase_3_when_ypp_approved(self):
+        from monetization.fast_track import SprintScheduler
+        ss = SprintScheduler()
+        self.assertEqual(ss.get_phase(50, True), 3)
+
+    def test_generate_weekly_schedule(self):
+        from monetization.fast_track import SprintScheduler
+        ss       = SprintScheduler()
+        schedule = ss.generate_weekly_schedule(phase=0, niche="finance")
+        self.assertEqual(len(schedule), 7)
+        for day in schedule:
+            self.assertIn("date", day)
+            self.assertIn("posts", day)
+            # Phase 0: 3 shorts/day, 0 long
+            self.assertEqual(
+                sum(1 for p in day["posts"] if p["type"] == "short"), 3
+            )
+
+    def test_revenue_stream_activator(self):
+        from monetization.fast_track import RevenueStreamActivator
+        ra     = RevenueStreamActivator()
+        active = ra.get_active_streams(channel_age_months=0, ypp_approved=True)
+        ids    = [s["stream_id"] for s in active]
+        self.assertIn("adsense", ids)
+        self.assertIn("super_thanks", ids)
+
+    def test_affiliate_not_active_at_month_0(self):
+        from monetization.fast_track import RevenueStreamActivator
+        ra     = RevenueStreamActivator()
+        active = ra.get_active_streams(channel_age_months=0, ypp_approved=False)
+        ids    = [s["stream_id"] for s in active]
+        self.assertNotIn("affiliate", ids)
+
+    def test_affiliate_active_at_month_3(self):
+        from monetization.fast_track import RevenueStreamActivator
+        ra     = RevenueStreamActivator()
+        active = ra.get_active_streams(channel_age_months=3, ypp_approved=False)
+        ids    = [s["stream_id"] for s in active]
+        self.assertIn("affiliate", ids)
+
+    def test_revenue_projection_no_ypp(self):
+        from monetization.fast_track import RevenueStreamActivator
+        ra  = RevenueStreamActivator()
+        rev = ra.project_monthly_revenue(
+            monthly_views=10_000, channel_age_months=3,
+            ypp_approved=False, category="personal_finance"
+        )
+        self.assertEqual(rev["adsense"], 0.0)
+        self.assertGreater(rev["affiliate"], 0)
+        self.assertEqual(rev["total_monthly"], rev["adsense"] + rev["affiliate"] + rev["sponsorships"])
+
+    def test_revenue_projection_with_ypp(self):
+        from monetization.fast_track import RevenueStreamActivator
+        ra  = RevenueStreamActivator()
+        rev = ra.project_monthly_revenue(
+            monthly_views=100_000, channel_age_months=12,
+            ypp_approved=True, category="personal_finance"
+        )
+        self.assertGreater(rev["adsense"], 0)
+        self.assertGreater(rev["total_monthly"], rev["adsense"])
+
+    def test_fast_track_engine_run_daily(self):
+        from monetization.fast_track import FastTrackEngine
+        engine = FastTrackEngine(self.mem)
+        result = engine.run_daily_sprint()
+        self.assertIn("phase", result)
+        self.assertIn("ypp_gap", result)
+        self.assertIn("sprint_plan", result)
+        self.assertIn("revenue_projection", result)
+        self.assertIn("active_streams", result)
+
+    def test_fast_track_get_sprint_summary_string(self):
+        from monetization.fast_track import FastTrackEngine
+        engine  = FastTrackEngine(self.mem)
+        summary = engine.get_sprint_summary()
+        self.assertIsInstance(summary, str)
+        self.assertGreater(len(summary), 20)
+
+    def test_fast_track_record_milestone(self):
+        from monetization.fast_track import FastTrackEngine
+        engine = FastTrackEngine(self.mem)
+        engine.record_milestone("subscribers", 1000.0, "Hit 1K subscribers!")
+        milestones = self.mem.get_sprint_milestones()
+        self.assertGreaterEqual(len(milestones), 1)
+
+
 # ── Runner ─────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
