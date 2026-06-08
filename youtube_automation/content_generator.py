@@ -384,20 +384,31 @@ def build_daily_content() -> dict:
     topic_data = topics[week_num % len(topics)]
 
     title = topic_data["title"]
+    bullets_text = "\n".join(f"✅ {b}" for b in topic_data["bullets"])
+    hashtags = (f"#DailyDrop #{''.join(category.split())} "
+                + " ".join(f"#{t}" for t in topic_data["tags"][:8]))
     description = (
         f"{topic_data['hook']}\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "⏱ CHAPTERS\n"
+        "00:00 Hook\n"
+        "00:10 Today's category\n"
+        "00:15 Key points breakdown\n"
+        "01:45 Key takeaway + action step\n"
+        "02:15 Subscribe & notification bell\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         "In this video:\n"
-        + "\n".join(f"✅ {b}" for b in topic_data["bullets"])
+        + bullets_text
         + f"\n\n💡 Takeaway: {topic_data['takeaway']}\n\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         "📺 Daily Drop with Prasad — Learn Something New Every Day\n"
-        "🔔 Subscribe: new video drops every single day at 3 PM EST\n"
-        "👍 Like if this made you think differently.\n"
-        "💬 Drop your biggest takeaway in the comments.\n"
+        "🔔 New video every day at 3 PM EST — subscribe & hit the bell\n"
+        "👍 Like if this made you think differently\n"
+        "💬 Drop your biggest takeaway in the comments\n"
+        "📌 Share with someone who needs to hear this today\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         "© Daily Drop with Prasad | prasad2t@gmail.com\n\n"
-        f"#DailyDrop #{''.join(category.split())} "
-        + " ".join(f"#{t}" for t in topic_data["tags"][:8])
+        + hashtags
     )
 
     base_tags = [
