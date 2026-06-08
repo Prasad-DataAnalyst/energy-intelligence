@@ -2042,6 +2042,413 @@ class TestShortsFactory(unittest.TestCase):
 
 
 
+
+# ── TestGrowthHacker ──────────────────────────────────────────────────────────
+
+
+class TestGrowthHacker(unittest.TestCase):
+
+    def setUp(self):
+        from core.memory import Memory
+        self.mem = Memory(":memory:")
+
+    # ── Memory schema ───────────────────────────────────────────────────────
+
+    def test_memory_has_growth_tables(self):
+        expected = {"collab_prospects", "keyword_clusters", "playlists", "growth_targets"}
+        with self.mem._conn() as conn:
+            rows   = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+            tables = {r["name"] for r in rows}
+        self.assertTrue(expected.issubset(tables),
+                        f"Missing tables: {expected - tables}")
+
+    # ── Collab prospect memory ──────────────────────────────────────────────
+
+    def test_save_and_get_collab_prospect(self):
+        pid = self.mem.save_collab_prospect({
+            "channel_id":   "UC_COLLAB_01",
+            "channel_name": "Solar Talks",
+            "subs":         12_000,
+            "niche":        "energy",
+            "pitch_email":  "Hey, let's collab!",
+        })
+        self.assertGreater(pid, 0)
+        prospects = self.mem.get_collab_prospects()
+        self.assertGreaterEqual(len(prospects), 1)
+        self.assertEqual(prospects[0]["channel_name"], "Solar Talks")
+
+    def test_save_collab_prospect_dedup(self):
+        for _ in range(3):
+            self.mem.save_collab_prospect({
+                "channel_id": "UC_DUP", "channel_name": "Dup Channel", "subs": 5000,
+            })
+        prospects = self.mem.get_collab_prospects()
+        ids = [p["channel_id"] for p in prospects]
+        self.assertEqual(ids.count("UC_DUP"), 1)
+
+    def test_get_collab_prospects_by_status(self):
+        self.mem.save_collab_prospect({
+            "channel_id": "UC_PITCHED", "channel_name": "Pitched",
+            "subs": 8000, "status": "pitched",
+        })
+        self.mem.save_collab_prospect({
+            "channel_id": "UC_PROSPECT", "channel_name": "Prospect",
+            "subs": 9000, "status": "prospect",
+        })
+        pitched = self.mem.get_collab_prospects(status="pitched")
+        self.assertEqual(len(pitched), 1)
+        self.assertEqual(pitched[0]["channel_id"], "UC_PITCHED")
+
+    def test_update_collab_prospect(self):
+        self.mem.save_collab_prospect({
+            "channel_id": "UC_UPDATE", "channel_name": "UpdateMe", "subs": 7000,
+        })
+        self.mem.update_collab_prospect("UC_UPDATE", status="accepted")
+        prospects = self.mem.get_collab_prospects(status="accepted")
+        self.assertEqual(len(prospects), 1)
+
+    # ── Keyword cluster memory ──────────────────────────────────────────────
+
+    def test_save_and_get_keyword_cluster(self):
+        kid = self.mem.save_keyword_cluster({
+            "main_keyword":      "solar panel installation",
+            "cluster_topic":     "solar",
+            "opportunity_score": 85.0,
+            "videos_planned":    json.dumps([{"title": "Guide to Solar"}]),
+            "status":            "planned",
+        })
+        self.assertGreater(kid, 0)
+        clusters = self.mem.get_keyword_clusters()
+        self.assertGreaterEqual(len(clusters), 1)
+        self.assertEqual(clusters[0]["main_keyword"], "solar panel installation")
+
+    def test_get_keyword_clusters_by_status(self):
+        self.mem.save_keyword_cluster({
+            "main_keyword": "wind energy", "cluster_topic": "wind",
+            "opportunity_score": 60.0, "status": "active",
+        })
+        self.mem.save_keyword_cluster({
+            "main_keyword": "ev charging", "cluster_topic": "ev",
+            "opportunity_score": 70.0, "status": "planned",
+        })
+        active = self.mem.get_keyword_clusters(status="active")
+        self.assertEqual(len(active), 1)
+        self.assertEqual(active[0]["main_keyword"], "wind energy")
+
+    # ── Playlist memory ─────────────────────────────────────────────────────
+
+    def test_save_and_get_playlist(self):
+        plid = self.mem.save_playlist({
+            "title":         "Solar Energy Series",
+            "seo_title":     "Complete Solar Energy Guide",
+            "topic_cluster": "solar",
+            "video_ids":     ["yt001", "yt002", "yt003"],
+            "binge_trap":    1,
+        })
+        self.assertGreater(plid, 0)
+        playlists = self.mem.get_playlists()
+        self.assertGreaterEqual(len(playlists), 1)
+        self.assertEqual(playlists[0]["title"], "Solar Energy Series")
+
+    def test_get_playlists_by_status(self):
+        self.mem.save_playlist({
+            "title": "Active Playlist", "topic_cluster": "solar",
+            "video_ids": ["yt1"], "status": "active",
+        })
+        self.mem.save_playlist({
+            "title": "Archived Playlist", "topic_cluster": "wind",
+            "video_ids": ["yt2"], "status": "archived",
+        })
+        active = self.mem.get_playlists(status="active")
+        self.assertEqual(len(active), 1)
+        self.assertEqual(active[0]["title"], "Active Playlist")
+
+    # ── Growth target memory ────────────────────────────────────────────────
+
+    def test_save_and_get_growth_target(self):
+        tid = self.mem.save_growth_target({
+            "set_date":           "2026-06-08",
+            "baseline_subs":      10_000,
+            "posting_freq_week":  7,
+            "weekly_growth_rate": 3.5,
+            "freq_multiplier":    1.32,
+            "day30_target":       11_200,
+            "day60_target":       12_500,
+            "day90_target":       14_000,
+            "status":             "active",
+        })
+        self.assertGreater(tid, 0)
+        targets = self.mem.get_growth_targets()
+        self.assertGreaterEqual(len(targets), 1)
+        self.assertEqual(targets[0]["baseline_subs"], 10_000)
+
+    def test_get_revenue_snapshots(self):
+        self.mem.save_revenue_snapshot({
+            "date": "2026-06-08", "subscribers": 9800, "week_num": 23,
+            "total_rev": 150.0,
+        })
+        snaps = self.mem.get_revenue_snapshots(n=5)
+        self.assertGreaterEqual(len(snaps), 1)
+        self.assertEqual(snaps[0]["subscribers"], 9800)
+
+    # ── CollaborationDetector ───────────────────────────────────────────────
+
+    def test_analyze_content_overlap_identical(self):
+        from intelligence.growth_hacker import CollaborationDetector
+        cd = CollaborationDetector()
+        self.assertAlmostEqual(
+            cd.analyze_content_overlap(["solar", "energy"], ["solar", "energy"]),
+            1.0, places=4
+        )
+
+    def test_analyze_content_overlap_disjoint(self):
+        from intelligence.growth_hacker import CollaborationDetector
+        cd = CollaborationDetector()
+        self.assertAlmostEqual(
+            cd.analyze_content_overlap(["solar"], ["wind"]),
+            0.0, places=4
+        )
+
+    def test_analyze_content_overlap_partial(self):
+        from intelligence.growth_hacker import CollaborationDetector
+        cd = CollaborationDetector()
+        score = cd.analyze_content_overlap(
+            ["solar", "energy", "battery"],
+            ["solar", "wind", "grid"],
+        )
+        self.assertGreater(score, 0.0)
+        self.assertLess(score, 1.0)
+
+    def test_analyze_content_overlap_empty(self):
+        from intelligence.growth_hacker import CollaborationDetector
+        cd = CollaborationDetector()
+        self.assertEqual(cd.analyze_content_overlap([], ["solar"]), 0.0)
+        self.assertEqual(cd.analyze_content_overlap(["solar"], []), 0.0)
+
+    def test_generate_pitch_email_no_api(self):
+        from intelligence.growth_hacker import CollaborationDetector
+        from unittest.mock import patch
+        with patch.dict("os.environ", {"ANTHROPIC_API_KEY": ""}):
+            cd    = CollaborationDetector()
+            email = cd.generate_pitch_email(
+                {"channel_name": "Solar Partner", "niche": "solar", "subs": 12_000},
+                {"name": "My Channel", "niche": "energy", "subs": 10_000},
+            )
+        self.assertIsInstance(email, str)
+        self.assertGreater(len(email), 20)
+
+    def test_mock_candidates_size_range(self):
+        from intelligence.growth_hacker import CollaborationDetector, COLLAB_SIZE_RANGE
+        from unittest.mock import patch
+        with patch.dict("os.environ", {"YOUTUBE_DATA_API_KEY": ""}):
+            cd   = CollaborationDetector()
+            cands = cd.find_similar_channels(10_000, "energy")
+        for ch in cands:
+            subs   = ch["subs"]
+            lo, hi = int(10_000 * COLLAB_SIZE_RANGE[0]), int(10_000 * COLLAB_SIZE_RANGE[1])
+            self.assertGreaterEqual(subs, lo)
+            self.assertLessEqual(subs, hi)
+
+    # ── ViralLoopEngineer ───────────────────────────────────────────────────
+
+    def _make_script(self):
+        return {
+            "title": "The Future of Solar",
+            "hook":  "Solar power is about to change everything.",
+            "scenes": [
+                {"title": "Intro",       "narration": "Welcome to this video."},
+                {"title": "Background",  "narration": "Here is some context about energy."},
+                {"title": "Key Fact",    "narration": "90% of homes could go solar today."},
+                {"title": "Secret",      "narration": "The hidden secret nobody talks about."},
+                {"title": "Insight",     "narration": "Studies show this saves millions."},
+                {"title": "CTA",         "narration": "Subscribe now for more content."},
+            ],
+        }
+
+    def test_find_shareable_moment_returns_keys(self):
+        from intelligence.growth_hacker import ViralLoopEngineer
+        vl  = ViralLoopEngineer()
+        res = vl.find_shareable_moment(self._make_script())
+        for key in ("scene_index", "timestamp_pct", "trigger_type", "text_preview"):
+            self.assertIn(key, res)
+
+    def test_find_shareable_moment_detects_stat(self):
+        from intelligence.growth_hacker import ViralLoopEngineer
+        vl  = ViralLoopEngineer()
+        res = vl.find_shareable_moment(self._make_script())
+        self.assertNotEqual(res["trigger_type"], "none")
+
+    def test_find_subscribe_prompt_in_range(self):
+        from intelligence.growth_hacker import ViralLoopEngineer, SUBSCRIBE_RANGE
+        vl  = ViralLoopEngineer()
+        res = vl.find_subscribe_prompt_position(self._make_script())
+        self.assertGreaterEqual(res["timestamp_pct"], SUBSCRIBE_RANGE[0] - 0.05)
+        self.assertLessEqual(res["timestamp_pct"], SUBSCRIBE_RANGE[1] + 0.05)
+
+    def test_inject_viral_does_not_mutate(self):
+        from intelligence.growth_hacker import ViralLoopEngineer
+        vl     = ViralLoopEngineer()
+        script = self._make_script()
+        orig_hook = script["hook"]
+        vl.inject_viral_elements(script)
+        self.assertEqual(script["hook"], orig_hook)
+        self.assertNotIn("viral_injection", script)
+
+    def test_inject_viral_marks_shareable_scene(self):
+        from intelligence.growth_hacker import ViralLoopEngineer
+        vl     = ViralLoopEngineer()
+        result = vl.inject_viral_elements(self._make_script())
+        scenes = result["scenes"]
+        self.assertTrue(any(s.get("shareable_moment") for s in scenes))
+
+    def test_inject_viral_adds_injection_metadata(self):
+        from intelligence.growth_hacker import ViralLoopEngineer
+        vl     = ViralLoopEngineer()
+        result = vl.inject_viral_elements(self._make_script())
+        self.assertIn("viral_injection", result)
+        vi = result["viral_injection"]
+        for key in ("shareable_moment_idx", "subscribe_prompt_idx", "shareable_trigger"):
+            self.assertIn(key, vi)
+
+    # ── SearchDominator ─────────────────────────────────────────────────────
+
+    def test_heuristic_competition_longtail(self):
+        from intelligence.growth_hacker import SearchDominator
+        sd = SearchDominator()
+        lo = sd._heuristic_competition("how to install solar panels at home cheaply today")
+        hi = sd._heuristic_competition("solar")
+        self.assertLess(lo, hi)
+
+    def test_opportunity_score_inversely_proportional_to_competition(self):
+        from intelligence.growth_hacker import SearchDominator
+        sd = SearchDominator()
+        high = sd._opportunity_score(5,  "high")
+        low  = sd._opportunity_score(45, "high")
+        self.assertGreater(high, low)
+
+    def test_estimate_search_volume_returns_tier(self):
+        from intelligence.growth_hacker import SearchDominator
+        sd = SearchDominator()
+        for kw in ("solar panel installation cost", "solar", "how to use solar"):
+            tier = sd._estimate_search_volume(kw, "energy")
+            self.assertIn(tier, ("high", "medium", "low"))
+
+    def test_build_keyword_cluster_structure(self):
+        from intelligence.growth_hacker import SearchDominator
+        from unittest.mock import patch
+        with patch.dict("os.environ", {"ANTHROPIC_API_KEY": ""}):
+            sd      = SearchDominator()
+            cluster = sd.build_keyword_cluster("solar panels", "energy", n=5)
+        self.assertIn("main_keyword",  cluster)
+        self.assertIn("video_ideas",   cluster)
+        self.assertIn("count",         cluster)
+        self.assertGreaterEqual(cluster["count"], 5)
+
+    def test_blue_ocean_keywords_has_required_keys(self):
+        from intelligence.growth_hacker import SearchDominator
+        from unittest.mock import patch
+        with patch.dict("os.environ",
+                        {"YOUTUBE_DATA_API_KEY": "", "ANTHROPIC_API_KEY": ""}):
+            sd  = SearchDominator()
+            kws = sd.find_blue_ocean_keywords("solar energy", "energy", n=5)
+        self.assertIsInstance(kws, list)
+        for kw in kws:
+            for key in ("keyword", "competition", "volume_tier", "opportunity_score"):
+                self.assertIn(key, kw)
+
+    # ── PlaylistArchitect ───────────────────────────────────────────────────
+
+    def test_optimize_order_intro_first(self):
+        from intelligence.growth_hacker import PlaylistArchitect
+        pa = PlaylistArchitect()
+        videos = [
+            {"title": "Advanced Solar Deep Dive", "views": 5000},
+            {"title": "Solar Basics for Beginners 101", "views": 3000},
+            {"title": "Solar Overview for Starters", "views": 2000},
+        ]
+        ordered = pa.optimize_playlist_order(videos)
+        # Advanced deep dive should be last; intro/beginner videos come first
+        self.assertIn("Advanced", ordered[-1]["title"])
+
+    def test_generate_seo_title_contains_topic(self):
+        from intelligence.growth_hacker import PlaylistArchitect
+        pa    = PlaylistArchitect()
+        title = pa.generate_seo_title("solar energy")
+        self.assertIn("Solar Energy", title)
+
+    def test_create_binge_trap_links_sequence(self):
+        from intelligence.growth_hacker import PlaylistArchitect
+        pa    = PlaylistArchitect()
+        pl    = {"video_ids": ["yt1", "yt2", "yt3"]}
+        trap  = pa.create_binge_trap(pl)
+        self.assertEqual(trap["yt1"], "yt2")
+        self.assertEqual(trap["yt2"], "yt3")
+        self.assertEqual(trap["yt3"], "yt1")  # loops back
+
+    def test_auto_organize_creates_playlists(self):
+        from intelligence.growth_hacker import PlaylistArchitect
+        pa = PlaylistArchitect()
+        videos = [
+            {"title": "Solar Panel Guide",    "topic": "solar energy", "youtube_id": "yt1"},
+            {"title": "Solar Cost Breakdown", "topic": "solar energy", "youtube_id": "yt2"},
+            {"title": "Wind Turbine Basics",  "topic": "wind turbine", "youtube_id": "yt3"},
+            {"title": "Wind Power Advanced",  "topic": "wind turbine", "youtube_id": "yt4"},
+        ]
+        playlists = pa.auto_organize_videos(videos)
+        self.assertGreaterEqual(len(playlists), 1)
+        for pl in playlists:
+            self.assertIn("video_ids", pl)
+            self.assertGreaterEqual(len(pl["video_ids"]), 2)
+
+    # ── GrowthTargetTracker ─────────────────────────────────────────────────
+
+    def test_set_growth_model_day30_greater_than_baseline(self):
+        from intelligence.growth_hacker import GrowthTargetTracker
+        gt    = GrowthTargetTracker()
+        model = gt.set_growth_model(10_000, posting_freq_week=7, has_shorts=True)
+        self.assertGreater(model["day30_target"], 10_000)
+        self.assertGreater(model["day60_target"], model["day30_target"])
+        self.assertGreater(model["day90_target"], model["day60_target"])
+
+    def test_set_growth_model_shorts_boost(self):
+        from intelligence.growth_hacker import GrowthTargetTracker
+        gt      = GrowthTargetTracker()
+        with_s  = gt.set_growth_model(10_000, 7, has_shorts=True)
+        no_s    = gt.set_growth_model(10_000, 7, has_shorts=False)
+        self.assertGreater(with_s["day90_target"], no_s["day90_target"])
+
+    def test_set_growth_model_saves_to_memory(self):
+        from intelligence.growth_hacker import GrowthTargetTracker
+        gt = GrowthTargetTracker()
+        gt.set_growth_model(10_000, 7, has_shorts=True, memory=self.mem)
+        targets = self.mem.get_growth_targets(status="active")
+        self.assertGreaterEqual(len(targets), 1)
+
+    def test_check_trajectory_no_target(self):
+        from intelligence.growth_hacker import GrowthTargetTracker
+        gt     = GrowthTargetTracker()
+        result = gt.check_trajectory(self.mem)
+        self.assertIn(result["status"], ("no_target", "no_data", "no_memory"))
+
+    def test_auto_intensify_critical_returns_actions(self):
+        from intelligence.growth_hacker import GrowthTargetTracker
+        gt     = GrowthTargetTracker()
+        traj   = {"status": "critical", "gap_pct": 25.0, "current_subs": 7500}
+        result = gt.auto_intensify(traj)
+        self.assertTrue(result["intensify"])
+        self.assertGreaterEqual(len(result["actions"]), 3)
+
+    def test_auto_intensify_on_track_no_actions(self):
+        from intelligence.growth_hacker import GrowthTargetTracker
+        gt     = GrowthTargetTracker()
+        traj   = {"status": "on_track", "gap_pct": 2.0, "current_subs": 10200}
+        result = gt.auto_intensify(traj)
+        self.assertFalse(result["intensify"])
+        self.assertEqual(len(result["actions"]), 0)
+
+
 # ── TestCommunityEngine ───────────────────────────────────────────────────────
 
 

@@ -396,6 +396,71 @@ CREATE TABLE IF NOT EXISTS retention_events (
     strategy_applied TEXT,
     resolved         INTEGER DEFAULT 0
 );
+
+-- Collaboration prospect pipeline
+CREATE TABLE IF NOT EXISTS collab_prospects (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel_id       TEXT    NOT NULL UNIQUE,
+    channel_name     TEXT,
+    subscriber_count INTEGER DEFAULT 0,
+    content_overlap  REAL    DEFAULT 0,
+    niche            TEXT,
+    pitch_email      TEXT,
+    pitch_sent       INTEGER DEFAULT 0,
+    pitch_date       TEXT,
+    response         TEXT,
+    status           TEXT    DEFAULT 'prospect',
+    collab_video_id  TEXT,
+    our_growth       REAL    DEFAULT 0,
+    their_growth     REAL    DEFAULT 0,
+    created_at       TEXT    NOT NULL
+);
+
+-- Keyword clusters for topic authority
+CREATE TABLE IF NOT EXISTS keyword_clusters (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    main_keyword      TEXT    NOT NULL,
+    cluster_topic     TEXT,
+    opportunity_score REAL    DEFAULT 0,
+    videos_planned    TEXT,   -- JSON list of video idea dicts
+    videos_done       INTEGER DEFAULT 0,
+    status            TEXT    DEFAULT 'planned',
+    created_at        TEXT    NOT NULL
+);
+
+-- Strategic playlist plans
+CREATE TABLE IF NOT EXISTS playlists (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    youtube_id      TEXT,
+    title           TEXT    NOT NULL,
+    seo_title       TEXT,
+    topic_cluster   TEXT,
+    video_ids       TEXT,   -- JSON ordered list of youtube_ids
+    binge_trap      INTEGER DEFAULT 0,
+    total_views     INTEGER DEFAULT 0,
+    avg_session_dur REAL    DEFAULT 0,
+    status          TEXT    DEFAULT 'active',
+    created_at      TEXT    NOT NULL
+);
+
+-- 30/60/90 day subscriber growth targets
+CREATE TABLE IF NOT EXISTS growth_targets (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    set_date           TEXT    NOT NULL,
+    baseline_subs      INTEGER DEFAULT 0,
+    posting_freq_week  REAL    DEFAULT 7,
+    weekly_growth_rate REAL    DEFAULT 0,
+    freq_multiplier    REAL    DEFAULT 1,
+    day30_target       INTEGER DEFAULT 0,
+    day60_target       INTEGER DEFAULT 0,
+    day90_target       INTEGER DEFAULT 0,
+    day30_actual       INTEGER,
+    day60_actual       INTEGER,
+    day90_actual       INTEGER,
+    status             TEXT    DEFAULT 'active',
+    intensified        INTEGER DEFAULT 0,
+    created_at         TEXT    NOT NULL
+);
 """
 
 
@@ -1687,6 +1752,188 @@ class Memory:
                     "ORDER BY timestamp DESC LIMIT ?",
                     (int(resolved), n),
                 ).fetchall()
+        return [dict(r) for r in rows]
+
+    # ── Growth hacker ─────────────────────────────────────────────────────────
+
+    def save_collab_prospect(self, data: Dict) -> int:
+        """Upsert a collaboration prospect by channel_id."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self._conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO collab_prospects
+                   (channel_id, channel_name, subscriber_count, content_overlap,
+                    niche, pitch_email, status, created_at)
+                   VALUES (?,?,?,?,?,?,?,?)
+                   ON CONFLICT(channel_id) DO UPDATE SET
+                       channel_name=excluded.channel_name,
+                       subscriber_count=excluded.subscriber_count,
+                       pitch_email=COALESCE(excluded.pitch_email, pitch_email),
+                       niche=excluded.niche""",
+                (
+                    data.get("channel_id", ""),
+                    data.get("channel_name", ""),
+                    data.get("subs", data.get("subscriber_count", 0)),
+                    data.get("content_overlap", 0.0),
+                    data.get("niche", ""),
+                    data.get("pitch_email", ""),
+                    data.get("status", "prospect"),
+                    now,
+                ),
+            )
+            return cur.lastrowid
+
+    def get_collab_prospects(self, status: str = None,
+                              n: int = 20) -> List[Dict]:
+        """Return collaboration prospects, optionally filtered by status."""
+        with self._conn() as conn:
+            if status:
+                rows = conn.execute(
+                    "SELECT * FROM collab_prospects WHERE status=? "
+                    "ORDER BY subscriber_count DESC LIMIT ?",
+                    (status, n),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM collab_prospects ORDER BY created_at DESC LIMIT ?",
+                    (n,),
+                ).fetchall()
+        return [dict(r) for r in rows]
+
+    def update_collab_prospect(self, channel_id: str, **kwargs) -> None:
+        """Update any fields on a collab prospect by channel_id."""
+        if not kwargs:
+            return
+        fields = ", ".join(f"{k}=?" for k in kwargs)
+        vals   = list(kwargs.values()) + [channel_id]
+        with self._conn() as conn:
+            conn.execute(
+                f"UPDATE collab_prospects SET {fields} WHERE channel_id=?", vals
+            )
+
+    def save_keyword_cluster(self, data: Dict) -> int:
+        """Persist a keyword cluster plan."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO keyword_clusters
+                   (main_keyword, cluster_topic, opportunity_score,
+                    videos_planned, videos_done, status, created_at)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (
+                    data.get("main_keyword", ""),
+                    data.get("cluster_topic", ""),
+                    data.get("opportunity_score", 0.0),
+                    data.get("videos_planned", "[]"),
+                    data.get("videos_done", 0),
+                    data.get("status", "planned"),
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            return cur.lastrowid
+
+    def get_keyword_clusters(self, status: str = None,
+                              n: int = 20) -> List[Dict]:
+        """Return keyword clusters, optionally filtered by status."""
+        with self._conn() as conn:
+            if status:
+                rows = conn.execute(
+                    "SELECT * FROM keyword_clusters WHERE status=? "
+                    "ORDER BY opportunity_score DESC LIMIT ?",
+                    (status, n),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM keyword_clusters "
+                    "ORDER BY opportunity_score DESC LIMIT ?",
+                    (n,),
+                ).fetchall()
+        return [dict(r) for r in rows]
+
+    def save_playlist(self, data: Dict) -> int:
+        """Persist a strategic playlist record."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO playlists
+                   (youtube_id, title, seo_title, topic_cluster,
+                    video_ids, binge_trap, status, created_at)
+                   VALUES (?,?,?,?,?,?,?,?)""",
+                (
+                    data.get("youtube_id", ""),
+                    data.get("title", ""),
+                    data.get("seo_title", ""),
+                    data.get("topic_cluster", ""),
+                    json.dumps(data.get("video_ids", [])),
+                    int(data.get("binge_trap", 0)),
+                    data.get("status", "active"),
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            return cur.lastrowid
+
+    def get_playlists(self, status: str = None, n: int = 20) -> List[Dict]:
+        """Return strategic playlists, optionally filtered by status."""
+        with self._conn() as conn:
+            if status:
+                rows = conn.execute(
+                    "SELECT * FROM playlists WHERE status=? "
+                    "ORDER BY created_at DESC LIMIT ?",
+                    (status, n),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM playlists ORDER BY created_at DESC LIMIT ?",
+                    (n,),
+                ).fetchall()
+        return [dict(r) for r in rows]
+
+    def save_growth_target(self, data: Dict) -> int:
+        """Persist a 30/60/90 day growth target model."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO growth_targets
+                   (set_date, baseline_subs, posting_freq_week,
+                    weekly_growth_rate, freq_multiplier,
+                    day30_target, day60_target, day90_target,
+                    status, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    data.get("set_date", datetime.now().strftime("%Y-%m-%d")),
+                    data.get("baseline_subs", 0),
+                    data.get("posting_freq_week", 7),
+                    data.get("weekly_growth_rate", 0.0),
+                    data.get("freq_multiplier", 1.0),
+                    data.get("day30_target", 0),
+                    data.get("day60_target", 0),
+                    data.get("day90_target", 0),
+                    data.get("status", "active"),
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            return cur.lastrowid
+
+    def get_growth_targets(self, status: str = None, n: int = 5) -> List[Dict]:
+        """Return growth target records, most recent first."""
+        with self._conn() as conn:
+            if status:
+                rows = conn.execute(
+                    "SELECT * FROM growth_targets WHERE status=? "
+                    "ORDER BY created_at DESC LIMIT ?",
+                    (status, n),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM growth_targets ORDER BY created_at DESC LIMIT ?",
+                    (n,),
+                ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_revenue_snapshots(self, n: int = 10) -> List[Dict]:
+        """Return the N most recent revenue snapshots."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM revenue_snapshots ORDER BY date DESC LIMIT ?",
+                (n,),
+            ).fetchall()
         return [dict(r) for r in rows]
 
 

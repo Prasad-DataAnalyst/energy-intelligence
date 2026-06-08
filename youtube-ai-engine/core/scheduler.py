@@ -356,6 +356,13 @@ class Scheduler:
                 max_instances=1, coalesce=True,
             )
 
+            # Growth hacker daily at 09:00 UTC
+            sched.add_job(
+                self._run_growth_hacker, CronTrigger(hour=9, minute=0),
+                id="growth_hacker", name="Growth hacker daily cycle",
+                max_instances=1, coalesce=True,
+            )
+
             # Git snapshot every 6 hours
             sched.add_job(
                 self._run_version_snapshot, CronTrigger(hour="*/6", minute=30),
@@ -468,6 +475,21 @@ class Scheduler:
             )
         except Exception as e:
             log.error(f"Community engine crashed: {e}", exc_info=True)
+
+    def _run_growth_hacker(self):
+        try:
+            from intelligence.growth_hacker import GrowthHacker
+            gh     = GrowthHacker(self.memory)
+            result = gh.run_full_cycle()
+            log.info(
+                f"Growth hacker: "
+                f"collabs={result.get('collab',{}).get('candidates_found',0)} | "
+                f"keywords={result.get('search',{}).get('blue_ocean_keywords',0)} | "
+                f"playlists={result.get('playlists',{}).get('created',0)} | "
+                f"trajectory={result.get('growth_trajectory',{}).get('status','?')}"
+            )
+        except Exception as e:
+            log.error(f"Growth hacker crashed: {e}", exc_info=True)
 
     def _run_version_snapshot(self):
         try:

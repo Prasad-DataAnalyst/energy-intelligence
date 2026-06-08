@@ -218,6 +218,27 @@ def run_community_phase(memory):
           f"retention={result.get('retention_status', 'ok')}")
 
 
+def run_growth_phase(memory):
+    import yaml
+    from intelligence.growth_hacker import GrowthHacker
+    cfg_path = Path(__file__).parent / "config" / "master_config.yaml"
+    niche    = "energy"
+    try:
+        with open(cfg_path) as f:
+            cfg = yaml.safe_load(f) or {}
+        niche = cfg.get("channel", {}).get("niche", "energy")
+    except Exception:
+        pass
+    gh     = GrowthHacker(memory)
+    result = gh.run_full_cycle(niche=niche)
+    gh.print_report(result)
+    print(f"\nGrowth hacker: "
+          f"{result.get('collab',{}).get('candidates_found',0)} collab candidates | "
+          f"{result.get('search',{}).get('blue_ocean_keywords',0)} blue ocean keywords | "
+          f"{result.get('playlists',{}).get('created',0)} playlists | "
+          f"trajectory={result.get('growth_trajectory',{}).get('status','?')}")
+
+
 def run_dominator_phase(memory):
     from intelligence.competitor_dominator import CompetitorDominator
     cd     = CompetitorDominator(memory)
@@ -271,7 +292,7 @@ def main():
                         choices=["trend","script","voice","visual","assemble",
                                  "thumbnail","publish","audit","feedback",
                                  "competitor","meta","algo","monetize","dominate",
-                                 "global","shorts","community"],
+                                 "global","shorts","community","growth"],
                         help="Run a specific phase only")
     parser.add_argument("--topic",     type=str, default="", help="Override topic")
     parser.add_argument("--style",     type=str, default="",
@@ -311,7 +332,8 @@ def main():
     # Analysis/maintenance phases don't need a topic — run and return early
     # (avoids wasteful trend-fetching network calls).
     ANALYSIS_PHASES = {"audit", "feedback", "competitor", "meta", "algo",
-                        "monetize", "dominate", "global", "shorts", "community"}
+                        "monetize", "dominate", "global", "shorts", "community",
+                        "growth"}
     if args.phase in ANALYSIS_PHASES:
         if args.phase == "algo":
             run_algo_phase(memory)
@@ -325,6 +347,8 @@ def main():
             run_shorts_phase(memory)
         elif args.phase == "community":
             run_community_phase(memory)
+        elif args.phase == "growth":
+            run_growth_phase(memory)
         else:
             {"audit":      run_audit_phase,
              "feedback":   run_feedback_phase,
