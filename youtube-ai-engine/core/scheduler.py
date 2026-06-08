@@ -47,6 +47,7 @@ class DailyPipeline:
         from core.brain                       import get_brain
         from intelligence.trend_hunter        import TrendHunter
         from intelligence.competitor_spy      import CompetitorSpy
+        from intelligence.algorithm_hacker    import AlgorithmHacker
         from production.script_writer         import ScriptWriter
         from production.voice_engine          import VoiceEngine
         from production.visual_engine         import VisualEngine
@@ -63,6 +64,20 @@ class DailyPipeline:
         log.info(f"DAILY PIPELINE — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
         log.info("=" * 60)
 
+        # ── 0. Algorithm intelligence (before everything else) ─────────────
+        log.info("[0/9] Running algorithm hacker…")
+        try:
+            ah            = AlgorithmHacker(self.memory)
+            algo_analysis = ah.run_daily(n_sessions=50)
+            algo_settings = ah.get_todays_optimal_settings()
+            result["algo"] = algo_settings
+            log.info(f"  Algorithm: {algo_settings.get('algorithm_status','stable')} "
+                     f"| optimal={algo_settings.get('best_duration_bucket','')} "
+                     f"| Shorts={algo_settings.get('shorts_ratio',0):.1%}")
+        except Exception as e:
+            log.error(f"Algorithm hacker failed (non-fatal): {e}", exc_info=True)
+            algo_analysis = {}
+
         # ── 1. Trend hunting ────────────────────────────────────────────────
         log.info("[1/9] Trend hunting…")
         th = TrendHunter(self.memory)
@@ -75,7 +90,9 @@ class DailyPipeline:
         recent = self.memory.recent_topics(days=7)
         topic  = brain.decide_topic(candidates, recent)
         style  = brain.decide_style(topic.get("title", ""))
-        length = brain.decide_video_length()
+        # Use algorithm-optimal duration if available; fall back to brain default
+        algo_dur = (result.get("algo") or {}).get("duration_seconds", 0)
+        length   = algo_dur if algo_dur else brain.decide_video_length()
         log.info(f"  Topic: {topic['title']!r}  style={style}  length={length}s")
         result["topic"] = topic
 
@@ -113,10 +130,24 @@ class DailyPipeline:
         thumbs   = ta.generate_variants(topic, style=style)
         result["thumbnails"] = thumbs
 
-        # ── 8. Upload ──────────────────────────────────────────────────────
-        log.info("[8/9] Publishing to YouTube…")
+        # ── 8. Shadow rank check + upload ──────────────────────────────────
+        log.info("[8/9] Shadow-rank check then publishing to YouTube…")
         seo      = SEOOptimizer(self.memory)
         metadata = seo.build_metadata(topic, script)
+
+        try:
+            ah           = AlgorithmHacker(self.memory)
+            algo_upload_hr = (result.get("algo") or {}).get("preferred_upload_hour", 14)
+            prediction   = ah.pre_publish_check(script, metadata, upload_hour=algo_upload_hr)
+            approved, reason = ah.ranker.should_publish(prediction)
+            result["shadow_rank"] = prediction
+            log.info(f"  Shadow rank: {reason}")
+            if not approved:
+                log.warning("  Shadow rank REJECTED publish — proceeding anyway "
+                            "(automated pipeline always publishes; human review recommended)")
+        except Exception as e:
+            log.error(f"Shadow ranker failed (non-fatal): {e}", exc_info=True)
+
         pub      = YouTubePublisher(self.memory)
         yt_id    = pub.upload(video_f, metadata, thumbnail=thumbs[0] if thumbs else None)
         result["youtube_id"] = yt_id
@@ -203,6 +234,13 @@ class Scheduler:
                 max_instances=1, coalesce=True,
             )
 
+            # Algorithm hacker at 01:00 UTC daily (before trend hunting at 02:00)
+            sched.add_job(
+                self._run_algorithm_hacker, CronTrigger(hour=1, minute=0),
+                id="algorithm_hacker", name="Algorithm reverse-engineering",
+                max_instances=1, coalesce=True,
+            )
+
             # Git snapshot every 6 hours
             sched.add_job(
                 self._run_version_snapshot, CronTrigger(hour="*/6", minute=30),
@@ -246,6 +284,18 @@ class Scheduler:
         except Exception as e:
             log.error(f"Code audit crashed: {e}", exc_info=True)
 
+    def _run_algorithm_hacker(self):
+        try:
+            from intelligence.algorithm_hacker import AlgorithmHacker
+            ah = AlgorithmHacker(self.memory)
+            analysis = ah.run_daily(n_sessions=50)
+            cr = analysis.get("change_report", {})
+            log.info(f"Algorithm hacker: {cr.get('status','stable')} "
+                     f"(severity={cr.get('severity','low')}, "
+                     f"adjustments={len(analysis.get('auto_adjustments',[]))})")
+        except Exception as e:
+            log.error(f"Algorithm hacker crashed: {e}", exc_info=True)
+
     def _run_version_snapshot(self):
         try:
             from evolution.version_manager import VersionManager
@@ -278,10 +328,15 @@ class Scheduler:
         last_daily    = None
         last_feedback = None
         last_audit    = None
+        last_algo     = None
 
         while True:
             now = datetime.now(timezone.utc)
             h   = now.hour
+
+            if h == 1 and last_algo != now.date():
+                last_algo = now.date()
+                self._run_algorithm_hacker()
 
             if h == 2 and last_daily != now.date():
                 last_daily = now.date()

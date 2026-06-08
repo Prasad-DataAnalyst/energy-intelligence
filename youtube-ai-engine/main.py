@@ -160,6 +160,17 @@ def run_competitor_phase(memory):
     print(f"\nCompetitor DB: {formula.get('channels_analysed',0)} channels analysed")
 
 
+def run_algo_phase(memory, n_sessions: int = 50):
+    from intelligence.algorithm_hacker import AlgorithmHacker
+    ah       = AlgorithmHacker(memory)
+    analysis = ah.run_daily(n_sessions=n_sessions)
+    ah.print_report(analysis)
+    cr = analysis.get("change_report", {})
+    print(f"\nAlgorithm status: {cr.get('status','stable')} "
+          f"(severity={cr.get('severity','low')})")
+    print(f"Auto-adjustments: {len(analysis.get('auto_adjustments',[]))}")
+
+
 def run_meta_phase(memory):
     from evolution.meta_learner import MetaLearner
     ml = MetaLearner(memory)
@@ -192,7 +203,7 @@ def main():
     parser.add_argument("--phase",     type=str, metavar="PHASE",
                         choices=["trend","script","voice","visual","assemble",
                                  "thumbnail","publish","audit","feedback",
-                                 "competitor","meta"],
+                                 "competitor","meta","algo"],
                         help="Run a specific phase only")
     parser.add_argument("--topic",     type=str, default="", help="Override topic")
     parser.add_argument("--style",     type=str, default="",
@@ -231,12 +242,15 @@ def main():
 
     # Analysis/maintenance phases don't need a topic — run and return early
     # (avoids wasteful trend-fetching network calls).
-    ANALYSIS_PHASES = {"audit", "feedback", "competitor", "meta"}
+    ANALYSIS_PHASES = {"audit", "feedback", "competitor", "meta", "algo"}
     if args.phase in ANALYSIS_PHASES:
-        {"audit":      run_audit_phase,
-         "feedback":   run_feedback_phase,
-         "competitor": run_competitor_phase,
-         "meta":       run_meta_phase}[args.phase](memory)
+        if args.phase == "algo":
+            run_algo_phase(memory)
+        else:
+            {"audit":      run_audit_phase,
+             "feedback":   run_feedback_phase,
+             "competitor": run_competitor_phase,
+             "meta":       run_meta_phase}[args.phase](memory)
         return
 
     from core.brain import get_brain

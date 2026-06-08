@@ -496,6 +496,165 @@ class TestViewerPsychology(unittest.TestCase):
             self.assertGreater(len(label), 0)
 
 
+class TestAlgorithmHacker(unittest.TestCase):
+
+    def setUp(self):
+        from core.memory import Memory
+        self.mem = Memory(":memory:")
+        from intelligence.algorithm_hacker import (
+            AlgorithmHacker, HomepageSampler, TagAnalyzer,
+            ShadowRanker, AlgorithmChangeDetector,
+            _duration_bucket, _jsd, _parse_dur_string,
+        )
+        self.AH  = AlgorithmHacker
+        self.HS  = HomepageSampler
+        self.TA  = TagAnalyzer
+        self.SR  = ShadowRanker
+        self.ACD = AlgorithmChangeDetector
+        self._dur_bucket     = _duration_bucket
+        self._jsd            = _jsd
+        self._parse_dur      = _parse_dur_string
+        self.ah  = AlgorithmHacker(self.mem)
+
+    # ── Helpers ────────────────────────────────────────────────────────────
+
+    def _make_samples(self, n=20):
+        samples = []
+        for i in range(n):
+            dur = 300 + i * 30
+            samples.append({
+                "video_id":    f"vid{i}",
+                "title":       f"How to master solar energy in {i+3} steps",
+                "duration_s":  dur,
+                "is_short":    dur <= 60,
+                "boost_count": max(1, n - i),
+                "region":      "US",
+            })
+        return samples
+
+    # ── Unit tests ─────────────────────────────────────────────────────────
+
+    def test_duration_bucket_boundaries(self):
+        self.assertEqual(self._dur_bucket(0),     "<2min")
+        self.assertEqual(self._dur_bucket(119),   "<2min")
+        self.assertEqual(self._dur_bucket(120),   "2-5min")
+        self.assertEqual(self._dur_bucket(479),   "5-8min")
+        self.assertEqual(self._dur_bucket(480),   "8-12min")   # 480s = exactly 8min → 8-12 bucket
+        self.assertEqual(self._dur_bucket(600),   "8-12min")
+        self.assertEqual(self._dur_bucket(720),   "12-20min")
+        self.assertEqual(self._dur_bucket(1200),  "20+min")
+
+    def test_jsd_identical_distributions(self):
+        p = {"a": 0.5, "b": 0.5}
+        self.assertAlmostEqual(self._jsd(p, p), 0.0, places=4)
+
+    def test_jsd_orthogonal_distributions(self):
+        p = {"a": 1.0, "b": 0.0}
+        q = {"a": 0.0, "b": 1.0}
+        jsd = self._jsd(p, q)
+        self.assertGreater(jsd, 0.5)   # close to log(2) ≈ 0.693
+
+    def test_parse_dur_string(self):
+        self.assertEqual(self._parse_dur("1:23:45"), 5025)
+        self.assertEqual(self._parse_dur("12:34"),   754)
+        self.assertEqual(self._parse_dur("0:45"),    45)
+        self.assertEqual(self._parse_dur(""),        0)
+
+    def test_tag_analyzer_top_tags_from_titles(self):
+        ta      = self.TA()
+        samples = self._make_samples(10)
+        tags    = ta.top_tags(samples, n=10)
+        self.assertIsInstance(tags, list)
+        self.assertGreater(len(tags), 0)
+        self.assertIn("solar", tags)
+
+    def test_tag_analyzer_shorts_ratio(self):
+        ta = self.TA()
+        samples = [{"duration_s": 30, "is_short": True}] * 3 + \
+                  [{"duration_s": 600, "is_short": False}] * 7
+        ratio = ta.shorts_ratio(samples)
+        self.assertAlmostEqual(ratio, 0.3, places=2)
+
+    def test_tag_analyzer_duration_distribution(self):
+        ta = self.TA()
+        samples = self._make_samples(20)
+        dist = ta.duration_distribution(samples)
+        self.assertIsInstance(dist, dict)
+        total = sum(dist.values())
+        self.assertAlmostEqual(total, 1.0, places=2)
+
+    def test_shadow_ranker_predict_returns_structure(self):
+        sr = self.SR(self.mem)
+        script   = {"title": "Solar energy", "total_duration": 600,
+                    "style": "tech-dark", "psychology_score": 80.0}
+        metadata = {"title": "Solar energy secrets", "tags": ["solar", "energy"]}
+        pred = sr.predict(script, metadata,
+                          boosted_titles=["solar energy tips", "green energy"],
+                          trending_tags=["solar", "energy", "green"])
+        for key in ("composite_score", "predicted_ctr", "predicted_avd_pct",
+                    "signals", "weakest_signal", "publish_approved"):
+            self.assertIn(key, pred)
+        self.assertGreaterEqual(pred["composite_score"], 0)
+        self.assertLessEqual(pred["composite_score"],    100)
+
+    def test_shadow_ranker_no_history_approves(self):
+        sr   = self.SR(self.mem)
+        pred = sr.predict({"total_duration": 600}, {})
+        approved, _ = sr.should_publish(pred)
+        self.assertTrue(approved)
+
+    def test_algorithm_hacker_analyse_samples(self):
+        samples  = self._make_samples(15)
+        analysis = self.ah._analyse_samples(samples)
+        for key in ("shorts_ratio", "duration_dist", "optimal_duration_s",
+                    "form_balance", "ctr_sweet_spots", "top_tags"):
+            self.assertIn(key, analysis)
+        self.assertIsInstance(analysis["shorts_ratio"], float)
+        self.assertIsInstance(analysis["optimal_duration_s"], int)
+
+    def test_snapshot_saved_and_retrieved(self):
+        from datetime import datetime as _dt
+        samples  = self._make_samples(10)
+        analysis = self.ah._analyse_samples(samples)
+        analysis["date"]            = _dt.now().strftime("%Y-%m-%d")
+        analysis["best_upload_hour"] = 14
+        analysis["best_upload_day"]  = "Wednesday"
+        analysis["upload_hour_dist"] = {"12-18": 0.6, "18-24": 0.4}
+        snap_id = self.mem.save_algorithm_snapshot(analysis)
+        self.assertGreater(snap_id, 0)
+        snaps = self.mem.get_algorithm_snapshots(n=5)
+        self.assertEqual(len(snaps), 1)
+        self.assertEqual(snaps[0]["best_upload_hour"], 14)
+
+    def test_change_detector_insufficient_data(self):
+        acd    = self.ACD(self.mem)
+        report = acd.detect_changes(days=7)
+        self.assertEqual(report["status"], "insufficient_data")
+
+    def test_shadow_ranking_saved_to_memory(self):
+        self.mem.save_shadow_ranking({
+            "youtube_id":       "yt_test_001",
+            "predicted_ctr":    4.2,
+            "predicted_avd":    48.0,
+            "predicted_score":  72.5,
+            "publish_decision": "approved",
+        })
+        acc = self.mem.shadow_ranking_accuracy()
+        self.assertEqual(acc["samples"], 0)   # no actuals filled in yet
+
+    def test_get_todays_optimal_settings_stable_no_cache(self):
+        result = self.ah.get_todays_optimal_settings()
+        # Returns {} when no cache — no crash
+        self.assertIsInstance(result, dict)
+
+    def test_memory_schema_has_new_tables(self):
+        expected = {"algorithm_snapshots", "shadow_rankings"}
+        with self.mem._conn() as conn:
+            rows   = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+            tables = {r["name"] for r in rows}
+        self.assertTrue(expected.issubset(tables))
+
+
 # ── Runner ─────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":

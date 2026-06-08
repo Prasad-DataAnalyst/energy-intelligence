@@ -123,6 +123,37 @@ CREATE TABLE IF NOT EXISTS meta_runs (
     results       TEXT,       -- JSON execution results
     actions_done  INTEGER DEFAULT 0
 );
+
+-- Daily snapshots of what YouTube is currently boosting
+CREATE TABLE IF NOT EXISTS algorithm_snapshots (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    date                TEXT    NOT NULL,
+    samples_count       INTEGER,
+    shorts_ratio        REAL,
+    optimal_duration_s  INTEGER,
+    best_upload_hour    INTEGER,
+    best_upload_day     TEXT,
+    form_balance        TEXT,
+    duration_dist       TEXT,   -- JSON {bucket: fraction}
+    upload_hour_dist    TEXT,   -- JSON {band: fraction}
+    top_tags            TEXT,   -- JSON list[str]
+    ctr_sweet_spots     TEXT,   -- JSON dict
+    boosted_titles      TEXT,   -- JSON list[str] top 20
+    created_at          TEXT    NOT NULL
+);
+
+-- Shadow ranking predictions: pre-publish vs eventual actuals
+CREATE TABLE IF NOT EXISTS shadow_rankings (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    youtube_id      TEXT,
+    predicted_ctr   REAL,
+    predicted_avd   REAL,
+    predicted_score REAL,
+    actual_ctr      REAL,
+    actual_avd      REAL,
+    publish_decision TEXT,  -- approved | rejected
+    created_at      TEXT    NOT NULL
+);
 """
 
 
@@ -467,6 +498,99 @@ class Memory:
                 "SELECT * FROM meta_runs ORDER BY timestamp DESC LIMIT ?", (n,)
             ).fetchall()
         return [dict(r) for r in rows]
+
+
+    # ── Algorithm hacker ───────────────────────────────────────────────────────
+
+    def save_algorithm_snapshot(self, analysis: Dict) -> int:
+        """Persist a daily algorithm state snapshot."""
+        import json as _json
+        with self._conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO algorithm_snapshots
+                   (date, samples_count, shorts_ratio, optimal_duration_s,
+                    best_upload_hour, best_upload_day, form_balance,
+                    duration_dist, upload_hour_dist, top_tags,
+                    ctr_sweet_spots, boosted_titles, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    analysis.get("date", datetime.now().strftime("%Y-%m-%d")),
+                    analysis.get("samples_count", 0),
+                    analysis.get("shorts_ratio", 0.0),
+                    analysis.get("optimal_duration_s", 0),
+                    analysis.get("best_upload_hour", 14),
+                    analysis.get("best_upload_day", ""),
+                    analysis.get("form_balance", ""),
+                    _json.dumps(analysis.get("duration_dist", {})),
+                    _json.dumps(analysis.get("upload_hour_dist", {})),
+                    _json.dumps(analysis.get("top_tags", [])),
+                    _json.dumps(analysis.get("ctr_sweet_spots", {})),
+                    _json.dumps(analysis.get("boosted_titles", [])[:20]),
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            return cur.lastrowid
+
+    def get_algorithm_snapshots(self, n: int = 8) -> List[Dict]:
+        """Return the N most recent algorithm snapshots."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM algorithm_snapshots ORDER BY created_at DESC LIMIT ?", (n,)
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def save_shadow_ranking(self, data: Dict) -> int:
+        """Persist a pre-publish shadow ranking prediction."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO shadow_rankings
+                   (youtube_id, predicted_ctr, predicted_avd, predicted_score,
+                    publish_decision, created_at)
+                   VALUES (?,?,?,?,?,?)""",
+                (
+                    data.get("youtube_id", ""),
+                    data.get("predicted_ctr", 0.0),
+                    data.get("predicted_avd", 0.0),
+                    data.get("predicted_score", 0.0),
+                    data.get("publish_decision", ""),
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            return cur.lastrowid
+
+    def update_shadow_ranking_actuals(self, youtube_id: str,
+                                       actual_ctr: float,
+                                       actual_avd: float) -> None:
+        """Fill in actual analytics for a shadow-ranked video after publishing."""
+        with self._conn() as conn:
+            conn.execute(
+                """UPDATE shadow_rankings
+                   SET actual_ctr=?, actual_avd=?
+                   WHERE youtube_id=? AND actual_ctr IS NULL""",
+                (actual_ctr, actual_avd, youtube_id),
+            )
+
+    def shadow_ranking_accuracy(self) -> Dict:
+        """
+        Compare predicted vs actual CTR/AVD for calibration insight.
+        Returns mean absolute error and sample size.
+        """
+        with self._conn() as conn:
+            rows = conn.execute(
+                """SELECT predicted_ctr, actual_ctr, predicted_avd, actual_avd
+                   FROM shadow_rankings
+                   WHERE actual_ctr IS NOT NULL AND actual_avd IS NOT NULL"""
+            ).fetchall()
+        if not rows:
+            return {"samples": 0, "ctr_mae": None, "avd_mae": None}
+        n       = len(rows)
+        ctr_mae = sum(abs(r["predicted_ctr"] - r["actual_ctr"]) for r in rows) / n
+        avd_mae = sum(abs(r["predicted_avd"] - r["actual_avd"]) for r in rows) / n
+        return {
+            "samples":  n,
+            "ctr_mae":  round(ctr_mae, 4),
+            "avd_mae":  round(avd_mae, 2),
+        }
 
 
 # Module-level singleton
