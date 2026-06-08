@@ -458,7 +458,7 @@ def scene_outro(content: dict, n_frames: int) -> list[np.ndarray]:
             na = ease_in_out((t - 0.82) / 0.18)
             nc = lerp_color(PAPER, INK_MID, na)
             draw.text((W // 2, H - 80),
-                      "Daily Drop — Learn Something New Every Day",
+                      "Daily Drop with Prasad  |  New video every day at 3 PM EST",
                       font=_font(32), fill=nc, anchor="mm")
 
         frames.append(_post(img))

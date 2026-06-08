@@ -390,10 +390,12 @@ def build_daily_content() -> dict:
         + "\n".join(f"✅ {b}" for b in topic_data["bullets"])
         + f"\n\n💡 Takeaway: {topic_data['takeaway']}\n\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        "🔔 New video every single day — subscribe so you never miss one.\n"
+        "📺 Daily Drop with Prasad — Learn Something New Every Day\n"
+        "🔔 Subscribe: new video drops every single day at 3 PM EST\n"
         "👍 Like if this made you think differently.\n"
         "💬 Drop your biggest takeaway in the comments.\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "© Daily Drop with Prasad | prasad2t@gmail.com\n\n"
         f"#DailyDrop #{''.join(category.split())} "
         + " ".join(f"#{t}" for t in topic_data["tags"][:8])
     )
