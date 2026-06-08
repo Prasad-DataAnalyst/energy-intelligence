@@ -1642,6 +1642,405 @@ class TestGlobalExpansion(unittest.TestCase):
             self.assertIn("tags",  lang_result["seo"])
 
 
+# ── TestShortsFactory ─────────────────────────────────────────────────────────
+
+
+class TestShortsFactory(unittest.TestCase):
+
+    def setUp(self):
+        from core.memory import Memory
+        self.mem = Memory(":memory:")
+
+    def _make_script(self, n_scenes: int = 6):
+        scenes = []
+        templates = [
+            ("Shocking Stat",    "You won't believe this — solar is now 90% cheaper!"),
+            ("Surprising Reveal","Nobody talks about the hidden cost of wind energy."),
+            ("Emotional Peak",   "This technology is life-changing for millions."),
+            ("Controversial",    "Unpopular opinion: nuclear is cleaner than solar."),
+            ("Hook Question",    "Did you know your electricity bill funds fossil fuels?"),
+            ("Funny",            "The irony of oil companies building solar farms."),
+            ("Extra Fact",       "Batteries now store 10x more energy than 5 years ago."),
+            ("Conclusion",       "The future of energy is here. Subscribe now."),
+        ]
+        for i in range(min(n_scenes, len(templates))):
+            title, narration = templates[i]
+            scenes.append({"title": title, "narration": narration,
+                            "text_overlay": title})
+        return {
+            "title": "The Future of Energy",
+            "hook":  "Solar power is about to change everything.",
+            "scenes": scenes,
+        }
+
+    # ── ViralMomentAnalyzer ────────────────────────────────────────────────
+
+    def test_analyze_transcript_returns_list(self):
+        from production.shorts_factory import ViralMomentAnalyzer
+        va     = ViralMomentAnalyzer()
+        result = va.analyze_transcript(self._make_script())
+        self.assertIsInstance(result, list)
+
+    def test_analyze_transcript_sorted_by_score(self):
+        from production.shorts_factory import ViralMomentAnalyzer
+        va      = ViralMomentAnalyzer()
+        results = va.analyze_transcript(self._make_script())
+        if len(results) > 1:
+            scores = [r["virality_score"] for r in results]
+            self.assertEqual(scores, sorted(scores, reverse=True))
+
+    def test_score_segment_range(self):
+        from production.shorts_factory import ViralMomentAnalyzer
+        va    = ViralMomentAnalyzer()
+        scene = {"narration": "You won't believe this shocking 90% drop in solar costs!"}
+        score, sig = va.score_segment(scene)
+        self.assertGreaterEqual(score, 0)
+        self.assertLessEqual(score, 100)
+        self.assertIsInstance(sig, str)
+
+    def test_score_segment_high_for_shock_words(self):
+        from production.shorts_factory import ViralMomentAnalyzer
+        va = ViralMomentAnalyzer()
+        high_scene = {"narration":
+                      "You won't believe this shocking billion-dollar secret they hid!"}
+        low_scene  = {"narration": "Today we talk about energy."}
+        high_score, _ = va.score_segment(high_scene)
+        low_score,  _ = va.score_segment(low_scene)
+        self.assertGreater(high_score, low_score)
+
+    def test_extract_top_segments_count(self):
+        from production.shorts_factory import ViralMomentAnalyzer
+        va       = ViralMomentAnalyzer()
+        segments = va.analyze_transcript(self._make_script(n_scenes=8))
+        top5     = va.extract_top_segments(segments, n=5)
+        self.assertLessEqual(len(top5), 5)
+
+    def test_extract_top_segments_diversity(self):
+        from production.shorts_factory import ViralMomentAnalyzer
+        va       = ViralMomentAnalyzer()
+        segments = va.analyze_transcript(self._make_script(n_scenes=8))
+        top5     = va.extract_top_segments(segments, n=5)
+        signal_types = [s["signal_type"] for s in top5]
+        from collections import Counter
+        for sig, count in Counter(signal_types).items():
+            self.assertLessEqual(count, 2,
+                f"Signal type '{sig}' appears {count} times — max 2 allowed")
+
+    def test_required_segment_keys(self):
+        from production.shorts_factory import ViralMomentAnalyzer
+        va      = ViralMomentAnalyzer()
+        results = va.analyze_transcript(self._make_script())
+        for seg in results:
+            for key in ("virality_score", "signal_type", "start_s",
+                        "end_s", "duration_s", "hook_text"):
+                self.assertIn(key, seg, f"Missing key: {key}")
+
+    # ── ShortsFormatter ────────────────────────────────────────────────────
+
+    def test_format_segment_duration_sweet_spot(self):
+        from production.shorts_factory import (ShortsFormatter, ViralMomentAnalyzer,
+                                                DURATION_MIN, DURATION_MAX)
+        va  = ViralMomentAnalyzer()
+        sf  = ShortsFormatter()
+        segs = va.analyze_transcript(self._make_script())
+        for seg in segs:
+            spec = sf.format_segment(seg, {"title": "Test"}, 1)
+            dur  = spec["duration_s"]
+            self.assertGreaterEqual(dur, DURATION_MIN,
+                f"Duration {dur}s below minimum {DURATION_MIN}s")
+            self.assertLessEqual(dur, DURATION_MAX + 1,   # allow 1s tolerance
+                f"Duration {dur}s above maximum {DURATION_MAX}s")
+
+    def test_format_segment_required_keys(self):
+        from production.shorts_factory import ShortsFormatter, ViralMomentAnalyzer
+        va   = ViralMomentAnalyzer()
+        sf   = ShortsFormatter()
+        segs = va.analyze_transcript(self._make_script())
+        spec = sf.format_segment(segs[0], {"title": "Test"}, 1)
+        for key in ("title", "hook_text", "hook_order", "start_s", "end_s",
+                    "duration_s", "virality_score", "signal_type", "caption_spec"):
+            self.assertIn(key, spec, f"Missing key: {key}")
+
+    def test_cta_returns_string(self):
+        from production.shorts_factory import ShortsFormatter
+        sf = ShortsFormatter()
+        for sig in ("shocking_stat", "emotional_peak", "controversial", "funny"):
+            cta = sf.get_cta(sig, "youtube_shorts")
+            self.assertIsInstance(cta, str)
+            self.assertGreater(len(cta), 0)
+
+    # ── CaptionEngine ──────────────────────────────────────────────────────
+
+    def test_generate_word_by_word_count(self):
+        from production.shorts_factory import CaptionEngine
+        ce   = CaptionEngine()
+        caps = ce.generate_word_by_word("Hello world this is a test caption here", 10.0, 3)
+        self.assertIsInstance(caps, list)
+        self.assertGreater(len(caps), 0)
+
+    def test_generate_word_by_word_keys(self):
+        from production.shorts_factory import CaptionEngine
+        ce   = CaptionEngine()
+        caps = ce.generate_word_by_word("Solar energy is the future", 8.0, 2)
+        for cap in caps:
+            for key in ("start_s", "end_s", "text", "highlight"):
+                self.assertIn(key, cap)
+
+    def test_generate_word_by_word_timings_monotone(self):
+        from production.shorts_factory import CaptionEngine
+        ce   = CaptionEngine()
+        caps = ce.generate_word_by_word("One two three four five six seven eight", 16.0, 2)
+        for i in range(1, len(caps)):
+            self.assertGreaterEqual(caps[i]["start_s"], caps[i-1]["start_s"])
+
+    def test_to_srt_creates_file(self):
+        import tempfile, os
+        from production.shorts_factory import CaptionEngine
+        ce   = CaptionEngine()
+        caps = ce.generate_word_by_word("Solar power is amazing technology", 10.0, 3)
+        with tempfile.NamedTemporaryFile(suffix=".srt", delete=False) as f:
+            path = f.name
+        try:
+            out = ce.to_srt(caps, path)
+            self.assertTrue(Path(out).exists())
+            content = Path(out).read_text()
+            self.assertIn("-->", content)
+        finally:
+            os.unlink(path)
+
+    def test_to_ass_creates_file(self):
+        import tempfile, os
+        from production.shorts_factory import CaptionEngine
+        ce   = CaptionEngine()
+        caps = ce.generate_word_by_word("Shocking secret revealed today", 8.0, 2)
+        with tempfile.NamedTemporaryFile(suffix=".ass", delete=False) as f:
+            path = f.name
+        try:
+            out = ce.to_ass(caps, path)
+            self.assertTrue(Path(out).exists())
+            content = Path(out).read_text()
+            self.assertIn("[Script Info]", content)
+            self.assertIn("[V4+ Styles]",  content)
+            self.assertIn("TikTok",        content)
+        finally:
+            os.unlink(path)
+
+    def test_highlight_flag_set_for_known_words(self):
+        from production.shorts_factory import CaptionEngine
+        ce   = CaptionEngine()
+        caps = ce.generate_word_by_word("This is a shocking secret revealed today", 8.0, 1)
+        highlighted = [c for c in caps if c["highlight"]]
+        self.assertGreater(len(highlighted), 0, "No captions flagged as highlighted")
+
+    # ── CrossPlatformExporter ──────────────────────────────────────────────
+
+    def test_export_specs_has_all_platforms(self):
+        from production.shorts_factory import (CrossPlatformExporter,
+                                                PLATFORM_SPECS,
+                                                ViralMomentAnalyzer,
+                                                ShortsFormatter)
+        va   = ViralMomentAnalyzer()
+        sf   = ShortsFormatter()
+        exp  = CrossPlatformExporter()
+        segs = va.analyze_transcript(self._make_script())
+        spec = sf.format_segment(segs[0], {"title": "Solar Test"}, 1)
+        specs = exp.export_specs(spec, "Solar Energy")
+        self.assertEqual(set(specs.keys()), set(PLATFORM_SPECS.keys()))
+
+    def test_export_specs_required_keys(self):
+        from production.shorts_factory import (CrossPlatformExporter,
+                                                ViralMomentAnalyzer,
+                                                ShortsFormatter)
+        va   = ViralMomentAnalyzer()
+        sf   = ShortsFormatter()
+        exp  = CrossPlatformExporter()
+        segs = va.analyze_transcript(self._make_script())
+        spec = sf.format_segment(segs[0], {"title": "Test"}, 1)
+        specs = exp.export_specs(spec, "Solar")
+        for platform, p_spec in specs.items():
+            for key in ("width", "height", "fps", "cta", "hashtags"):
+                self.assertIn(key, p_spec,
+                    f"Platform {platform} missing key: {key}")
+
+    def test_twitter_x_is_landscape(self):
+        from production.shorts_factory import (CrossPlatformExporter,
+                                                ViralMomentAnalyzer,
+                                                ShortsFormatter)
+        va   = ViralMomentAnalyzer()
+        sf   = ShortsFormatter()
+        exp  = CrossPlatformExporter()
+        segs = va.analyze_transcript(self._make_script())
+        spec = sf.format_segment(segs[0], {"title": "Test"}, 1)
+        specs = exp.export_specs(spec, "Solar")
+        self.assertEqual(specs["twitter_x"]["width"],  1280)
+        self.assertEqual(specs["twitter_x"]["height"],  720)
+
+    def test_vertical_platforms_are_9_16(self):
+        from production.shorts_factory import (CrossPlatformExporter,
+                                                ViralMomentAnalyzer,
+                                                ShortsFormatter)
+        va   = ViralMomentAnalyzer()
+        sf   = ShortsFormatter()
+        exp  = CrossPlatformExporter()
+        segs = va.analyze_transcript(self._make_script())
+        spec = sf.format_segment(segs[0], {"title": "Test"}, 1)
+        specs = exp.export_specs(spec, "Solar")
+        for platform in ("youtube_shorts", "tiktok", "instagram_reels", "linkedin"):
+            self.assertEqual(specs[platform]["width"],  1080)
+            self.assertEqual(specs[platform]["height"], 1920)
+
+    def test_hashtag_count_capped(self):
+        from production.shorts_factory import CrossPlatformExporter, PLATFORM_SPECS
+        exp = CrossPlatformExporter()
+        for platform, cfg in PLATFORM_SPECS.items():
+            tags = exp.generate_hashtags("solar energy tutorial", platform,
+                                          cfg["hashtag_count"])
+            self.assertLessEqual(len(tags), cfg["hashtag_count"],
+                f"{platform}: too many hashtags")
+
+    def test_ffmpeg_command_contains_input(self):
+        from production.shorts_factory import (CrossPlatformExporter,
+                                                ViralMomentAnalyzer,
+                                                ShortsFormatter)
+        va   = ViralMomentAnalyzer()
+        sf   = ShortsFormatter()
+        exp  = CrossPlatformExporter()
+        segs = va.analyze_transcript(self._make_script())
+        spec = sf.format_segment(segs[0], {"title": "Test"}, 1)
+        cmd  = exp.build_ffmpeg_command(spec, "youtube_shorts",
+                                         "/input/video.mp4", "/output/short.mp4")
+        self.assertIn("ffmpeg",           cmd)
+        self.assertIn("/input/video.mp4", cmd)
+        self.assertIn("1080",             cmd)
+        self.assertIn("1920",             cmd)
+
+    # ── ShortsMonetizationTracker ──────────────────────────────────────────
+
+    def test_estimate_revenue_positive(self):
+        from production.shorts_factory import ShortsMonetizationTracker
+        tracker = ShortsMonetizationTracker()
+        rev = tracker.estimate_revenue("youtube_shorts", 100_000)
+        self.assertGreater(rev, 0)
+
+    def test_weekly_shorts_report_structure(self):
+        from production.shorts_factory import ShortsMonetizationTracker
+        tracker = ShortsMonetizationTracker()
+        report  = tracker.weekly_shorts_report(self.mem)
+        for key in ("week_total_views", "week_total_revenue",
+                    "by_platform", "shorts_count"):
+            self.assertIn(key, report)
+
+    # ── Memory tables ───────────────────────────────────────────────────────
+
+    def test_memory_has_shorts_tables(self):
+        expected = {"shorts", "shorts_expansion_queue"}
+        with self.mem._conn() as conn:
+            rows   = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+            tables = {r["name"] for r in rows}
+        self.assertTrue(expected.issubset(tables),
+                        f"Missing: {expected - tables}")
+
+    def test_memory_save_and_get_short(self):
+        vid_id = self.mem.save_video({
+            "date": "2026-06-08", "topic": "solar", "title": "Solar Video",
+            "youtube_id": "ytShort01",
+        })
+        short_id = self.mem.save_short({
+            "source_video_db_id": vid_id,
+            "source_youtube_id":  "ytShort01",
+            "short_index":        1,
+            "segment_type":       "shocking_stat",
+            "virality_score":     82.5,
+            "start_s":            15.0,
+            "end_s":              52.0,
+            "duration_s":         37.0,
+            "title":              "SHOCKING: Solar is 90% cheaper",
+            "hook_text":          "You won't believe how cheap solar is now",
+            "platform":           "multi",
+            "status":             "produced",
+        })
+        self.assertGreater(short_id, 0)
+        shorts = self.mem.get_shorts(source_video_db_id=vid_id)
+        self.assertEqual(len(shorts), 1)
+        self.assertAlmostEqual(shorts[0]["virality_score"], 82.5, places=1)
+
+    def test_memory_get_top_shorts_threshold(self):
+        vid_id = self.mem.save_video({
+            "date": "2026-06-08", "topic": "wind", "title": "Wind Energy",
+            "youtube_id": "ytShort02",
+        })
+        self.mem.save_short({"source_video_db_id": vid_id, "virality_score": 90.0,
+                              "title": "High scorer", "duration_s": 35, "status": "produced"})
+        self.mem.save_short({"source_video_db_id": vid_id, "virality_score": 40.0,
+                              "title": "Low scorer", "duration_s": 35, "status": "produced"})
+        top = self.mem.get_top_shorts(min_score=65.0)
+        self.assertEqual(len(top), 1)
+        self.assertAlmostEqual(top[0]["virality_score"], 90.0, places=1)
+
+    def test_memory_update_short_analytics(self):
+        vid_id = self.mem.save_video({
+            "date": "2026-06-08", "topic": "battery", "title": "Battery Tech",
+            "youtube_id": "ytShort03",
+        })
+        short_id = self.mem.save_short({
+            "source_video_db_id": vid_id, "virality_score": 75.0,
+            "title": "Battery secret", "duration_s": 40, "status": "produced",
+        })
+        self.mem.update_short_analytics(short_id, views=50000, likes=2000, revenue=2.50)
+        shorts = self.mem.get_shorts(source_video_db_id=vid_id)
+        self.assertEqual(shorts[0]["views"], 50000)
+        self.assertAlmostEqual(shorts[0]["revenue"], 2.50, places=2)
+
+    def test_memory_short_count(self):
+        initial = self.mem.short_count()
+        vid_id  = self.mem.save_video({
+            "date": "2026-06-08", "topic": "ev", "title": "EV Range",
+            "youtube_id": "ytShort04",
+        })
+        self.mem.save_short({"source_video_db_id": vid_id, "virality_score": 60.0,
+                              "title": "EV short", "duration_s": 30, "status": "produced"})
+        self.assertEqual(self.mem.short_count(), initial + 1)
+
+    # ── ShortsFactory orchestrator ─────────────────────────────────────────
+
+    def test_process_video_returns_structure(self):
+        from production.shorts_factory import ShortsFactory
+        with patch.dict("os.environ", {"ANTHROPIC_API_KEY": ""}):
+            sf     = ShortsFactory(self.mem)
+            result = sf.process_video(self._make_script(), metadata={"title": "Solar"})
+        for key in ("topic", "total_segments", "shorts_produced",
+                    "shorts", "expansion_candidates", "output_dir"):
+            self.assertIn(key, result)
+
+    def test_process_video_produces_minimum_shorts(self):
+        from production.shorts_factory import ShortsFactory
+        with patch.dict("os.environ", {"ANTHROPIC_API_KEY": ""}):
+            sf     = ShortsFactory(self.mem)
+            result = sf.process_video(self._make_script(n_scenes=8),
+                                       metadata={"title": "Energy 2026"},
+                                       n_shorts=5)
+        self.assertGreaterEqual(result["shorts_produced"], 1)
+
+    def test_each_short_has_all_platform_exports(self):
+        from production.shorts_factory import ShortsFactory, PLATFORM_SPECS
+        with patch.dict("os.environ", {"ANTHROPIC_API_KEY": ""}):
+            sf     = ShortsFactory(self.mem)
+            result = sf.process_video(self._make_script(),
+                                       metadata={"title": "Solar"}, n_shorts=2)
+        for short in result["shorts"]:
+            exports = short.get("exports", {})
+            self.assertEqual(set(exports.keys()), set(PLATFORM_SPECS.keys()))
+
+    def test_run_daily_with_no_video_data(self):
+        from production.shorts_factory import ShortsFactory
+        sf     = ShortsFactory(self.mem)
+        result = sf.run_daily(video_data=None)
+        self.assertIn("shorts_produced", result)
+        self.assertEqual(result["shorts_produced"], 0)
+
+
 # ── Runner ─────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":

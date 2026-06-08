@@ -179,6 +179,25 @@ def run_monetize_phase(memory):
     me.run_revenue_dashboard()
 
 
+def run_shorts_phase(memory):
+    from production.shorts_factory import ShortsFactory
+    import yaml
+    # Build a minimal script from recent trends/topics if no video available
+    recent = memory.recent_topics(days=1)
+    topic  = recent[0] if recent else "Energy Technology"
+    script = {"title": topic, "hook": f"The truth about {topic}",
+              "scenes": [
+                  {"title": "Hook",    "narration": f"Did you know {topic} is changing?"},
+                  {"title": "Content", "narration": f"Here are the key facts about {topic}."},
+                  {"title": "CTA",     "narration": "Subscribe for more!"},
+              ]}
+    sf     = ShortsFactory(memory)
+    result = sf.process_video(script, metadata={"title": topic})
+    sf.print_report(result)
+    print(f"\nShorts factory: {result.get('shorts_produced', 0)} Shorts produced "
+          f"| {result.get('total_segments', 0)} segments analyzed")
+
+
 def run_global_phase(memory):
     from intelligence.global_expansion import GlobalExpansion
     ge     = GlobalExpansion(memory)
@@ -240,7 +259,8 @@ def main():
     parser.add_argument("--phase",     type=str, metavar="PHASE",
                         choices=["trend","script","voice","visual","assemble",
                                  "thumbnail","publish","audit","feedback",
-                                 "competitor","meta","algo","monetize","dominate","global"],
+                                 "competitor","meta","algo","monetize","dominate",
+                                 "global","shorts"],
                         help="Run a specific phase only")
     parser.add_argument("--topic",     type=str, default="", help="Override topic")
     parser.add_argument("--style",     type=str, default="",
@@ -280,7 +300,7 @@ def main():
     # Analysis/maintenance phases don't need a topic — run and return early
     # (avoids wasteful trend-fetching network calls).
     ANALYSIS_PHASES = {"audit", "feedback", "competitor", "meta", "algo",
-                        "monetize", "dominate", "global"}
+                        "monetize", "dominate", "global", "shorts"}
     if args.phase in ANALYSIS_PHASES:
         if args.phase == "algo":
             run_algo_phase(memory)
@@ -290,6 +310,8 @@ def main():
             run_dominator_phase(memory)
         elif args.phase == "global":
             run_global_phase(memory)
+        elif args.phase == "shorts":
+            run_shorts_phase(memory)
         else:
             {"audit":      run_audit_phase,
              "feedback":   run_feedback_phase,

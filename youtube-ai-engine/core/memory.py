@@ -312,6 +312,42 @@ CREATE TABLE IF NOT EXISTS localization_jobs (
     created_at         TEXT NOT NULL,
     completed_at       TEXT
 );
+
+-- Each Short produced from a long-form video
+CREATE TABLE IF NOT EXISTS shorts (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_video_db_id INTEGER REFERENCES videos(id),
+    source_youtube_id  TEXT,
+    short_index        INTEGER DEFAULT 1,
+    segment_type       TEXT,   -- shocking_stat | surprising_reveal | emotional_peak | etc.
+    virality_score     REAL    DEFAULT 0,
+    start_s            REAL    DEFAULT 0,
+    end_s              REAL    DEFAULT 0,
+    duration_s         REAL    DEFAULT 0,
+    title              TEXT,
+    hook_text          TEXT,
+    platform           TEXT    DEFAULT 'multi',
+    file_path          TEXT,
+    youtube_id         TEXT,
+    status             TEXT    DEFAULT 'pending',
+    views              INTEGER DEFAULT 0,
+    likes              INTEGER DEFAULT 0,
+    shares             INTEGER DEFAULT 0,
+    revenue            REAL    DEFAULT 0,
+    created_at         TEXT    NOT NULL
+);
+
+-- Shorts that should be expanded into full long-form videos
+CREATE TABLE IF NOT EXISTS shorts_expansion_queue (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    short_db_id    INTEGER REFERENCES shorts(id),
+    topic          TEXT,
+    virality_score REAL    DEFAULT 0,
+    views          INTEGER DEFAULT 0,
+    signal_type    TEXT,
+    status         TEXT    DEFAULT 'queued',  -- queued | in_production | published
+    created_at     TEXT    NOT NULL
+);
 """
 
 
@@ -1295,6 +1331,141 @@ class Memory:
                 (limit,),
             ).fetchall()
         return [dict(r) for r in rows]
+
+    # ── Shorts factory ────────────────────────────────────────────────────────
+
+    def save_short(self, data: Dict) -> int:
+        """Persist a produced Short record."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO shorts
+                   (source_video_db_id, source_youtube_id, short_index,
+                    segment_type, virality_score, start_s, end_s, duration_s,
+                    title, hook_text, platform, file_path, youtube_id,
+                    status, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    data.get("source_video_db_id"),
+                    data.get("source_youtube_id", ""),
+                    data.get("short_index", 1),
+                    data.get("segment_type", ""),
+                    data.get("virality_score", 0.0),
+                    data.get("start_s", 0.0),
+                    data.get("end_s", 0.0),
+                    data.get("duration_s", 0.0),
+                    data.get("title", ""),
+                    data.get("hook_text", ""),
+                    data.get("platform", "multi"),
+                    data.get("file_path", ""),
+                    data.get("youtube_id", ""),
+                    data.get("status", "pending"),
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            return cur.lastrowid
+
+    def get_shorts(self, source_video_db_id: int = None,
+                    platform: str = None, n: int = 50) -> List[Dict]:
+        """Return Shorts, optionally filtered by source video or platform."""
+        with self._conn() as conn:
+            if source_video_db_id and platform:
+                rows = conn.execute(
+                    "SELECT * FROM shorts WHERE source_video_db_id=? AND platform=? "
+                    "ORDER BY virality_score DESC LIMIT ?",
+                    (source_video_db_id, platform, n),
+                ).fetchall()
+            elif source_video_db_id:
+                rows = conn.execute(
+                    "SELECT * FROM shorts WHERE source_video_db_id=? "
+                    "ORDER BY virality_score DESC LIMIT ?",
+                    (source_video_db_id, n),
+                ).fetchall()
+            elif platform:
+                rows = conn.execute(
+                    "SELECT * FROM shorts WHERE platform=? "
+                    "ORDER BY virality_score DESC LIMIT ?",
+                    (platform, n),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM shorts ORDER BY created_at DESC LIMIT ?", (n,)
+                ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_top_shorts(self, min_score: float = 65.0, n: int = 20) -> List[Dict]:
+        """Return Shorts above a virality score threshold, sorted by score."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM shorts WHERE virality_score >= ? "
+                "ORDER BY virality_score DESC LIMIT ?",
+                (min_score, n),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def update_short_analytics(self, short_id: int, views: int = 0,
+                                 likes: int = 0, shares: int = 0,
+                                 revenue: float = 0.0) -> None:
+        """Update views/likes/shares/revenue for a Short."""
+        with self._conn() as conn:
+            conn.execute(
+                """UPDATE shorts
+                   SET views=views+?, likes=likes+?, shares=shares+?,
+                       revenue=revenue+?
+                   WHERE id=?""",
+                (views, likes, shares, revenue, short_id),
+            )
+
+    def update_short_youtube_id(self, short_id: int, youtube_id: str) -> None:
+        """Set YouTube Shorts ID after upload."""
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE shorts SET youtube_id=?, status='published' WHERE id=?",
+                (youtube_id, short_id),
+            )
+
+    def get_shorts_analytics(self, days: int = 7, n: int = 100) -> List[Dict]:
+        """Return Short records created in the last N days."""
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM shorts WHERE created_at >= ? "
+                "ORDER BY views DESC LIMIT ?",
+                (cutoff, n),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def save_shorts_expansion(self, short_db_id: int, topic: str,
+                               virality_score: float,
+                               signal_type: str = "") -> int:
+        """Queue a Short for expansion into a full video."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO shorts_expansion_queue
+                   (short_db_id, topic, virality_score, signal_type,
+                    status, created_at)
+                   VALUES (?,?,?,?,?,?)""",
+                (
+                    short_db_id, topic, virality_score, signal_type,
+                    "queued", datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            return cur.lastrowid
+
+    def get_expansion_queue(self, status: str = "queued",
+                             n: int = 20) -> List[Dict]:
+        """Return Shorts queued for full-video expansion."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM shorts_expansion_queue WHERE status=? "
+                "ORDER BY virality_score DESC LIMIT ?",
+                (status, n),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def short_count(self) -> int:
+        """Return total number of Shorts in the database."""
+        with self._conn() as conn:
+            return conn.execute("SELECT COUNT(*) AS n FROM shorts").fetchone()["n"]
 
 
 # Module-level singleton

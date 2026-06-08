@@ -240,6 +240,28 @@ class DailyPipeline:
             except Exception as e:
                 log.error(f"Meta-learner failed (non-fatal): {e}", exc_info=True)
 
+            # ── [9b/9] Shorts factory — spawn 5-10 Shorts from long video ──
+            log.info("[9b/9] Shorts factory…")
+            try:
+                from production.shorts_factory import ShortsFactory
+                sf = ShortsFactory(self.memory)
+                shorts_data = {
+                    "script":   script,
+                    "video":    video_f,
+                    "metadata": metadata,
+                    "db_id":    db_id,
+                }
+                shorts_result = sf.run_daily(shorts_data)
+                result["shorts"] = {
+                    "produced":   shorts_result.get("shorts_produced", 0),
+                    "expand_cands": len(shorts_result.get("expansion_candidates", [])),
+                }
+                log.info(f"  Shorts: {shorts_result.get('shorts_produced', 0)} produced | "
+                         f"expansion queue: "
+                         f"{len(shorts_result.get('expansion_candidates', []))} candidates")
+            except Exception as e:
+                log.error(f"Shorts factory failed (non-fatal): {e}", exc_info=True)
+
         log.info("Daily pipeline complete.")
         return result
 
@@ -320,6 +342,13 @@ class Scheduler:
                 max_instances=1, coalesce=True,
             )
 
+            # Shorts weekly analytics check — Wednesday 09:00 UTC
+            sched.add_job(
+                self._run_shorts_analytics, CronTrigger(day_of_week="wed", hour=9, minute=0),
+                id="shorts_analytics", name="Shorts weekly performance review",
+                max_instances=1, coalesce=True,
+            )
+
             # Git snapshot every 6 hours
             sched.add_job(
                 self._run_version_snapshot, CronTrigger(hour="*/6", minute=30),
@@ -396,6 +425,18 @@ class Scheduler:
                      f"adjustments={len(analysis.get('auto_adjustments',[]))})")
         except Exception as e:
             log.error(f"Algorithm hacker crashed: {e}", exc_info=True)
+
+    def _run_shorts_analytics(self):
+        try:
+            from production.shorts_factory import ShortsMonetizationTracker
+            tracker = ShortsMonetizationTracker()
+            report  = tracker.weekly_shorts_report(self.memory)
+            cands   = tracker.identify_expansion_candidates(self.memory)
+            log.info(f"Shorts weekly: {report['week_total_views']:,} views | "
+                     f"${report['week_total_revenue']:.2f} revenue | "
+                     f"{len(cands)} expansion candidates")
+        except Exception as e:
+            log.error(f"Shorts analytics crashed: {e}", exc_info=True)
 
     def _run_global_expansion(self):
         try:
