@@ -2703,6 +2703,378 @@ class TestCommunityEngine(unittest.TestCase):
         self.assertIn(result["severity"], ("warning", "critical", "none"))
 
 
+# ── TestFutureProof ───────────────────────────────────────────────────────────
+
+
+class TestFutureProof(unittest.TestCase):
+
+    def setUp(self):
+        from core.memory import Memory
+        self.mem = Memory(":memory:")
+
+    # ── Memory schema ───────────────────────────────────────────────────────
+
+    def test_memory_has_future_proof_tables(self):
+        expected = {"model_benchmarks", "platform_changes",
+                    "tech_stack_updates", "quality_standards"}
+        with self.mem._conn() as conn:
+            rows   = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+            tables = {r["name"] for r in rows}
+        self.assertTrue(expected.issubset(tables),
+                        f"Missing tables: {expected - tables}")
+
+    # ── model_benchmarks memory CRUD ────────────────────────────────────────
+
+    def test_save_and_get_model_benchmark(self):
+        bid = self.mem.save_model_benchmark({
+            "model_id": "claude-haiku-4-5-20251001",
+            "category": "text", "score": 82.0,
+            "delta": 0.0, "active": True,
+        })
+        self.assertGreater(bid, 0)
+        benchmarks = self.mem.get_model_benchmarks("text", n=5)
+        self.assertGreaterEqual(len(benchmarks), 1)
+        self.assertEqual(benchmarks[0]["model_id"], "claude-haiku-4-5-20251001")
+
+    def test_get_active_model_returns_latest(self):
+        self.mem.save_model_benchmark({
+            "model_id": "gpt-4o-mini", "category": "text",
+            "score": 84.0, "active": True,
+        })
+        active = self.mem.get_active_model("text")
+        self.assertEqual(active, "gpt-4o-mini")
+
+    def test_get_active_model_no_data_returns_none(self):
+        result = self.mem.get_active_model("video")
+        self.assertIsNone(result)
+
+    def test_get_model_benchmarks_filtered_by_category(self):
+        self.mem.save_model_benchmark({"model_id": "m1", "category": "text",   "score": 80.0})
+        self.mem.save_model_benchmark({"model_id": "m2", "category": "voice",  "score": 90.0})
+        self.mem.save_model_benchmark({"model_id": "m3", "category": "text",   "score": 85.0})
+        text_bms = self.mem.get_model_benchmarks("text")
+        cats = {b["category"] for b in text_bms}
+        self.assertEqual(cats, {"text"})
+
+    # ── platform_changes memory CRUD ────────────────────────────────────────
+
+    def test_save_and_get_platform_change(self):
+        cid = self.mem.save_platform_change({
+            "source": "youtube_blog",
+            "title":  "New monetization policy for Shorts",
+            "url":    "https://blog.youtube/posts/shorts-money",
+            "change_type": "monetization",
+            "priority": True,
+        })
+        self.assertGreater(cid, 0)
+        changes = self.mem.get_unadapted_changes()
+        self.assertGreaterEqual(len(changes), 1)
+        self.assertEqual(changes[0]["change_type"], "monetization")
+
+    def test_mark_change_adapted(self):
+        cid = self.mem.save_platform_change({
+            "source": "youtube_api_blog", "title": "API quota change",
+            "change_type": "api", "priority": False,
+        })
+        self.mem.mark_change_adapted(cid, plan="Updated quota handling in publisher.py")
+        unadapted = self.mem.get_unadapted_changes()
+        ids = [c["id"] for c in unadapted]
+        self.assertNotIn(cid, ids)
+
+    def test_get_unadapted_changes_excludes_adapted(self):
+        c1 = self.mem.save_platform_change({
+            "source": "blog", "title": "Policy update", "change_type": "policy",
+        })
+        c2 = self.mem.save_platform_change({
+            "source": "blog", "title": "Algorithm change", "change_type": "algorithm",
+        })
+        self.mem.mark_change_adapted(c1, plan="Reviewed and applied")
+        unadapted = self.mem.get_unadapted_changes()
+        ids = [c["id"] for c in unadapted]
+        self.assertNotIn(c1, ids)
+        self.assertIn(c2, ids)
+
+    # ── tech_stack_updates memory CRUD ──────────────────────────────────────
+
+    def test_save_and_get_tech_stack_update(self):
+        uid = self.mem.save_tech_stack_update({
+            "package": "anthropic", "old_version": "0.18.0",
+            "new_version": "0.34.0", "test_status": "applied",
+            "applied": True,
+        })
+        self.assertGreater(uid, 0)
+        history = self.mem.get_tech_stack_history()
+        self.assertGreaterEqual(len(history), 1)
+        self.assertEqual(history[0]["package"], "anthropic")
+
+    def test_get_tech_stack_history_order(self):
+        self.mem.save_tech_stack_update({
+            "package": "pillow", "old_version": "9.0.0",
+            "new_version": "10.0.0", "test_status": "skipped_unsafe",
+        })
+        self.mem.save_tech_stack_update({
+            "package": "requests", "old_version": "2.28.0",
+            "new_version": "2.31.0", "test_status": "applied", "applied": True,
+        })
+        history = self.mem.get_tech_stack_history(n=2)
+        self.assertEqual(len(history), 2)
+        self.assertEqual(history[0]["package"], "requests")
+
+    # ── quality_standards memory CRUD ──────────────────────────────────────
+
+    def test_save_and_get_quality_standard(self):
+        qid = self.mem.save_quality_standard({
+            "month": 2, "resolution": "1080p", "fps": 30,
+            "bitrate_kbps": 8000, "color_grade": "standard",
+            "features": ["1080p", "color_grade"], "launch_date": "2026-06-08",
+        })
+        self.assertGreater(qid, 0)
+        current = self.mem.get_current_quality_standard()
+        self.assertIsNotNone(current)
+        self.assertEqual(current["resolution"], "1080p")
+
+    def test_save_quality_standard_deactivates_old(self):
+        self.mem.save_quality_standard({
+            "month": 1, "resolution": "720p", "fps": 30,
+            "bitrate_kbps": 4000, "color_grade": "basic", "launch_date": "2026-06-08",
+        })
+        self.mem.save_quality_standard({
+            "month": 3, "resolution": "1080p", "fps": 60,
+            "bitrate_kbps": 12000, "color_grade": "cinematic", "launch_date": "2026-06-08",
+        })
+        current = self.mem.get_current_quality_standard()
+        self.assertEqual(current["resolution"], "1080p")
+        self.assertEqual(current["fps"], 60)
+
+    def test_get_current_quality_standard_no_data_returns_none(self):
+        result = self.mem.get_current_quality_standard()
+        self.assertIsNone(result)
+
+    # ── ModelUpgradeWatcher ─────────────────────────────────────────────────
+
+    def test_tier_lte_ordering(self):
+        from intelligence.future_proof import ModelUpgradeWatcher
+        self.assertTrue(ModelUpgradeWatcher._tier_lte("low",  "low"))
+        self.assertTrue(ModelUpgradeWatcher._tier_lte("low",  "mid"))
+        self.assertTrue(ModelUpgradeWatcher._tier_lte("low",  "high"))
+        self.assertTrue(ModelUpgradeWatcher._tier_lte("mid",  "mid"))
+        self.assertTrue(ModelUpgradeWatcher._tier_lte("mid",  "high"))
+        self.assertFalse(ModelUpgradeWatcher._tier_lte("mid",  "low"))
+        self.assertFalse(ModelUpgradeWatcher._tier_lte("high", "mid"))
+        self.assertFalse(ModelUpgradeWatcher._tier_lte("high", "low"))
+
+    def test_score_response_empty_returns_zero(self):
+        from intelligence.future_proof import ModelUpgradeWatcher
+        mw = ModelUpgradeWatcher()
+        self.assertEqual(mw._score_response(""), 0.0)
+        self.assertEqual(mw._score_response("hi"), 0.0)
+
+    def test_score_response_bullet_structure(self):
+        from intelligence.future_proof import ModelUpgradeWatcher
+        mw   = ModelUpgradeWatcher()
+        text = ("• 40% of homes now have solar — shocking shift in energy adoption\n"
+                "• 1.2 billion people gained clean power access this year — massive scale\n"
+                "• Cost dropped 90% in a decade — the renewable revolution is here now")
+        score = mw._score_response(text)
+        self.assertGreater(score, 50.0)
+
+    def test_benchmark_model_dry_run_returns_known_score(self):
+        from intelligence.future_proof import ModelUpgradeWatcher, KNOWN_AI_MODELS
+        with patch.dict("os.environ", {"ANTHROPIC_API_KEY": ""}):
+            mw     = ModelUpgradeWatcher()
+            result = mw.benchmark_model("claude-haiku-4-5-20251001", "text", dry_run=True)
+        self.assertEqual(result["model_id"],  "claude-haiku-4-5-20251001")
+        self.assertEqual(result["score"],
+                         KNOWN_AI_MODELS["text"]["claude-haiku-4-5-20251001"]["score"])
+
+    def test_compare_and_recommend_returns_best(self):
+        from intelligence.future_proof import ModelUpgradeWatcher, KNOWN_AI_MODELS
+        mw  = ModelUpgradeWatcher()
+        rec = mw.compare_and_recommend("text")
+        best_known = max(KNOWN_AI_MODELS["text"],
+                         key=lambda m: KNOWN_AI_MODELS["text"][m]["score"])
+        self.assertEqual(rec["model_id"], best_known)
+
+    def test_compare_and_recommend_respects_cost_tier(self):
+        from intelligence.future_proof import ModelUpgradeWatcher, KNOWN_AI_MODELS
+        mw  = ModelUpgradeWatcher()
+        rec = mw.compare_and_recommend("text", cost_tier="low")
+        model_info = KNOWN_AI_MODELS["text"].get(rec["model_id"], {})
+        self.assertIn(model_info.get("cost_tier"), ("low",))
+
+    def test_auto_switch_no_improvement(self):
+        from intelligence.future_proof import ModelUpgradeWatcher
+        mw  = ModelUpgradeWatcher()
+        res = mw.auto_switch_if_better(
+            "claude-opus-4-8", "claude-haiku-4-5-20251001", "text"
+        )
+        self.assertFalse(res["switched"])
+
+    def test_auto_switch_saves_benchmark(self):
+        from intelligence.future_proof import ModelUpgradeWatcher
+        mw  = ModelUpgradeWatcher()
+        mw.auto_switch_if_better(
+            "claude-haiku-4-5-20251001", "claude-opus-4-8", "text",
+            memory=self.mem,
+        )
+        benchmarks = self.mem.get_model_benchmarks("text")
+        self.assertGreaterEqual(len(benchmarks), 1)
+
+    # ── PlatformChangeDetector ──────────────────────────────────────────────
+
+    def test_classify_change_monetization(self):
+        from intelligence.future_proof import PlatformChangeDetector
+        pc = PlatformChangeDetector()
+        self.assertEqual(pc.classify_change("New CPM Policy", "adsense rates changed"), "monetization")
+
+    def test_classify_change_algorithm(self):
+        from intelligence.future_proof import PlatformChangeDetector
+        pc = PlatformChangeDetector()
+        self.assertEqual(pc.classify_change("Algorithm Update", "recommendation feed changes"), "algorithm")
+
+    def test_classify_change_api(self):
+        from intelligence.future_proof import PlatformChangeDetector
+        pc = PlatformChangeDetector()
+        self.assertEqual(pc.classify_change("Data API quota reduced", ""), "api")
+
+    def test_classify_change_policy(self):
+        from intelligence.future_proof import PlatformChangeDetector
+        pc = PlatformChangeDetector()
+        self.assertEqual(pc.classify_change("Terms of service update", "guidelines revised"), "policy")
+
+    def test_classify_change_general_fallback(self):
+        from intelligence.future_proof import PlatformChangeDetector
+        pc = PlatformChangeDetector()
+        self.assertEqual(pc.classify_change("Creator Studio Update", "new dashboard layout"), "general")
+
+    # ── TechStackUpdater ────────────────────────────────────────────────────
+
+    def test_version_gte_basic(self):
+        from intelligence.future_proof import TechStackUpdater
+        self.assertTrue(TechStackUpdater._version_gte("2.0.0", "1.9.9"))
+        self.assertTrue(TechStackUpdater._version_gte("3.10.0", "3.10.0"))
+        self.assertFalse(TechStackUpdater._version_gte("1.0.0", "1.0.1"))
+        self.assertFalse(TechStackUpdater._version_gte("3.9.9", "3.10.0"))
+
+    def test_is_safe_upgrade_unknown_package(self):
+        from intelligence.future_proof import TechStackUpdater
+        tu   = TechStackUpdater()
+        safe, reason = tu.is_safe_upgrade("some_unknown_package", "1.0.0")
+        self.assertTrue(safe)
+        self.assertIn("unknown", reason)
+
+    def test_is_safe_upgrade_breaking_version(self):
+        from intelligence.future_proof import TechStackUpdater
+        tu   = TechStackUpdater()
+        safe, reason = tu.is_safe_upgrade("apscheduler", "4.0.0")
+        self.assertFalse(safe)
+        self.assertIn("breaks_above", reason)
+
+    def test_is_safe_upgrade_safe_version(self):
+        from intelligence.future_proof import TechStackUpdater
+        tu   = TechStackUpdater()
+        safe, reason = tu.is_safe_upgrade("apscheduler", "3.10.5")
+        self.assertTrue(safe)
+        self.assertEqual(reason, "safe")
+
+    def test_sandbox_test_dry_run(self):
+        from intelligence.future_proof import TechStackUpdater
+        tu   = TechStackUpdater()
+        ok, reason = tu.sandbox_test("requests", "2.31.0", dry_run=True)
+        self.assertTrue(ok)
+        self.assertEqual(reason, "dry_run")
+
+    # ── QualityBenchmarkEscalator ───────────────────────────────────────────
+
+    def test_months_since_launch_returns_int(self):
+        from intelligence.future_proof import QualityBenchmarkEscalator
+        qe = QualityBenchmarkEscalator()
+        months = qe.months_since_launch("2026-06-08")
+        self.assertIsInstance(months, int)
+        self.assertGreaterEqual(months, 0)
+
+    def test_get_current_standard_returns_first_tier_at_month_zero(self):
+        from intelligence.future_proof import QualityBenchmarkEscalator, QUALITY_TIERS
+        qe  = QualityBenchmarkEscalator()
+        std = qe.get_current_standard(launch_date="2099-01-01")
+        self.assertEqual(std["resolution"], QUALITY_TIERS[0]["resolution"])
+
+    def test_get_current_standard_escalates_with_time(self):
+        from intelligence.future_proof import QualityBenchmarkEscalator
+        qe     = QualityBenchmarkEscalator()
+        std_m1 = qe.get_current_standard(launch_date="2099-01-01")
+        std_m3 = qe.get_current_standard(launch_date="2024-01-01")
+        self.assertGreaterEqual(
+            {"480p": 0, "720p": 1, "1080p": 2, "4K": 3, "4K HDR": 4}
+            .get(std_m3["resolution"], 0),
+            {"480p": 0, "720p": 1, "1080p": 2, "4K": 3, "4K HDR": 4}
+            .get(std_m1["resolution"], 0),
+        )
+
+    def test_reject_below_standard_rejects_low_res(self):
+        from intelligence.future_proof import QualityBenchmarkEscalator, QUALITY_TIERS
+        qe     = QualityBenchmarkEscalator()
+        standard = QUALITY_TIERS[1]  # 1080p, 30fps
+        result = qe.check_output_quality(
+            {"resolution": "720p", "fps": 30}, standard=standard
+        )
+        self.assertFalse(result["passed"])
+        self.assertIn("resolution_too_low", result["reason"])
+
+    def test_reject_below_standard_passes_meeting_spec(self):
+        from intelligence.future_proof import QualityBenchmarkEscalator, QUALITY_TIERS
+        qe     = QualityBenchmarkEscalator()
+        standard = QUALITY_TIERS[0]  # 720p, 30fps
+        approved, reason = qe.reject_below_standard(
+            {"resolution": "1080p", "fps": 60}, launch_date="2099-01-01"
+        )
+        self.assertTrue(approved)
+
+    # ── AIVideoModelTracker ─────────────────────────────────────────────────
+
+    def test_get_best_model_video_no_cap(self):
+        from intelligence.future_proof import AIVideoModelTracker, KNOWN_AI_MODELS
+        avt  = AIVideoModelTracker()
+        best = avt.get_best_model("video")
+        best_known = max(KNOWN_AI_MODELS["video"],
+                         key=lambda m: KNOWN_AI_MODELS["video"][m]["score"])
+        self.assertEqual(best["model_id"], best_known)
+
+    def test_get_best_model_cost_cap(self):
+        from intelligence.future_proof import AIVideoModelTracker, KNOWN_AI_MODELS
+        avt  = AIVideoModelTracker()
+        best = avt.get_best_model("video", cost_tier="low")
+        model_info = KNOWN_AI_MODELS["video"].get(best["model_id"], {})
+        self.assertIn(model_info.get("cost_tier"), ("low",))
+
+    def test_should_upgrade_true_when_delta_sufficient(self):
+        from intelligence.future_proof import AIVideoModelTracker
+        avt = AIVideoModelTracker()
+        self.assertTrue(
+            avt.should_upgrade("stable_video_diffusion", "sora", "video", min_delta=3)
+        )
+
+    def test_should_upgrade_false_when_same(self):
+        from intelligence.future_proof import AIVideoModelTracker
+        avt = AIVideoModelTracker()
+        self.assertFalse(
+            avt.should_upgrade("sora", "sora", "video", min_delta=3)
+        )
+
+    def test_integrate_model_saves_to_memory(self):
+        from intelligence.future_proof import AIVideoModelTracker
+        avt = AIVideoModelTracker()
+        avt.integrate_model(
+            "new_video_model_v2", "test_provider", 91.0,
+            "video", cost_tier="high", memory=self.mem,
+        )
+        benchmarks = self.mem.get_model_benchmarks("video")
+        self.assertGreaterEqual(len(benchmarks), 1)
+        self.assertEqual(benchmarks[0]["model_id"], "new_video_model_v2")
+
+
 # ── Runner ─────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":

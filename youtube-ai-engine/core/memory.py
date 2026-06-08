@@ -461,6 +461,58 @@ CREATE TABLE IF NOT EXISTS growth_targets (
     intensified        INTEGER DEFAULT 0,
     created_at         TEXT    NOT NULL
 );
+
+-- AI model benchmark history (future_proof)
+CREATE TABLE IF NOT EXISTS model_benchmarks (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    model_id    TEXT    NOT NULL,
+    category    TEXT,
+    score       REAL    DEFAULT 0,
+    switched_to TEXT,
+    delta       REAL    DEFAULT 0,
+    active      INTEGER DEFAULT 0,
+    created_at  TEXT    NOT NULL
+);
+
+-- YouTube platform change detections (future_proof)
+CREATE TABLE IF NOT EXISTS platform_changes (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    source          TEXT,
+    title           TEXT,
+    url             TEXT,
+    description     TEXT,
+    change_type     TEXT,
+    pub_date        TEXT,
+    priority        INTEGER DEFAULT 0,
+    adapted         INTEGER DEFAULT 0,
+    adaptation_plan TEXT,
+    created_at      TEXT    NOT NULL
+);
+
+-- Tech stack package upgrade history (future_proof)
+CREATE TABLE IF NOT EXISTS tech_stack_updates (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    package     TEXT    NOT NULL,
+    old_version TEXT,
+    new_version TEXT,
+    test_status TEXT,
+    applied     INTEGER DEFAULT 0,
+    created_at  TEXT    NOT NULL
+);
+
+-- Quality standard progression milestones (future_proof)
+CREATE TABLE IF NOT EXISTS quality_standards (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    month        INTEGER,
+    resolution   TEXT,
+    fps          INTEGER,
+    bitrate_kbps INTEGER,
+    color_grade  TEXT,
+    features     TEXT,   -- JSON list
+    launch_date  TEXT,
+    active       INTEGER DEFAULT 1,
+    created_at   TEXT    NOT NULL
+);
 """
 
 
@@ -1935,6 +1987,148 @@ class Memory:
                 (n,),
             ).fetchall()
         return [dict(r) for r in rows]
+
+    # ── Future proof ──────────────────────────────────────────────────────────
+
+    def save_model_benchmark(self, data: Dict) -> int:
+        """Persist an AI model benchmark result."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO model_benchmarks
+                   (model_id, category, score, switched_to, delta, active, created_at)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (
+                    data.get("model_id", ""),
+                    data.get("category", "text"),
+                    data.get("score", 0.0),
+                    data.get("switched_to"),
+                    data.get("delta", 0.0),
+                    int(data.get("active", False)),
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            return cur.lastrowid
+
+    def get_model_benchmarks(self, category: str = "text",
+                              n: int = 10) -> List[Dict]:
+        """Return the N most recent benchmarks for a model category."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM model_benchmarks WHERE category=? "
+                "ORDER BY created_at DESC LIMIT ?",
+                (category, n),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_active_model(self, category: str = "text") -> Optional[str]:
+        """Return the model_id of the currently active model in a category."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT model_id FROM model_benchmarks "
+                "WHERE category=? AND active=1 "
+                "ORDER BY created_at DESC LIMIT 1",
+                (category,),
+            ).fetchone()
+        return row["model_id"] if row else None
+
+    def save_platform_change(self, data: Dict) -> int:
+        """Persist a detected YouTube platform change."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO platform_changes
+                   (source, title, url, description, change_type,
+                    pub_date, priority, adapted, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?)""",
+                (
+                    data.get("source", ""),
+                    data.get("title", ""),
+                    data.get("url", ""),
+                    data.get("description", ""),
+                    data.get("change_type", "general"),
+                    data.get("pub_date", ""),
+                    int(data.get("priority", False)),
+                    int(data.get("adapted", False)),
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            return cur.lastrowid
+
+    def get_unadapted_changes(self, n: int = 20) -> List[Dict]:
+        """Return platform changes that have not yet been acted on."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM platform_changes WHERE adapted=0 "
+                "ORDER BY priority DESC, created_at DESC LIMIT ?",
+                (n,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def mark_change_adapted(self, change_id: int, plan: str = "") -> None:
+        """Mark a platform change as adapted and record the adaptation plan."""
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE platform_changes SET adapted=1, adaptation_plan=? WHERE id=?",
+                (plan, change_id),
+            )
+
+    def save_tech_stack_update(self, data: Dict) -> int:
+        """Record a package upgrade attempt (applied or skipped)."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO tech_stack_updates
+                   (package, old_version, new_version, test_status, applied, created_at)
+                   VALUES (?,?,?,?,?,?)""",
+                (
+                    data.get("package", ""),
+                    data.get("old_version", ""),
+                    data.get("new_version", ""),
+                    data.get("test_status", ""),
+                    int(data.get("applied", False)),
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            return cur.lastrowid
+
+    def get_tech_stack_history(self, n: int = 20) -> List[Dict]:
+        """Return the N most recent tech stack update records."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM tech_stack_updates ORDER BY created_at DESC LIMIT ?",
+                (n,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def save_quality_standard(self, data: Dict) -> int:
+        """Record a quality standard milestone activation."""
+        with self._conn() as conn:
+            # Deactivate previous standards
+            conn.execute("UPDATE quality_standards SET active=0")
+            cur = conn.execute(
+                """INSERT INTO quality_standards
+                   (month, resolution, fps, bitrate_kbps, color_grade,
+                    features, launch_date, active, created_at)
+                   VALUES (?,?,?,?,?,?,?,1,?)""",
+                (
+                    data.get("month", 1),
+                    data.get("resolution", "720p"),
+                    data.get("fps", 30),
+                    data.get("bitrate_kbps", 4000),
+                    data.get("color_grade", "basic"),
+                    json.dumps(data.get("features", [])),
+                    data.get("launch_date", ""),
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            return cur.lastrowid
+
+    def get_current_quality_standard(self) -> Optional[Dict]:
+        """Return the currently active quality standard record."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM quality_standards WHERE active=1 "
+                "ORDER BY created_at DESC LIMIT 1"
+            ).fetchone()
+        return dict(row) if row else None
 
 
 # Module-level singleton

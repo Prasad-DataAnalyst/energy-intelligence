@@ -363,6 +363,13 @@ class Scheduler:
                 max_instances=1, coalesce=True,
             )
 
+            # Future proof daily at 06:00 UTC
+            sched.add_job(
+                self._run_future_proof, CronTrigger(hour=6, minute=0),
+                id="future_proof", name="Future proof daily cycle",
+                max_instances=1, coalesce=True,
+            )
+
             # Git snapshot every 6 hours
             sched.add_job(
                 self._run_version_snapshot, CronTrigger(hour="*/6", minute=30),
@@ -490,6 +497,20 @@ class Scheduler:
             )
         except Exception as e:
             log.error(f"Growth hacker crashed: {e}", exc_info=True)
+
+    def _run_future_proof(self):
+        try:
+            from intelligence.future_proof import FutureProof
+            fp     = FutureProof(self.memory)
+            result = fp.run_full_cycle(dry_run=self.dry_run)
+            log.info(
+                f"Future proof: "
+                f"platform_changes={result.get('platform',{}).get('new_changes',0)} | "
+                f"best_text={result.get('models',{}).get('best_text','?')} | "
+                f"resolution={result.get('quality',{}).get('current_resolution','?')}"
+            )
+        except Exception as e:
+            log.error(f"Future proof crashed: {e}", exc_info=True)
 
     def _run_version_snapshot(self):
         try:

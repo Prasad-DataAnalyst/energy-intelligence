@@ -239,6 +239,17 @@ def run_growth_phase(memory):
           f"trajectory={result.get('growth_trajectory',{}).get('status','?')}")
 
 
+def run_future_phase(memory):
+    from intelligence.future_proof import FutureProof
+    fp     = FutureProof(memory)
+    result = fp.run_full_cycle(dry_run=False)
+    fp.print_report(result)
+    print(f"\nFuture proof: "
+          f"{result.get('platform',{}).get('new_changes',0)} platform changes | "
+          f"best_text={result.get('models',{}).get('best_text','?')} | "
+          f"resolution={result.get('quality',{}).get('current_resolution','?')}")
+
+
 def run_dominator_phase(memory):
     from intelligence.competitor_dominator import CompetitorDominator
     cd     = CompetitorDominator(memory)
@@ -292,7 +303,7 @@ def main():
                         choices=["trend","script","voice","visual","assemble",
                                  "thumbnail","publish","audit","feedback",
                                  "competitor","meta","algo","monetize","dominate",
-                                 "global","shorts","community","growth"],
+                                 "global","shorts","community","growth","future"],
                         help="Run a specific phase only")
     parser.add_argument("--topic",     type=str, default="", help="Override topic")
     parser.add_argument("--style",     type=str, default="",
@@ -333,7 +344,7 @@ def main():
     # (avoids wasteful trend-fetching network calls).
     ANALYSIS_PHASES = {"audit", "feedback", "competitor", "meta", "algo",
                         "monetize", "dominate", "global", "shorts", "community",
-                        "growth"}
+                        "growth", "future"}
     if args.phase in ANALYSIS_PHASES:
         if args.phase == "algo":
             run_algo_phase(memory)
@@ -349,6 +360,8 @@ def main():
             run_community_phase(memory)
         elif args.phase == "growth":
             run_growth_phase(memory)
+        elif args.phase == "future":
+            run_future_phase(memory)
         else:
             {"audit":      run_audit_phase,
              "feedback":   run_feedback_phase,
