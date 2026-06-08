@@ -179,6 +179,15 @@ def run_monetize_phase(memory):
     me.run_revenue_dashboard()
 
 
+def run_dominator_phase(memory):
+    from intelligence.competitor_dominator import CompetitorDominator
+    cd     = CompetitorDominator(memory)
+    result = cd.run_daily()
+    cd.print_report(result)
+    print(f"\nCompetitor Dominator: {len(result.get('gap_list',[]))} gaps found, "
+          f"{len(result.get('title_battles',[]))} active battles")
+
+
 def run_algo_phase(memory, n_sessions: int = 50):
     from intelligence.algorithm_hacker import AlgorithmHacker
     ah       = AlgorithmHacker(memory)
@@ -222,7 +231,7 @@ def main():
     parser.add_argument("--phase",     type=str, metavar="PHASE",
                         choices=["trend","script","voice","visual","assemble",
                                  "thumbnail","publish","audit","feedback",
-                                 "competitor","meta","algo","monetize"],
+                                 "competitor","meta","algo","monetize","dominate"],
                         help="Run a specific phase only")
     parser.add_argument("--topic",     type=str, default="", help="Override topic")
     parser.add_argument("--style",     type=str, default="",
@@ -261,12 +270,15 @@ def main():
 
     # Analysis/maintenance phases don't need a topic — run and return early
     # (avoids wasteful trend-fetching network calls).
-    ANALYSIS_PHASES = {"audit", "feedback", "competitor", "meta", "algo", "monetize"}
+    ANALYSIS_PHASES = {"audit", "feedback", "competitor", "meta", "algo",
+                        "monetize", "dominate"}
     if args.phase in ANALYSIS_PHASES:
         if args.phase == "algo":
             run_algo_phase(memory)
         elif args.phase == "monetize":
             run_monetize_phase(memory)
+        elif args.phase == "dominate":
+            run_dominator_phase(memory)
         else:
             {"audit":      run_audit_phase,
              "feedback":   run_feedback_phase,

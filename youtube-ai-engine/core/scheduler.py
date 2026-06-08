@@ -79,6 +79,22 @@ class DailyPipeline:
             log.error(f"Algorithm hacker failed (non-fatal): {e}", exc_info=True)
             algo_analysis = {}
 
+        # ── 0b. Competitor dominator ────────────────────────────────────────
+        log.info("[0b/9] Competitor dominator…")
+        try:
+            from intelligence.competitor_dominator import CompetitorDominator
+            cd         = CompetitorDominator(self.memory)
+            dom_result = cd.run_daily()
+            gap_list   = dom_result.get("gap_list", [])
+            log.info(f"  Gaps: {len(gap_list)} opportunities | "
+                     f"Battles: {len(dom_result.get('title_battles', []))} active")
+            result["competitor_intel"] = {
+                "gap_count":    len(gap_list),
+                "battle_count": len(dom_result.get("title_battles", [])),
+            }
+        except Exception as e:
+            log.error(f"Competitor dominator failed (non-fatal): {e}", exc_info=True)
+
         # ── 1. Trend hunting ────────────────────────────────────────────────
         log.info("[1/9] Trend hunting…")
         th = TrendHunter(self.memory)
@@ -261,6 +277,13 @@ class Scheduler:
                 max_instances=1, coalesce=True,
             )
 
+            # Competitor dominator at 00:30 UTC daily
+            sched.add_job(
+                self._run_competitor_dominator, CronTrigger(hour=0, minute=30),
+                id="competitor_dominator", name="Competitor deep-intelligence",
+                max_instances=1, coalesce=True,
+            )
+
             # Algorithm hacker at 01:00 UTC daily (before trend hunting at 02:00)
             sched.add_job(
                 self._run_algorithm_hacker, CronTrigger(hour=1, minute=0),
@@ -302,6 +325,19 @@ class Scheduler:
             CompetitorSpy(self.memory).build_formula_db()
         except Exception as e:
             log.error(f"Competitor spy crashed: {e}", exc_info=True)
+
+    def _run_competitor_dominator(self):
+        try:
+            from intelligence.competitor_dominator import CompetitorDominator
+            cd         = CompetitorDominator(self.memory)
+            dom_result = cd.run_daily()
+            gap_list   = dom_result.get("gap_list", [])
+            log.info(
+                f"Competitor dominator: {len(gap_list)} gaps | "
+                f"{len(dom_result.get('title_battles', []))} battles active"
+            )
+        except Exception as e:
+            log.error(f"Competitor dominator crashed: {e}", exc_info=True)
 
     def _run_code_audit(self):
         try:

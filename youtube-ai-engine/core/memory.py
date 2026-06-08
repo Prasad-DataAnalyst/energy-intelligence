@@ -182,6 +182,56 @@ CREATE TABLE IF NOT EXISTS monetization_events (
     revenue     REAL    DEFAULT 0
 );
 
+-- Competitor daily subscriber/view snapshots
+CREATE TABLE IF NOT EXISTS competitor_snapshots (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel_id  TEXT NOT NULL,
+    date        TEXT NOT NULL,
+    subscribers INTEGER,
+    total_views INTEGER,
+    video_count INTEGER,
+    created_at  TEXT NOT NULL,
+    UNIQUE(channel_id, date)
+);
+
+-- Per-channel deep intelligence blobs
+CREATE TABLE IF NOT EXISTS competitor_intelligence (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel_id   TEXT NOT NULL,
+    intel_type   TEXT,  -- full_analysis | title_formula | schedule | complaints
+    data         TEXT,  -- JSON
+    generated_at TEXT NOT NULL
+);
+
+-- Weekly content gap opportunities
+CREATE TABLE IF NOT EXISTS content_gaps (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    topic             TEXT NOT NULL,
+    gap_type          TEXT,  -- uncovered | poorly_covered | unanswered_question | trending_void
+    opportunity_score REAL,
+    evidence          TEXT,  -- JSON
+    competitor_ids    TEXT,  -- JSON list
+    status            TEXT DEFAULT 'open',  -- open | assigned | published
+    video_db_id       INTEGER REFERENCES videos(id),
+    discovered_at     TEXT NOT NULL,
+    week_num          INTEGER
+);
+
+-- Title warfare battles tracker
+CREATE TABLE IF NOT EXISTS title_battles (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    competitor_channel  TEXT,
+    competitor_video_id TEXT,
+    competitor_title    TEXT,
+    our_titles          TEXT,  -- JSON array of 3 alternatives
+    best_title          TEXT,
+    keywords            TEXT,  -- JSON list
+    deadline_utc        TEXT,  -- 6h after competitor upload
+    urgency_minutes     INTEGER,
+    action_taken        TEXT DEFAULT 'pending',
+    created_at          TEXT NOT NULL
+);
+
 -- Daily snapshots of what YouTube is currently boosting
 CREATE TABLE IF NOT EXISTS algorithm_snapshots (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -711,6 +761,215 @@ class Memory:
                     (n,),
                 ).fetchall()
         return [dict(r) for r in rows]
+
+    # ── Competitor dominator ──────────────────────────────────────────────────
+
+    def upsert_competitor_snapshot(self, channel_id: str, date: str,
+                                    subscribers: int, total_views: int,
+                                    video_count: int) -> int:
+        """Insert or replace a daily snapshot for a competitor channel."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO competitor_snapshots
+                   (channel_id, date, subscribers, total_views, video_count, created_at)
+                   VALUES (?,?,?,?,?,?)
+                   ON CONFLICT(channel_id, date) DO UPDATE SET
+                       subscribers=excluded.subscribers,
+                       total_views=excluded.total_views,
+                       video_count=excluded.video_count,
+                       created_at=excluded.created_at""",
+                (channel_id, date, subscribers, total_views, video_count,
+                 datetime.now(timezone.utc).isoformat()),
+            )
+            return cur.lastrowid
+
+    def get_competitor_snapshots(self, channel_id: str, days: int = 30) -> List[Dict]:
+        """Return snapshots for a channel over the last N days."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                """SELECT * FROM competitor_snapshots
+                   WHERE channel_id=? AND date >= date('now', ?)
+                   ORDER BY date DESC""",
+                (channel_id, f"-{days} days"),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def save_competitor_intelligence(self, channel_id: str,
+                                      intel_type: str, data: Dict) -> int:
+        """Persist a deep-intelligence record for a competitor channel."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO competitor_intelligence
+                   (channel_id, intel_type, data, generated_at)
+                   VALUES (?,?,?,?)""",
+                (channel_id, intel_type,
+                 json.dumps(data),
+                 datetime.now(timezone.utc).isoformat()),
+            )
+            return cur.lastrowid
+
+    def get_competitor_intelligence(self, channel_id: str = None,
+                                     intel_type: str = None) -> List[Dict]:
+        """Retrieve competitor intelligence records, optionally filtered."""
+        with self._conn() as conn:
+            if channel_id and intel_type:
+                rows = conn.execute(
+                    """SELECT * FROM competitor_intelligence
+                       WHERE channel_id=? AND intel_type=?
+                       ORDER BY generated_at DESC""",
+                    (channel_id, intel_type),
+                ).fetchall()
+            elif channel_id:
+                rows = conn.execute(
+                    """SELECT * FROM competitor_intelligence
+                       WHERE channel_id=?
+                       ORDER BY generated_at DESC""",
+                    (channel_id,),
+                ).fetchall()
+            elif intel_type:
+                rows = conn.execute(
+                    """SELECT * FROM competitor_intelligence
+                       WHERE intel_type=?
+                       ORDER BY generated_at DESC""",
+                    (intel_type,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM competitor_intelligence ORDER BY generated_at DESC"
+                ).fetchall()
+        return [dict(r) for r in rows]
+
+    def save_content_gap(self, data: Dict) -> int:
+        """Upsert a content gap by topic."""
+        with self._conn() as conn:
+            existing = conn.execute(
+                "SELECT id FROM content_gaps WHERE topic=?",
+                (data.get("topic", ""),),
+            ).fetchone()
+            now = datetime.now(timezone.utc).isoformat()
+            if existing:
+                conn.execute(
+                    """UPDATE content_gaps
+                       SET gap_type=?, opportunity_score=?, evidence=?,
+                           competitor_ids=?, status=?, week_num=?
+                       WHERE topic=?""",
+                    (
+                        data.get("gap_type", ""),
+                        data.get("opportunity_score", 0.0),
+                        json.dumps(data.get("evidence", {})),
+                        json.dumps(data.get("competitor_ids", [])),
+                        data.get("status", "open"),
+                        data.get("week_num", 0),
+                        data.get("topic", ""),
+                    ),
+                )
+                return existing["id"]
+            cur = conn.execute(
+                """INSERT INTO content_gaps
+                   (topic, gap_type, opportunity_score, evidence,
+                    competitor_ids, status, discovered_at, week_num)
+                   VALUES (?,?,?,?,?,?,?,?)""",
+                (
+                    data.get("topic", ""),
+                    data.get("gap_type", ""),
+                    data.get("opportunity_score", 0.0),
+                    json.dumps(data.get("evidence", {})),
+                    json.dumps(data.get("competitor_ids", [])),
+                    data.get("status", "open"),
+                    now,
+                    data.get("week_num", 0),
+                ),
+            )
+            return cur.lastrowid
+
+    def get_content_gaps(self, status: str = "open", n: int = 20) -> List[Dict]:
+        """Return open content gaps sorted by opportunity score."""
+        with self._conn() as conn:
+            if status:
+                rows = conn.execute(
+                    """SELECT * FROM content_gaps WHERE status=?
+                       ORDER BY opportunity_score DESC LIMIT ?""",
+                    (status, n),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """SELECT * FROM content_gaps
+                       ORDER BY opportunity_score DESC LIMIT ?""",
+                    (n,),
+                ).fetchall()
+        return [dict(r) for r in rows]
+
+    def mark_gap_published(self, gap_id: int, video_db_id: int) -> None:
+        """Mark a content gap as published and link it to a video."""
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE content_gaps SET status='published', video_db_id=? WHERE id=?",
+                (video_db_id, gap_id),
+            )
+
+    def save_title_battle(self, data: Dict) -> int:
+        """Save a title warfare battle record."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO title_battles
+                   (competitor_channel, competitor_video_id, competitor_title,
+                    our_titles, best_title, keywords, deadline_utc,
+                    urgency_minutes, action_taken, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    data.get("competitor_channel", ""),
+                    data.get("competitor_video_id", ""),
+                    data.get("competitor_title", ""),
+                    json.dumps(data.get("our_titles", [])),
+                    data.get("best_title", ""),
+                    json.dumps(data.get("keywords", [])),
+                    data.get("deadline_utc", ""),
+                    data.get("urgency_minutes", 360),
+                    data.get("action_taken", "pending"),
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            return cur.lastrowid
+
+    def get_pending_battles(self) -> List[Dict]:
+        """Return title battles whose deadline has not yet passed."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                """SELECT * FROM title_battles
+                   WHERE action_taken='pending'
+                     AND deadline_utc > ?
+                   ORDER BY deadline_utc ASC""",
+                (datetime.now(timezone.utc).isoformat(),),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def update_battle_action(self, battle_id: int, action: str) -> None:
+        """Update the action_taken field on a title battle."""
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE title_battles SET action_taken=? WHERE id=?",
+                (action, battle_id),
+            )
+
+    def competitor_growth_rate(self, channel_id: str, days: int = 7) -> float:
+        """
+        Return subscriber growth rate (%) over the last N days.
+        Returns 0.0 if insufficient data.
+        """
+        with self._conn() as conn:
+            rows = conn.execute(
+                """SELECT date, subscribers FROM competitor_snapshots
+                   WHERE channel_id=? AND subscribers IS NOT NULL
+                   ORDER BY date DESC LIMIT ?""",
+                (channel_id, days + 1),
+            ).fetchall()
+        if len(rows) < 2:
+            return 0.0
+        newest = rows[0]["subscribers"]
+        oldest = rows[-1]["subscribers"]
+        if oldest == 0:
+            return 0.0
+        return round((newest - oldest) / oldest * 100, 4)
 
     # ── Algorithm hacker ───────────────────────────────────────────────────────
 

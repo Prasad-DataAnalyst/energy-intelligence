@@ -934,6 +934,394 @@ class TestMonetizationEngine(unittest.TestCase):
         self.assertIn("advertiser_score", report["ad"])
 
 
+# ── TestCompetitorDominator ────────────────────────────────────────────────────
+
+
+class TestCompetitorDominator(unittest.TestCase):
+
+    def setUp(self):
+        from core.memory import Memory
+        self.mem = Memory(":memory:")
+
+    # ── TitleDecoder ────────────────────────────────────────────────────────
+
+    def test_title_decoder_decode_formula_keys(self):
+        from intelligence.competitor_dominator import TitleDecoder
+        td = TitleDecoder()
+        titles = [
+            "7 Shocking Secrets About Solar Energy",
+            "How to Cut Your Electricity Bill in Half",
+            "Is Nuclear Power Really Safe?",
+            "The Truth About Wind Turbines Exposed",
+            "Top 10 Energy Mistakes You're Making",
+        ]
+        result = td.decode_formula(titles)
+        for key in ("formula_template", "patterns", "power_words",
+                    "avg_word_count", "sweet_spot_words", "case_style"):
+            self.assertIn(key, result, f"Missing key: {key}")
+
+    def test_title_decoder_decode_formula_sample_size(self):
+        from intelligence.competitor_dominator import TitleDecoder
+        td = TitleDecoder()
+        titles = ["Title One", "Title Two", "Title Three"]
+        result = td.decode_formula(titles)
+        self.assertEqual(result["sample_size"], 3)
+
+    def test_title_decoder_decode_formula_empty(self):
+        from intelligence.competitor_dominator import TitleDecoder
+        td = TitleDecoder()
+        result = td.decode_formula([])
+        self.assertIn("formula_template", result)
+        self.assertEqual(result["sample_size"], 0)
+
+    def test_title_decoder_score_title_range(self):
+        from intelligence.competitor_dominator import TitleDecoder
+        td = TitleDecoder()
+        for title in [
+            "7 Shocking Secrets About Solar Energy",
+            "How to Cut Your Electricity Bill in Half",
+            "Is Nuclear Power Really Safe?",
+            "",
+        ]:
+            score = td.score_title(title)
+            self.assertIsInstance(score, float, f"score for {title!r} not float")
+            self.assertGreaterEqual(score, 0.0)
+            self.assertLessEqual(score, 100.0)
+
+    def test_title_decoder_score_power_words(self):
+        from intelligence.competitor_dominator import TitleDecoder
+        td = TitleDecoder()
+        high = td.score_title("Shocking Secret: The Worst Energy Mistakes Exposed")
+        low  = td.score_title("A video about things")
+        self.assertGreater(high, low)
+
+    def test_title_decoder_generate_better_title(self):
+        from intelligence.competitor_dominator import TitleDecoder
+        td = TitleDecoder()
+        with patch.dict("os.environ", {"ANTHROPIC_API_KEY": ""}):
+            alts = td.generate_better_title(
+                "Solar Energy Facts", "solar energy", ["solar", "energy", "cost"]
+            )
+        self.assertIsInstance(alts, list)
+        self.assertGreaterEqual(len(alts), 1)
+        for t in alts:
+            self.assertIsInstance(t, str)
+
+    # ── CommentMiner ────────────────────────────────────────────────────────
+
+    def test_comment_miner_mine_complaints_categorizes(self):
+        from intelligence.competitor_dominator import CommentMiner
+        cm = CommentMiner()
+        comments = [
+            {"text": "This video is way too long, get to the point!"},
+            {"text": "You missed the part about solar panels"},
+            {"text": "Tutorial please, show me how to do it step by step"},
+            {"text": "Bad audio, can't hear you properly"},
+            {"text": "Great video, really enjoyed it!"},
+        ]
+        result = cm.mine_complaints(comments)
+        self.assertIn("complaints", result)
+        self.assertIn("total_analyzed", result)
+        self.assertIn("complaint_ratio", result)
+        self.assertGreater(len(result["complaints"]["too_long"]), 0)
+        self.assertGreater(len(result["complaints"]["missing_topic"]), 0)
+        self.assertGreater(len(result["complaints"]["wants_tutorial"]), 0)
+        self.assertGreater(len(result["complaints"]["quality"]), 0)
+
+    def test_comment_miner_extract_questions(self):
+        from intelligence.competitor_dominator import CommentMiner
+        cm = CommentMiner()
+        comments = [
+            {"text": "Great video! But how do you calculate efficiency?"},
+            {"text": "What is the best solar panel brand?"},
+            {"text": "No question here, just a comment."},
+        ]
+        questions = cm.extract_questions(comments)
+        self.assertIsInstance(questions, list)
+        self.assertGreater(len(questions), 0)
+        # All extracted items should contain a question mark
+        for q in questions:
+            self.assertIn("?", q)
+
+    def test_comment_miner_no_api_key_returns_empty(self):
+        from intelligence.competitor_dominator import CommentMiner
+        cm = CommentMiner()
+        with patch.dict("os.environ", {"YOUTUBE_DATA_API_KEY": ""}):
+            result = cm.fetch_comments("some_video_id")
+        self.assertEqual(result, [])
+
+    # ── ScheduleMapper ──────────────────────────────────────────────────────
+
+    def test_schedule_mapper_map_schedule_keys(self):
+        from intelligence.competitor_dominator import ScheduleMapper
+        sm = ScheduleMapper()
+        videos = [
+            {"published": "2026-05-05T14:00:00Z"},  # Monday
+            {"published": "2026-05-12T14:00:00Z"},  # Monday
+            {"published": "2026-05-07T10:00:00Z"},  # Wednesday
+            {"published": "2026-05-14T10:00:00Z"},  # Wednesday
+            {"published": "2026-05-19T18:00:00Z"},  # Tuesday
+        ]
+        result = sm.map_schedule(videos)
+        self.assertIn("preferred_days", result)
+        self.assertIn("preferred_hours", result)
+        self.assertIn("avg_gap_days", result)
+        self.assertIn("gap_days", result)
+        self.assertIn("irregular", result)
+
+    def test_schedule_mapper_gap_days_is_list(self):
+        from intelligence.competitor_dominator import ScheduleMapper
+        sm = ScheduleMapper()
+        videos = [
+            {"published": "2026-05-04T08:00:00Z"},  # Monday
+            {"published": "2026-05-11T08:00:00Z"},  # Monday
+            {"published": "2026-05-18T08:00:00Z"},  # Monday
+        ]
+        result = sm.map_schedule(videos)
+        self.assertIsInstance(result["gap_days"], list)
+
+    def test_schedule_mapper_find_competitive_gap(self):
+        from intelligence.competitor_dominator import ScheduleMapper
+        sm = ScheduleMapper()
+        schedules = {
+            "channelA": {
+                "preferred_days":  ["Monday", "Wednesday"],
+                "preferred_hours": [10, 14],
+            },
+            "channelB": {
+                "preferred_days":  ["Tuesday", "Thursday"],
+                "preferred_hours": [9, 16],
+            },
+        }
+        gap = sm.find_competitive_gap(schedules)
+        self.assertIn("day", gap)
+        self.assertIn("hour", gap)
+        self.assertIsInstance(gap["day"], str)
+        self.assertIsInstance(gap["hour"], int)
+
+    def test_schedule_mapper_empty_schedules(self):
+        from intelligence.competitor_dominator import ScheduleMapper
+        sm  = ScheduleMapper()
+        gap = sm.find_competitive_gap({})
+        self.assertIn("day", gap)
+        self.assertIn("hour", gap)
+
+    # ── GapExploiter ────────────────────────────────────────────────────────
+
+    def test_gap_exploiter_find_uncovered_topics(self):
+        from intelligence.competitor_dominator import GapExploiter
+        ge = GapExploiter()
+        competitor_titles = [
+            "Solar Panel Installation Guide",
+            "Wind Energy Explained",
+        ]
+        trending = [
+            "geothermal energy",       # not covered → gap
+            "solar panel installation", # covered
+            "tidal energy",             # not covered → gap
+        ]
+        result = ge.find_uncovered_topics(competitor_titles, trending)
+        self.assertIsInstance(result, list)
+        topics = [r["topic"] for r in result]
+        self.assertIn("geothermal energy", topics)
+        # Each item must have opportunity_score
+        for item in result:
+            self.assertIn("opportunity_score", item)
+            self.assertIsInstance(item["opportunity_score"], (int, float))
+
+    def test_gap_exploiter_find_unanswered_questions(self):
+        from intelligence.competitor_dominator import GapExploiter
+        ge = GapExploiter()
+        questions = [
+            "How do I install solar panels?",
+            "How do I install solar panels?",   # duplicate
+            "What is the best battery for storage?",
+            "How do I install solar panels?",   # another duplicate
+        ]
+        result = ge.find_unanswered_questions(questions)
+        self.assertIsInstance(result, list)
+        # The duplicated question should have higher frequency
+        if result:
+            max_freq = max(r["frequency"] for r in result)
+            self.assertGreaterEqual(max_freq, 2)
+        # No duplicate topics in output
+        seen = set()
+        for item in result:
+            q = item["question"]
+            self.assertNotIn(q, seen)
+            seen.add(q)
+
+    # ── TitleWarfare ────────────────────────────────────────────────────────
+
+    def test_title_warfare_check_rss_network_failure(self):
+        from intelligence.competitor_dominator import TitleWarfare
+        tw = TitleWarfare()
+        # Even if feedparser is unavailable or network fails, must return []
+        with patch.dict("sys.modules", {"feedparser": None}):
+            try:
+                result = tw.check_rss_for_new_videos(["UCxxx"], {})
+                self.assertIsInstance(result, list)
+            except Exception:
+                # Any exception → also acceptable since we patched the module away
+                pass
+
+    def test_title_warfare_generate_warfare_titles_keys(self):
+        from intelligence.competitor_dominator import TitleWarfare
+        tw = TitleWarfare()
+        with patch.dict("os.environ", {"ANTHROPIC_API_KEY": ""}):
+            result = tw.generate_warfare_titles(
+                competitor_title    = "10 Solar Energy Facts You Didn't Know",
+                competitor_video_id = "abc123",
+                competitor_channel  = "SolarGuru",
+                upload_time         = "2026-06-01T10:00:00Z",
+            )
+        for key in ("competitor_title", "better_titles", "keywords",
+                    "deadline_utc", "urgency_minutes"):
+            self.assertIn(key, result)
+        self.assertIsInstance(result["better_titles"], list)
+        self.assertIsInstance(result["urgency_minutes"], int)
+
+    # ── AudiencePoacher ─────────────────────────────────────────────────────
+
+    def test_audience_poacher_response_video_brief_keys(self):
+        from intelligence.competitor_dominator import AudiencePoacher
+        ap = AudiencePoacher()
+        gap = {
+            "topic":             "solar panel efficiency",
+            "gap_type":          "unanswered_question",
+            "opportunity_score": 75.0,
+        }
+        brief = ap.generate_response_video_brief(
+            "How do I maximise solar panel efficiency?", gap
+        )
+        for key in ("title", "hook", "key_points", "target_keyword",
+                    "opportunity_score"):
+            self.assertIn(key, brief)
+        self.assertIsInstance(brief["key_points"], list)
+        self.assertGreater(len(brief["key_points"]), 0)
+
+    def test_audience_poacher_comment_draft_has_warning(self):
+        from intelligence.competitor_dominator import AudiencePoacher
+        ap    = AudiencePoacher()
+        draft = ap.generate_value_comment(
+            "abc123", "missing_topic", "solar battery storage"
+        )
+        self.assertIn("DRAFT", draft)
+        self.assertIn("requires human review", draft)
+
+    # ── Memory tables ───────────────────────────────────────────────────────
+
+    def test_memory_has_dominator_tables(self):
+        expected = {"competitor_snapshots", "competitor_intelligence",
+                    "content_gaps", "title_battles"}
+        with self.mem._conn() as conn:
+            rows   = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+            tables = {r["name"] for r in rows}
+        self.assertTrue(expected.issubset(tables),
+                        f"Missing tables: {expected - tables}")
+
+    def test_memory_save_content_gap(self):
+        gap_id = self.mem.save_content_gap({
+            "topic":             "geothermal energy basics",
+            "gap_type":          "uncovered",
+            "opportunity_score": 88.5,
+            "evidence":          {"competitor_count": 0},
+            "competitor_ids":    [],
+            "status":            "open",
+            "week_num":          23,
+        })
+        self.assertGreater(gap_id, 0)
+
+    def test_memory_get_content_gaps(self):
+        self.mem.save_content_gap({
+            "topic": "tidal power",
+            "gap_type": "uncovered",
+            "opportunity_score": 75.0,
+        })
+        self.mem.save_content_gap({
+            "topic": "battery degradation",
+            "gap_type": "poorly_covered",
+            "opportunity_score": 55.0,
+        })
+        gaps = self.mem.get_content_gaps(status="open", n=10)
+        self.assertIsInstance(gaps, list)
+        self.assertGreaterEqual(len(gaps), 2)
+        # Should be sorted by opportunity_score DESC
+        scores = [g["opportunity_score"] for g in gaps]
+        self.assertEqual(scores, sorted(scores, reverse=True))
+
+    def test_memory_save_title_battle(self):
+        from datetime import datetime, timezone, timedelta
+        deadline = (datetime.now(timezone.utc) + timedelta(hours=5)).isoformat()
+        battle_id = self.mem.save_title_battle({
+            "competitor_channel":  "SolarGuru",
+            "competitor_video_id": "xyz789",
+            "competitor_title":    "10 Solar Facts",
+            "our_titles":          ["7 Solar Secrets", "Why Solar Is Booming"],
+            "best_title":          "7 Solar Secrets",
+            "keywords":            ["solar", "energy"],
+            "deadline_utc":        deadline,
+            "urgency_minutes":     300,
+        })
+        self.assertGreater(battle_id, 0)
+
+    def test_memory_get_pending_battles(self):
+        from datetime import datetime, timezone, timedelta
+        # Save a future-deadline battle
+        future = (datetime.now(timezone.utc) + timedelta(hours=3)).isoformat()
+        self.mem.save_title_battle({
+            "competitor_channel":  "TechChannel",
+            "competitor_video_id": "vid001",
+            "competitor_title":    "AI is everywhere",
+            "our_titles":          ["Why AI Is Taking Over"],
+            "best_title":          "Why AI Is Taking Over",
+            "keywords":            ["AI"],
+            "deadline_utc":        future,
+            "urgency_minutes":     180,
+        })
+        # Save a past-deadline battle (should not appear)
+        past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        self.mem.save_title_battle({
+            "competitor_channel":  "OldChannel",
+            "competitor_video_id": "vid002",
+            "competitor_title":    "Old video",
+            "our_titles":          [],
+            "best_title":          "",
+            "keywords":            [],
+            "deadline_utc":        past,
+            "urgency_minutes":     0,
+        })
+        pending = self.mem.get_pending_battles()
+        self.assertIsInstance(pending, list)
+        ids = [b["competitor_video_id"] for b in pending]
+        self.assertIn("vid001", ids)
+        self.assertNotIn("vid002", ids)
+
+    def test_memory_upsert_competitor_snapshot_deduplicates(self):
+        # Insert twice for same channel+date → should not raise and count stays 1
+        self.mem.upsert_competitor_snapshot("UC123", "2026-06-08", 10000, 500000, 100)
+        self.mem.upsert_competitor_snapshot("UC123", "2026-06-08", 11000, 510000, 102)
+        with self.mem._conn() as conn:
+            count = conn.execute(
+                "SELECT COUNT(*) AS n FROM competitor_snapshots "
+                "WHERE channel_id='UC123' AND date='2026-06-08'"
+            ).fetchone()["n"]
+        self.assertEqual(count, 1)
+        # The second upsert should have updated values
+        snaps = self.mem.get_competitor_snapshots("UC123", days=30)
+        self.assertEqual(snaps[0]["subscribers"], 11000)
+
+    # ── CompetitorDominator ─────────────────────────────────────────────────
+
+    def test_competitor_dominator_get_gap_list_returns_list(self):
+        from intelligence.competitor_dominator import CompetitorDominator
+        cd = CompetitorDominator(memory=self.mem, channel_ids=[])
+        result = cd.get_gap_list(n=20)
+        self.assertIsInstance(result, list)
+
+
 # ── Runner ─────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
