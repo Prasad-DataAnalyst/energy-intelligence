@@ -647,6 +647,64 @@ CREATE TABLE IF NOT EXISTS sprint_milestones (
     notes           TEXT,
     created_at      TEXT    NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS studio_operations (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    operation_type  TEXT    NOT NULL,
+    resource_type   TEXT,
+    resource_id     TEXT,
+    status          TEXT    DEFAULT 'ok',
+    details         TEXT,
+    created_at      TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS video_metadata_log (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    video_id        TEXT    NOT NULL,
+    field_changed   TEXT,
+    old_value       TEXT,
+    new_value       TEXT,
+    changed_at      TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS analytics_snapshots (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    snapshot_date   TEXT    NOT NULL,
+    scope           TEXT    DEFAULT 'channel',
+    resource_id     TEXT,
+    metrics_json    TEXT,
+    created_at      TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS playlist_operations (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    playlist_id     TEXT,
+    playlist_title  TEXT,
+    operation       TEXT,
+    video_id        TEXT,
+    details         TEXT,
+    created_at      TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS caption_jobs (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    video_id        TEXT    NOT NULL,
+    language        TEXT,
+    caption_id      TEXT,
+    status          TEXT    DEFAULT 'uploaded',
+    file_path       TEXT,
+    created_at      TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS bulk_operations (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    operation       TEXT    NOT NULL,
+    video_count     INTEGER DEFAULT 0,
+    success_count   INTEGER DEFAULT 0,
+    fail_count      INTEGER DEFAULT 0,
+    details_json    TEXT,
+    created_at      TEXT    NOT NULL
+);
 """
 
 
@@ -2592,6 +2650,73 @@ class Memory:
                 params,
             ).fetchall()
         return [dict(r) for r in rows]
+
+    # ── Studio operation logging ──────────────────────────────────────────────
+
+    def log_studio_operation(self, operation_type: str, resource_type: str = None,
+                              resource_id: str = None, status: str = "ok",
+                              details: str = None) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO studio_operations
+                   (operation_type, resource_type, resource_id, status, details, created_at)
+                   VALUES (?,?,?,?,?,?)""",
+                (operation_type, resource_type, resource_id, status, details,
+                 datetime.now(timezone.utc).isoformat()),
+            )
+
+    def get_studio_operations(self, n: int = 50, operation_type: str = None) -> List[Dict]:
+        clause = "WHERE operation_type=?" if operation_type else ""
+        params: List = ([operation_type] if operation_type else []) + [n]
+        with self._conn() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM studio_operations {clause} ORDER BY created_at DESC LIMIT ?",
+                params,
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def save_analytics_snapshot(self, snapshot_date: str, metrics: Dict,
+                                  scope: str = "channel", resource_id: str = None) -> None:
+        import json as _json
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO analytics_snapshots
+                   (snapshot_date, scope, resource_id, metrics_json, created_at)
+                   VALUES (?,?,?,?,?)""",
+                (snapshot_date, scope, resource_id, _json.dumps(metrics),
+                 datetime.now(timezone.utc).isoformat()),
+            )
+
+    def get_analytics_snapshots(self, n: int = 30, scope: str = "channel") -> List[Dict]:
+        import json as _json
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM analytics_snapshots WHERE scope=? ORDER BY snapshot_date DESC LIMIT ?",
+                (scope, n),
+            ).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            try:
+                d["metrics"] = _json.loads(d.get("metrics_json") or "{}")
+            except Exception:
+                d["metrics"] = {}
+            result.append(d)
+        return result
+
+    def log_bulk_operation(self, operation: str, video_count: int,
+                            success_count: int, fail_count: int,
+                            details: Dict = None) -> None:
+        import json as _json
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO bulk_operations
+                   (operation, video_count, success_count, fail_count, details_json, created_at)
+                   VALUES (?,?,?,?,?,?)""",
+                (operation, video_count, success_count, fail_count,
+                 _json.dumps(details or {}),
+                 datetime.now(timezone.utc).isoformat()),
+            )
 
 
 # Module-level singleton

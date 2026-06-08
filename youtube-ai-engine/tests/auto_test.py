@@ -3876,6 +3876,345 @@ class TestFastTrack(unittest.TestCase):
         self.assertGreaterEqual(len(milestones), 1)
 
 
+class TestYouTubeStudio(unittest.TestCase):
+    """Tests for YouTube Studio automation system (mocked API)."""
+
+    def setUp(self):
+        from core.memory import Memory
+        self.mem = Memory(":memory:")
+        self._build_mock_yt()
+
+    def _build_mock_yt(self):
+        import unittest.mock as mock
+
+        channel_resp = {
+            "items": [{
+                "id": "UC_test123",
+                "snippet": {"title": "Test Channel", "description": "desc"},
+                "brandingSettings": {"channel": {"title": "Test Channel"}},
+                "statistics": {"subscriberCount": "500", "videoCount": "20",
+                               "viewCount": "10000"},
+            }]
+        }
+        video_resp = {
+            "items": [{
+                "id": "vid001",
+                "snippet": {"title": "Test Video", "description": "desc",
+                            "tags": ["tag1"], "categoryId": "28",
+                            "defaultLanguage": "en", "publishedAt": "2024-01-01T00:00:00Z"},
+                "status": {"privacyStatus": "public"},
+                "statistics": {"viewCount": "1000", "likeCount": "50", "commentCount": "10"},
+                "contentDetails": {"duration": "PT10M"},
+            }],
+            "nextPageToken": None,
+        }
+        search_resp = {
+            "items": [{"id": {"videoId": "vid001"}}],
+            "nextPageToken": None,
+        }
+        playlist_resp = {
+            "items": [{
+                "id": "PL001",
+                "snippet": {"title": "Test Playlist", "description": "pl desc",
+                            "publishedAt": "2024-01-01T00:00:00Z"},
+                "status": {"privacyStatus": "public"},
+                "contentDetails": {"itemCount": 5},
+            }],
+            "nextPageToken": None,
+        }
+        pl_items_resp = {
+            "items": [{
+                "id": "pli001",
+                "snippet": {"resourceId": {"videoId": "vid001"},
+                            "title": "Test Video",
+                            "publishedAt": "2024-01-01T00:00:00Z",
+                            "position": 0},
+            }],
+            "nextPageToken": None,
+        }
+        caption_resp = {
+            "items": [{"id": "cap001", "snippet": {"language": "en", "name": "English",
+                                                    "isDraft": False}}]
+        }
+        comments_resp = {
+            "items": [{
+                "id": "ct001",
+                "snippet": {
+                    "topLevelComment": {
+                        "id": "c001",
+                        "snippet": {"textDisplay": "Great video!", "authorDisplayName": "User1",
+                                    "likeCount": 5, "publishedAt": "2024-01-01T00:00:00Z"},
+                    },
+                    "totalReplyCount": 0,
+                }
+            }],
+            "nextPageToken": None,
+        }
+        analytics_resp = {
+            "columnHeaders": [{"name": "day"}, {"name": "views"},
+                              {"name": "estimatedMinutesWatched"}],
+            "rows": [["2024-01-01", 1000, 5000]],
+        }
+
+        self._mock_yt = mock.MagicMock()
+        self._mock_ya = mock.MagicMock()
+
+        self._mock_yt.channels.return_value.list.return_value.execute.return_value = channel_resp
+        self._mock_yt.search.return_value.list.return_value.execute.return_value = search_resp
+        self._mock_yt.videos.return_value.list.return_value.execute.return_value = video_resp
+        self._mock_yt.videos.return_value.update.return_value.execute.return_value = {"id": "vid001"}
+        self._mock_yt.videos.return_value.delete.return_value.execute.return_value = {}
+        self._mock_yt.playlists.return_value.list.return_value.execute.return_value = playlist_resp
+        self._mock_yt.playlists.return_value.insert.return_value.execute.return_value = {"id": "PL_NEW"}
+        self._mock_yt.playlists.return_value.update.return_value.execute.return_value = {"id": "PL001"}
+        self._mock_yt.playlists.return_value.delete.return_value.execute.return_value = {}
+        self._mock_yt.playlistItems.return_value.list.return_value.execute.return_value = pl_items_resp
+        self._mock_yt.playlistItems.return_value.insert.return_value.execute.return_value = {"id": "pli_new"}
+        self._mock_yt.playlistItems.return_value.update.return_value.execute.return_value = {"id": "pli001"}
+        self._mock_yt.playlistItems.return_value.delete.return_value.execute.return_value = {}
+        self._mock_yt.captions.return_value.list.return_value.execute.return_value = caption_resp
+        self._mock_yt.captions.return_value.delete.return_value.execute.return_value = {}
+        self._mock_yt.commentThreads.return_value.list.return_value.execute.return_value = comments_resp
+        self._mock_yt.commentThreads.return_value.insert.return_value.execute.return_value = {"id": "ct_new"}
+        self._mock_yt.comments.return_value.setModerationStatus.return_value.execute.return_value = {}
+        self._mock_yt.comments.return_value.delete.return_value.execute.return_value = {}
+        self._mock_yt.comments.return_value.markAsSpam.return_value.execute.return_value = {}
+        self._mock_yt.watermarks.return_value.set.return_value.execute.return_value = {}
+        self._mock_yt.watermarks.return_value.unset.return_value.execute.return_value = {}
+        self._mock_yt.channelSections.return_value.list.return_value.execute.return_value = {"items": []}
+        self._mock_yt.channelSections.return_value.insert.return_value.execute.return_value = {"id": "cs_new"}
+        self._mock_yt.channelSections.return_value.delete.return_value.execute.return_value = {}
+        self._mock_ya.reports.return_value.query.return_value.execute.return_value = analytics_resp
+
+    def _make_client(self):
+        from publishing.youtube_studio import YouTubeAPIClient
+        client = YouTubeAPIClient.__new__(YouTubeAPIClient)
+        client._yt    = self._mock_yt
+        client._ya    = self._mock_ya
+        client._creds = None
+        return client
+
+    def _make_studio(self):
+        from publishing.youtube_studio import (
+            YouTubeStudio, ChannelManager, VideoManager, PlaylistManager,
+            ThumbnailManager, CaptionManager, CommentManager,
+            AnalyticsManager, BulkOperator,
+        )
+        studio = YouTubeStudio.__new__(YouTubeStudio)
+        studio.memory    = self.mem
+        client           = self._make_client()
+        studio.channel   = ChannelManager(client)
+        studio.video     = VideoManager(client)
+        studio.playlist  = PlaylistManager(client)
+        studio.thumbnail = ThumbnailManager(client)
+        studio.caption   = CaptionManager(client)
+        studio.comment   = CommentManager(client)
+        studio.analytics = AnalyticsManager(client)
+        studio.bulk      = BulkOperator(client, studio.video)
+        return studio
+
+    # ── Import & construction ──────────────────────────────────────────────
+
+    def test_import_youtube_studio(self):
+        from publishing.youtube_studio import YouTubeStudio
+        self.assertTrue(callable(YouTubeStudio))
+
+    def test_import_all_managers(self):
+        from publishing.youtube_studio import (
+            YouTubeAPIClient, ChannelManager, VideoManager, PlaylistManager,
+            ThumbnailManager, CaptionManager, CommentManager,
+            AnalyticsManager, BulkOperator,
+        )
+        for cls in [YouTubeAPIClient, ChannelManager, VideoManager,
+                    PlaylistManager, ThumbnailManager, CaptionManager,
+                    CommentManager, AnalyticsManager, BulkOperator]:
+            self.assertTrue(callable(cls))
+
+    def test_studio_exposes_all_managers(self):
+        studio = self._make_studio()
+        for attr in ["channel", "video", "playlist", "thumbnail",
+                     "caption", "comment", "analytics", "bulk"]:
+            self.assertTrue(hasattr(studio, attr), f"Missing: {attr}")
+
+    # ── ChannelManager ────────────────────────────────────────────────────
+
+    def test_channel_get_info(self):
+        studio = self._make_studio()
+        info = studio.channel.get_channel_info()
+        self.assertIsInstance(info, dict)
+        self.assertIn("channel_id", info)
+        self.assertEqual(info["channel_id"], "UC_test123")
+
+    def test_channel_list_sections(self):
+        studio = self._make_studio()
+        sections = studio.channel.list_sections()
+        self.assertIsInstance(sections, list)
+
+    # ── VideoManager ──────────────────────────────────────────────────────
+
+    def test_video_list_all_videos(self):
+        studio = self._make_studio()
+        videos = studio.video.list_all_videos(max_results=10)
+        self.assertIsInstance(videos, list)
+
+    def test_video_get_details(self):
+        studio = self._make_studio()
+        details = studio.video.get_video_details("vid001")
+        self.assertIsInstance(details, dict)
+
+    def test_video_set_privacy_returns_bool(self):
+        studio = self._make_studio()
+        result = studio.video.set_privacy("vid001", "private")
+        self.assertIsInstance(result, bool)
+
+    def test_video_update_metadata_returns_bool(self):
+        studio = self._make_studio()
+        result = studio.video.update_metadata(
+            "vid001", title="New Title", description="New desc",
+            tags=["t1"], category_id="28",
+        )
+        self.assertIsInstance(result, bool)
+
+    def test_video_get_statistics_batch(self):
+        studio = self._make_studio()
+        stats = studio.video.get_statistics_batch(["vid001"])
+        self.assertIsInstance(stats, dict)
+
+    # ── PlaylistManager ───────────────────────────────────────────────────
+
+    def test_playlist_list(self):
+        studio = self._make_studio()
+        playlists = studio.playlist.list_playlists()
+        self.assertIsInstance(playlists, list)
+
+    def test_playlist_create(self):
+        studio = self._make_studio()
+        pid = studio.playlist.create_playlist(
+            title="Test PL", description="desc", privacy="private",
+        )
+        self.assertEqual(pid, "PL_NEW")
+
+    def test_playlist_list_items(self):
+        studio = self._make_studio()
+        items = studio.playlist.list_items("PL001")
+        self.assertIsInstance(items, list)
+
+    def test_playlist_add_video(self):
+        studio = self._make_studio()
+        item_id = studio.playlist.add_video("PL001", "vid001")
+        self.assertIsNotNone(item_id)
+
+    # ── CaptionManager ────────────────────────────────────────────────────
+
+    def test_caption_list(self):
+        studio = self._make_studio()
+        caps = studio.caption.list_captions("vid001")
+        self.assertIsInstance(caps, list)
+        self.assertGreaterEqual(len(caps), 1)
+        self.assertEqual(caps[0]["caption_id"], "cap001")
+
+    # ── CommentManager ────────────────────────────────────────────────────
+
+    def test_comment_list(self):
+        studio = self._make_studio()
+        comments = studio.comment.list_comments("vid001")
+        self.assertIsInstance(comments, list)
+
+    def test_comment_post(self):
+        studio = self._make_studio()
+        cid = studio.comment.post_comment("vid001", "Great content!")
+        self.assertIsNotNone(cid)
+
+    def test_comment_auto_moderate_returns_dict(self):
+        studio = self._make_studio()
+        result = studio.comment.auto_moderate("vid001", spam_words=["spam", "buy now"])
+        self.assertIsInstance(result, dict)
+        self.assertIn("total_checked", result)
+
+    # ── AnalyticsManager ──────────────────────────────────────────────────
+
+    def test_analytics_channel_report(self):
+        studio = self._make_studio()
+        report = studio.analytics.channel_report(days=7)
+        self.assertIsInstance(report, dict)
+
+    def test_analytics_top_videos(self):
+        studio = self._make_studio()
+        videos = studio.analytics.top_videos(days=7, n=5)
+        self.assertIsInstance(videos, list)
+
+    def test_analytics_daily_views(self):
+        studio = self._make_studio()
+        daily = studio.analytics.daily_views(days=7)
+        self.assertIsInstance(daily, list)
+
+    # ── Memory tables ─────────────────────────────────────────────────────
+
+    def test_memory_log_studio_operation(self):
+        self.mem.log_studio_operation(
+            "update_metadata", resource_type="video",
+            resource_id="vid001", status="ok", details="title changed",
+        )
+        ops = self.mem.get_studio_operations()
+        self.assertGreaterEqual(len(ops), 1)
+        self.assertEqual(ops[0]["operation_type"], "update_metadata")
+
+    def test_memory_save_analytics_snapshot(self):
+        self.mem.save_analytics_snapshot(
+            "2024-01-01", {"views": 1000, "watchTime": 5000},
+            scope="channel",
+        )
+        snaps = self.mem.get_analytics_snapshots()
+        self.assertGreaterEqual(len(snaps), 1)
+        self.assertIn("metrics", snaps[0])
+        self.assertEqual(snaps[0]["metrics"]["views"], 1000)
+
+    def test_memory_log_bulk_operation(self):
+        self.mem.log_bulk_operation(
+            "update_descriptions", video_count=10,
+            success_count=9, fail_count=1, details={"appended": "#shorts"},
+        )
+        # just verifies no crash; bulk_operations is a separate table
+        ops = self.mem.get_studio_operations()
+        self.assertIsInstance(ops, list)
+
+    # ── BulkOperator ──────────────────────────────────────────────────────
+
+    def test_bulk_set_privacy(self):
+        studio = self._make_studio()
+        result = studio.bulk.set_privacy_batch(["vid001", "vid002"], "private")
+        self.assertIsInstance(result, dict)
+        self.assertIn("updated", result)
+        self.assertIn("failed", result)
+
+    def test_bulk_update_tags(self):
+        studio = self._make_studio()
+        result = studio.bulk.update_tags(
+            ["vid001"], add_tags=["newtag"], remove_tags=[], replace_all=False
+        )
+        self.assertIsInstance(result, dict)
+
+    # ── Orchestrator ──────────────────────────────────────────────────────
+
+    def test_studio_run_daily_maintenance_returns_dict(self):
+        studio = self._make_studio()
+        result = studio.run_daily_maintenance()
+        self.assertIsInstance(result, dict)
+
+    def test_studio_print_dashboard_no_crash(self):
+        studio = self._make_studio()
+        result = studio.run_daily_maintenance()
+        try:
+            studio.print_dashboard(result)
+        except Exception as e:
+            self.fail(f"print_dashboard raised: {e}")
+
+    def test_studio_get_full_analytics_report(self):
+        studio = self._make_studio()
+        report = studio.get_full_analytics_report(days=7)
+        self.assertIsInstance(report, dict)
+
+
 # ── Runner ─────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":

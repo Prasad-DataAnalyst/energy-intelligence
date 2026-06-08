@@ -436,6 +436,13 @@ class Scheduler:
                 max_instances=1, coalesce=True,
             )
 
+            # YouTube Studio daily maintenance at 04:00 UTC
+            sched.add_job(
+                self._run_studio_maintenance, CronTrigger(hour=4, minute=0),
+                id="studio_maintenance", name="YouTube Studio daily maintenance",
+                max_instances=1, coalesce=True,
+            )
+
             return sched
         except ImportError:
             log.warning("APScheduler not installed — using sleep-loop fallback")
@@ -683,6 +690,19 @@ class Scheduler:
             )
         except Exception as e:
             log.error(f"Fast track sprint crashed: {e}", exc_info=True)
+
+    def _run_studio_maintenance(self):
+        try:
+            from publishing.youtube_studio import YouTubeStudio
+            studio = YouTubeStudio(self.memory)
+            result = studio.run_daily_maintenance()
+            log.info(
+                f"Studio maintenance: analytics={result.get('analytics_saved', False)} | "
+                f"moderated={result.get('comments_moderated', 0)} comments | "
+                f"videos_updated={result.get('videos_updated', 0)}"
+            )
+        except Exception as e:
+            log.error(f"Studio maintenance crashed: {e}", exc_info=True)
 
     def _run_version_snapshot(self):
         try:

@@ -32,6 +32,8 @@ Usage:
   python main.py --phase category               Run category planning for today
   python main.py --phase synthesize             Run content synthesis engine
   python main.py --phase sprint                 Run monetization fast-track sprint
+  python main.py --phase studio                 Run YouTube Studio daily maintenance
+  python main.py --mode studio                  Run YouTube Studio daily maintenance
   python main.py --topic "Your topic"           Override topic selection
   python main.py --style tech-dark              Override style preset
   python main.py --length 600                   Override video length (seconds)
@@ -395,6 +397,13 @@ def run_sprint_phase(memory):
         for m in milestones[:3]:
             print(f"    {m['label']:30s}  in {m['days_est']:4d} days  ({m['date_est']})")
 
+
+def run_studio_phase(memory):
+    from publishing.youtube_studio import YouTubeStudio
+    studio = YouTubeStudio(memory)
+    result = studio.run_daily_maintenance()
+    studio.print_dashboard(result)
+
     active = result.get("active_streams", [])
     if active:
         print(f"\n  Active revenue streams: {', '.join(s['stream_id'] for s in active)}")
@@ -638,6 +647,8 @@ def main():
             run_category_phase(memory)
         elif args.mode == "synthesize":
             run_synthesize_phase(memory)
+        elif args.mode == "studio":
+            run_studio_phase(memory)
         return
 
     # Single-phase execution
@@ -650,7 +661,7 @@ def main():
     ANALYSIS_PHASES = {"audit", "feedback", "competitor", "meta", "algo",
                         "monetize", "dominate", "global", "shorts", "community",
                         "growth", "future", "ingest", "feeds", "archive",
-                        "category", "synthesize", "sprint"}
+                        "category", "synthesize", "sprint", "studio"}
     if args.phase in ANALYSIS_PHASES:
         if args.phase == "algo":
             run_algo_phase(memory)
@@ -680,6 +691,8 @@ def main():
             run_synthesize_phase(memory)
         elif args.phase == "sprint":
             run_sprint_phase(memory)
+        elif args.phase == "studio":
+            run_studio_phase(memory)
         else:
             {"audit":      run_audit_phase,
              "feedback":   run_feedback_phase,
