@@ -1,0 +1,6 @@
+# Daily YouTube upload at 08:00 local time
+# Install with: crontab crontab.txt
+#
+# Replace /home/user/energy-intelligence with your actual path.
+
+0 8 * * * cd /home/user/energy-intelligence/youtube_automation && .venv/bin/python daily_runner.py --now >> logs/cron.log 2>&1
