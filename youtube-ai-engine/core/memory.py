@@ -348,6 +348,54 @@ CREATE TABLE IF NOT EXISTS shorts_expansion_queue (
     status         TEXT    DEFAULT 'queued',  -- queued | in_production | published
     created_at     TEXT    NOT NULL
 );
+
+-- Comments fetched from YouTube videos
+CREATE TABLE IF NOT EXISTS comments (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    youtube_id   TEXT    NOT NULL,
+    comment_id   TEXT    UNIQUE,
+    author       TEXT,
+    text         TEXT,
+    likes        INTEGER DEFAULT 0,
+    category     TEXT,
+    reply_status TEXT    DEFAULT 'pending',
+    reply_text   TEXT,
+    pin_score    REAL    DEFAULT 0,
+    is_pinned    INTEGER DEFAULT 0,
+    is_hearted   INTEGER DEFAULT 0,
+    published_at TEXT,
+    fetched_at   TEXT    NOT NULL
+);
+
+-- Scheduled and published community posts
+CREATE TABLE IF NOT EXISTS community_posts (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    post_type       TEXT,
+    content         TEXT,
+    poll_options    TEXT,
+    scheduled_at    TEXT,
+    published_at    TEXT,
+    engagement_goal TEXT,
+    youtube_post_id TEXT,
+    views           INTEGER DEFAULT 0,
+    votes           INTEGER DEFAULT 0,
+    comments        INTEGER DEFAULT 0,
+    status          TEXT    DEFAULT 'scheduled',
+    created_at      TEXT    NOT NULL
+);
+
+-- Subscriber drop events and recovery tracking
+CREATE TABLE IF NOT EXISTS retention_events (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp        TEXT    NOT NULL,
+    event_type       TEXT,
+    subscriber_count INTEGER,
+    change_count     INTEGER,
+    change_pct       REAL,
+    culprit_video    TEXT,
+    strategy_applied TEXT,
+    resolved         INTEGER DEFAULT 0
+);
 """
 
 
@@ -1466,6 +1514,180 @@ class Memory:
         """Return total number of Shorts in the database."""
         with self._conn() as conn:
             return conn.execute("SELECT COUNT(*) AS n FROM shorts").fetchone()["n"]
+
+    # ── Community engine ──────────────────────────────────────────────────────
+
+    def save_comment(self, data: Dict) -> int:
+        """Upsert a comment record (dedup by comment_id)."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self._conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO comments
+                   (youtube_id, comment_id, author, text, likes, category,
+                    reply_status, reply_text, pin_score, published_at, fetched_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(comment_id) DO UPDATE SET
+                       likes=excluded.likes,
+                       category=excluded.category,
+                       reply_text=COALESCE(excluded.reply_text, reply_text),
+                       fetched_at=excluded.fetched_at""",
+                (
+                    data.get("youtube_id", ""),
+                    data.get("comment_id", ""),
+                    data.get("author", ""),
+                    data.get("text", ""),
+                    data.get("likes", 0),
+                    data.get("category", "other"),
+                    data.get("reply_status", "pending"),
+                    data.get("reply_text"),
+                    data.get("pin_score", 0.0),
+                    data.get("published_at", ""),
+                    now,
+                ),
+            )
+            return cur.lastrowid
+
+    def get_comments(self, youtube_id: str, category: str = None,
+                     n: int = 200) -> List[Dict]:
+        """Return comments for a video, optionally filtered by category."""
+        with self._conn() as conn:
+            if category:
+                rows = conn.execute(
+                    "SELECT * FROM comments WHERE youtube_id=? AND category=? "
+                    "ORDER BY pin_score DESC, likes DESC LIMIT ?",
+                    (youtube_id, category, n),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM comments WHERE youtube_id=? "
+                    "ORDER BY pin_score DESC, likes DESC LIMIT ?",
+                    (youtube_id, n),
+                ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_pending_replies(self, limit: int = 20) -> List[Dict]:
+        """Return comments queued for an automated reply."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM comments WHERE reply_status='pending' "
+                "AND reply_text IS NOT NULL "
+                "ORDER BY pin_score DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def update_comment_status(self, comment_id: str, reply_status: str,
+                               reply_text: str = None,
+                               is_pinned: bool = False,
+                               is_hearted: bool = False) -> None:
+        """Update reply/heart/pin state for a comment."""
+        with self._conn() as conn:
+            conn.execute(
+                """UPDATE comments
+                   SET reply_status=?, reply_text=COALESCE(?,reply_text),
+                       is_pinned=?, is_hearted=?
+                   WHERE comment_id=?""",
+                (reply_status, reply_text,
+                 int(is_pinned), int(is_hearted), comment_id),
+            )
+
+    def save_community_post(self, data: Dict) -> int:
+        """Persist a scheduled or published community post."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO community_posts
+                   (post_type, content, poll_options, scheduled_at,
+                    published_at, engagement_goal, youtube_post_id,
+                    status, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?)""",
+                (
+                    data.get("post_type", ""),
+                    data.get("content", ""),
+                    json.dumps(data.get("poll_options", [])),
+                    data.get("scheduled_at", ""),
+                    data.get("published_at", ""),
+                    data.get("engagement_goal", ""),
+                    data.get("youtube_post_id", ""),
+                    data.get("status", "scheduled"),
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            return cur.lastrowid
+
+    def get_due_community_posts(self) -> List[Dict]:
+        """Return community posts scheduled for now or in the past."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM community_posts "
+                "WHERE status='scheduled' AND scheduled_at <= ? "
+                "ORDER BY scheduled_at ASC",
+                (now,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_scheduled_community_posts(self, n: int = 10) -> List[Dict]:
+        """Return upcoming scheduled community posts."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM community_posts WHERE status='scheduled' "
+                "ORDER BY scheduled_at ASC LIMIT ?",
+                (n,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def update_community_post_status(self, post_id: int, status: str,
+                                      youtube_post_id: str = None) -> None:
+        """Mark a community post as published or failed."""
+        with self._conn() as conn:
+            conn.execute(
+                """UPDATE community_posts
+                   SET status=?, published_at=?,
+                       youtube_post_id=COALESCE(?,youtube_post_id)
+                   WHERE id=?""",
+                (status,
+                 datetime.now(timezone.utc).isoformat() if status == "published" else None,
+                 youtube_post_id,
+                 post_id),
+            )
+
+    def save_retention_event(self, data: Dict) -> int:
+        """Record a subscriber drop/recovery event."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO retention_events
+                   (timestamp, event_type, subscriber_count, change_count,
+                    change_pct, culprit_video, strategy_applied, resolved)
+                   VALUES (?,?,?,?,?,?,?,?)""",
+                (
+                    datetime.now(timezone.utc).isoformat(),
+                    data.get("event_type", "drop"),
+                    data.get("subscriber_count", 0),
+                    data.get("change_count", 0),
+                    data.get("change_pct", 0.0),
+                    data.get("culprit_video", ""),
+                    data.get("strategy_applied", ""),
+                    int(data.get("resolved", False)),
+                ),
+            )
+            return cur.lastrowid
+
+    def get_retention_events(self, resolved: bool = None,
+                              n: int = 20) -> List[Dict]:
+        """Return retention events, optionally filtered by resolved state."""
+        with self._conn() as conn:
+            if resolved is None:
+                rows = conn.execute(
+                    "SELECT * FROM retention_events ORDER BY timestamp DESC LIMIT ?",
+                    (n,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM retention_events WHERE resolved=? "
+                    "ORDER BY timestamp DESC LIMIT ?",
+                    (int(resolved), n),
+                ).fetchall()
+        return [dict(r) for r in rows]
 
 
 # Module-level singleton

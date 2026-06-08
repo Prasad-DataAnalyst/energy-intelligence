@@ -2041,6 +2041,261 @@ class TestShortsFactory(unittest.TestCase):
         self.assertEqual(result["shorts_produced"], 0)
 
 
+
+# ── TestCommunityEngine ───────────────────────────────────────────────────────
+
+
+class TestCommunityEngine(unittest.TestCase):
+
+    def setUp(self):
+        from core.memory import Memory
+        self.mem = Memory(":memory:")
+
+    # ── Memory schema ───────────────────────────────────────────────────────
+
+    def test_memory_has_community_tables(self):
+        expected = {"comments", "community_posts", "retention_events"}
+        with self.mem._conn() as conn:
+            rows   = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+            tables = {r["name"] for r in rows}
+        self.assertTrue(expected.issubset(tables),
+                        f"Missing tables: {expected - tables}")
+
+    # ── Comment memory CRUD ─────────────────────────────────────────────────
+
+    def test_save_and_get_comment(self):
+        cid = self.mem.save_comment({
+            "youtube_id": "yt_test_01", "comment_id": "c001",
+            "author": "Alice", "text": "Great video!", "likes": 5,
+            "category": "praise", "pin_score": 20.0,
+        })
+        self.assertGreater(cid, 0)
+        comments = self.mem.get_comments("yt_test_01")
+        self.assertEqual(len(comments), 1)
+        self.assertEqual(comments[0]["author"], "Alice")
+        self.assertEqual(comments[0]["category"], "praise")
+
+    def test_save_comment_dedup_on_conflict(self):
+        for _ in range(3):
+            self.mem.save_comment({
+                "youtube_id": "yt_dup", "comment_id": "c_dup",
+                "author": "Bob", "text": "Hello", "likes": 10,
+            })
+        comments = self.mem.get_comments("yt_dup")
+        self.assertEqual(len(comments), 1)
+
+    def test_get_pending_replies(self):
+        self.mem.save_comment({
+            "youtube_id": "yt02", "comment_id": "c002",
+            "author": "Bob", "text": "How does this work?",
+            "category": "question", "pin_score": 15.0,
+            "reply_status": "pending", "reply_text": "Great question! ...",
+        })
+        pending = self.mem.get_pending_replies()
+        self.assertGreaterEqual(len(pending), 1)
+
+    def test_update_comment_status(self):
+        self.mem.save_comment({
+            "youtube_id": "yt03", "comment_id": "c003",
+            "author": "Carol", "text": "Thanks!", "category": "praise",
+            "reply_status": "pending", "reply_text": "You're welcome!",
+        })
+        self.mem.update_comment_status("c003", "replied",
+                                        reply_text="Thank you!", is_hearted=True)
+        comments = self.mem.get_comments("yt03")
+        self.assertEqual(comments[0]["reply_status"], "replied")
+        self.assertEqual(comments[0]["is_hearted"], 1)
+
+    def test_get_comments_filtered_by_category(self):
+        for i, cat in enumerate(["question", "praise", "question"]):
+            self.mem.save_comment({
+                "youtube_id": "yt_cat", "comment_id": f"ccat{i}",
+                "author": f"User{i}", "text": "text", "category": cat,
+            })
+        questions = self.mem.get_comments("yt_cat", category="question")
+        self.assertEqual(len(questions), 2)
+
+    # ── Community post memory ───────────────────────────────────────────────
+
+    def test_save_and_get_community_post(self):
+        pid = self.mem.save_community_post({
+            "post_type": "poll", "content": "Which energy source?",
+            "poll_options": ["Solar", "Wind", "Nuclear"],
+            "scheduled_at": "2026-06-10T18:00:00+00:00",
+            "engagement_goal": "100 votes",
+        })
+        self.assertGreater(pid, 0)
+        posts = self.mem.get_scheduled_community_posts()
+        self.assertGreaterEqual(len(posts), 1)
+        self.assertEqual(posts[0]["post_type"], "poll")
+
+    def test_get_due_community_posts_returns_past(self):
+        from datetime import datetime, timedelta, timezone
+        past   = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        future = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
+        self.mem.save_community_post({
+            "post_type": "teaser", "content": "Coming soon!",
+            "scheduled_at": past, "status": "scheduled",
+        })
+        self.mem.save_community_post({
+            "post_type": "poll", "content": "Vote now!",
+            "scheduled_at": future, "status": "scheduled",
+        })
+        due = self.mem.get_due_community_posts()
+        self.assertEqual(len(due), 1)
+        self.assertEqual(due[0]["post_type"], "teaser")
+
+    def test_update_community_post_status(self):
+        pid = self.mem.save_community_post({
+            "post_type": "request", "content": "What topic next?",
+            "scheduled_at": "2026-06-09T18:00:00+00:00",
+        })
+        self.mem.update_community_post_status(pid, "published", "YT_POST_ABC")
+        scheduled_ids = [p["id"] for p in self.mem.get_scheduled_community_posts()]
+        self.assertNotIn(pid, scheduled_ids)
+
+    # ── Retention event memory ──────────────────────────────────────────────
+
+    def test_save_and_get_retention_event(self):
+        eid = self.mem.save_retention_event({
+            "event_type": "drop", "subscriber_count": 9800,
+            "change_count": -200, "change_pct": -2.0,
+            "culprit_video": "yt_bad_video",
+            "strategy_applied": "reengagement_post",
+        })
+        self.assertGreater(eid, 0)
+        events = self.mem.get_retention_events()
+        self.assertGreaterEqual(len(events), 1)
+        self.assertEqual(events[0]["event_type"], "drop")
+
+    def test_get_retention_events_filter_resolved(self):
+        self.mem.save_retention_event({
+            "event_type": "drop", "change_pct": -1.5, "resolved": False,
+        })
+        self.mem.save_retention_event({
+            "event_type": "drop", "change_pct": -0.8, "resolved": True,
+        })
+        unresolved = self.mem.get_retention_events(resolved=False)
+        resolved   = self.mem.get_retention_events(resolved=True)
+        self.assertEqual(len(unresolved), 1)
+        self.assertEqual(len(resolved),   1)
+
+    # ── CommentIntelligence ─────────────────────────────────────────────────
+
+    def test_categorize_comment_question(self):
+        from intelligence.community_engine import CommentIntelligence
+        ci  = CommentIntelligence()
+        cat = ci.categorize_comment("What is the best solar panel for homes?")
+        self.assertEqual(cat, "question")
+
+    def test_categorize_comment_praise(self):
+        from intelligence.community_engine import CommentIntelligence
+        ci  = CommentIntelligence()
+        cat = ci.categorize_comment("Amazing video, love your content!")
+        self.assertEqual(cat, "praise")
+
+    def test_categorize_comment_complaint(self):
+        from intelligence.community_engine import CommentIntelligence
+        ci  = CommentIntelligence()
+        cat = ci.categorize_comment("This information is wrong and misleading")
+        self.assertEqual(cat, "complaint")
+
+    def test_categorize_comment_suggestion(self):
+        from intelligence.community_engine import CommentIntelligence
+        ci  = CommentIntelligence()
+        cat = ci.categorize_comment("You should make a video about wind energy next")
+        self.assertEqual(cat, "suggestion")
+
+    def test_score_pin_candidate_returns_float(self):
+        from intelligence.community_engine import CommentIntelligence
+        ci      = CommentIntelligence()
+        comment = {"text": "I disagree with this — solar has serious drawbacks",
+                   "likes": 50, "category": "complaint"}
+        score   = ci.score_pin_candidate(comment)
+        self.assertIsInstance(score, float)
+        self.assertGreaterEqual(score, 0)
+
+    def test_template_reply_question(self):
+        from intelligence.community_engine import CommentIntelligence
+        ci    = CommentIntelligence()
+        reply = ci._template_reply("How does net metering work?", "question", "solar")
+        self.assertIsInstance(reply, str)
+        self.assertGreater(len(reply), 10)
+
+    def test_template_reply_all_categories(self):
+        from intelligence.community_engine import CommentIntelligence
+        ci = CommentIntelligence()
+        for cat in ("question", "complaint", "suggestion", "praise", "other"):
+            reply = ci._template_reply("Some comment text", cat, "energy")
+            self.assertIsInstance(reply, str)
+            self.assertGreater(len(reply), 5)
+
+    # ── CommunityPostGenerator ──────────────────────────────────────────────
+
+    def test_generate_poll_structure(self):
+        from intelligence.community_engine import CommunityPostGenerator
+        from unittest.mock import patch
+        with patch.dict("os.environ", {"ANTHROPIC_API_KEY": ""}):
+            gen  = CommunityPostGenerator()
+            poll = gen.generate_poll(["solar", "wind", "battery"], "energy")
+        self.assertIn("type",         poll)
+        self.assertIn("content",      poll)
+        self.assertIn("poll_options", poll)
+        self.assertEqual(poll["type"], "poll")
+        self.assertIsInstance(poll["poll_options"], list)
+        self.assertGreaterEqual(len(poll["poll_options"]), 2)
+
+    def test_generate_teaser_structure(self):
+        from intelligence.community_engine import CommunityPostGenerator
+        from unittest.mock import patch
+        with patch.dict("os.environ", {"ANTHROPIC_API_KEY": ""}):
+            gen    = CommunityPostGenerator()
+            teaser = gen.generate_teaser({"title": "The Future of Solar"})
+        self.assertEqual(teaser["type"], "teaser")
+        self.assertIn("content", teaser)
+        self.assertGreater(len(teaser["content"]), 5)
+
+    def test_schedule_weekly_posts_count(self):
+        from intelligence.community_engine import CommunityPostGenerator, POST_SCHEDULES
+        from unittest.mock import patch
+        with patch.dict("os.environ", {"ANTHROPIC_API_KEY": ""}):
+            gen   = CommunityPostGenerator()
+            posts = gen.schedule_weekly_posts(
+                topics=["solar", "wind"], niche="energy",
+                memory=self.mem,
+                upcoming_video={"title": "Battery Tech"},
+            )
+        self.assertEqual(len(posts), len(POST_SCHEDULES))
+
+    # ── AudienceRetentionAnalyzer ───────────────────────────────────────────
+
+    def test_detect_subscriber_drop_no_data(self):
+        from intelligence.community_engine import AudienceRetentionAnalyzer
+        ara    = AudienceRetentionAnalyzer()
+        result = ara.detect_subscriber_drop(self.mem)
+        self.assertIn("drop_detected", result)
+        self.assertIn("severity",      result)
+        self.assertFalse(result["drop_detected"])
+
+    def test_detect_subscriber_drop_detects_drop(self):
+        from intelligence.community_engine import AudienceRetentionAnalyzer
+        from datetime import datetime, timedelta, timezone as tz
+        ara = AudienceRetentionAnalyzer()
+        now = datetime.now(tz.utc)
+        for i, subs in enumerate([10000, 9900, 9800, 9700, 9600, 9500]):
+            d = (now - timedelta(days=5 - i)).strftime("%Y-%m-%d")
+            self.mem.save_revenue_snapshot({
+                "date": d, "subscribers": subs,
+                "week_num": 1, "total_rev": 0,
+            })
+        result = ara.detect_subscriber_drop(self.mem)
+        self.assertIn("drop_detected", result)
+        self.assertIn("severity",      result)
+        self.assertIn(result["severity"], ("warning", "critical", "none"))
+
+
 # ── Runner ─────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":

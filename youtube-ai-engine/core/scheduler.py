@@ -349,6 +349,13 @@ class Scheduler:
                 max_instances=1, coalesce=True,
             )
 
+            # Community engine every 6 hours (comments + posts + retention)
+            sched.add_job(
+                self._run_community_engine, CronTrigger(hour="*/6", minute=15),
+                id="community_engine", name="Community engagement cycle",
+                max_instances=1, coalesce=True,
+            )
+
             # Git snapshot every 6 hours
             sched.add_job(
                 self._run_version_snapshot, CronTrigger(hour="*/6", minute=30),
@@ -447,6 +454,20 @@ class Scheduler:
                      f"markets={len(result.get('market_trends', {}))}")
         except Exception as e:
             log.error(f"Global expansion crashed: {e}", exc_info=True)
+
+    def _run_community_engine(self):
+        try:
+            from intelligence.community_engine import CommunityEngine
+            ce     = CommunityEngine(self.memory)
+            result = ce.run_full_cycle()
+            log.info(
+                f"Community engine: "
+                f"replies={result.get('replies_sent', 0)} | "
+                f"posts={result.get('posts_published', 0)} | "
+                f"retention={result.get('retention_status', 'ok')}"
+            )
+        except Exception as e:
+            log.error(f"Community engine crashed: {e}", exc_info=True)
 
     def _run_version_snapshot(self):
         try:

@@ -207,6 +207,17 @@ def run_global_phase(memory):
           f"| markets sampled: {len(result.get('market_trends', {}))}")
 
 
+def run_community_phase(memory):
+    from intelligence.community_engine import CommunityEngine
+    ce     = CommunityEngine(memory)
+    result = ce.run_full_cycle()
+    ce.print_report(result)
+    print(f"\nCommunity engine: "
+          f"replies={result.get('replies_sent', 0)} | "
+          f"posts={result.get('posts_published', 0)} | "
+          f"retention={result.get('retention_status', 'ok')}")
+
+
 def run_dominator_phase(memory):
     from intelligence.competitor_dominator import CompetitorDominator
     cd     = CompetitorDominator(memory)
@@ -260,7 +271,7 @@ def main():
                         choices=["trend","script","voice","visual","assemble",
                                  "thumbnail","publish","audit","feedback",
                                  "competitor","meta","algo","monetize","dominate",
-                                 "global","shorts"],
+                                 "global","shorts","community"],
                         help="Run a specific phase only")
     parser.add_argument("--topic",     type=str, default="", help="Override topic")
     parser.add_argument("--style",     type=str, default="",
@@ -300,7 +311,7 @@ def main():
     # Analysis/maintenance phases don't need a topic — run and return early
     # (avoids wasteful trend-fetching network calls).
     ANALYSIS_PHASES = {"audit", "feedback", "competitor", "meta", "algo",
-                        "monetize", "dominate", "global", "shorts"}
+                        "monetize", "dominate", "global", "shorts", "community"}
     if args.phase in ANALYSIS_PHASES:
         if args.phase == "algo":
             run_algo_phase(memory)
@@ -312,6 +323,8 @@ def main():
             run_global_phase(memory)
         elif args.phase == "shorts":
             run_shorts_phase(memory)
+        elif args.phase == "community":
+            run_community_phase(memory)
         else:
             {"audit":      run_audit_phase,
              "feedback":   run_feedback_phase,
