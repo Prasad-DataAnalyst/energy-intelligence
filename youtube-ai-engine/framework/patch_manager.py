@@ -365,6 +365,7 @@ class PatchManager:
         real_path = self._resolve(patch.file_path)
         backup_path = Path(str(real_path) + f".patch_{patch.patch_id}.bak")
         try:
+            backup_path.parent.mkdir(parents=True, exist_ok=True)
             backup_path.write_text(patch.original_source, encoding="utf-8")
             self._backups[patch.patch_id] = str(backup_path)
             return str(backup_path)

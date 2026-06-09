@@ -1645,7 +1645,7 @@ class BulkOperator:
         failed  = 0
         for vid in video_ids:
             try:
-                if replace_all is not None:
+                if replace_all and isinstance(replace_all, list):
                     new_tags = replace_all
                 else:
                     details  = self._vm.get_video_details(vid)
