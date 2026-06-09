@@ -1,141 +1,249 @@
-# Mind Fuel Daily — YouTube Pencil-Sketch Animation (US Audience, Ages 18-40)
+# GetMindFuelNow — Hollywood-Grade YouTube Automation System
 
-Generates and uploads a fresh **pencil-sketch animated video** to your YouTube channel every single day.
-Content is designed for US viewers aged 18-40 and optimised for YouTube monetisation.
-
----
-
-## Content Strategy
-
-### Why this works for monetisation
-
-| Factor | Decision | Impact |
-|--------|----------|--------|
-| **Location** | United States audience targeting | US CPM is 5-10× higher than global average |
-| **Category** | Education (ID 27) | Top CPM tier: $15-40 per 1,000 views |
-| **Upload time** | 3:00 PM EST | Peak US browsing → best initial view velocity |
-| **Frequency** | Daily uploads | YouTube algorithm rewards consistency strongly |
-| **Length** | ~2:40 | Meets monetisation threshold; short enough for high retention |
-
-### 7 rotating categories (one per day)
-
-| Day | Category | Avg US CPM |
-|-----|----------|------------|
-| Monday | 💰 Money & Finance | $20-40 |
-| Tuesday | 🤖 Tech & AI | $15-35 |
-| Wednesday | 🚀 Career & Salary | $12-25 |
-| Thursday | 💪 Health & Fitness | $10-20 |
-| Friday | 💰 Money & Finance | $20-40 (double Money day) |
-| Saturday | ✈️ Lifestyle & Travel | $7-15 |
-| Sunday | 🔬 Science & Psychology | $10-20 |
+**Owner:** Prasad Selvaraj (prasad2t@gmail.com)
+**Channel:** GetMindFuelNow
+**Repository:** prasad-dataanalyst/energy-intelligence
+**Registered:** 2026-06-09
 
 ---
 
-## Video structure (2:40, pencil-sketch on cream paper)
+## What This System Does Every Day (Fully Automatic)
 
-| Scene | Duration | What happens |
-|-------|----------|-------------|
-| Hook card | 0:00–0:10 | Big statement draws in word-by-word |
-| Category badge | 0:10–0:15 | Day's category icon expands from centre |
-| 5 Bullet points | 0:15–1:45 | Each point slides in with a number circle |
-| Key Takeaway | 1:45–2:15 | Single actionable insight with decorative brackets |
-| CTA Outro | 2:15–2:40 | Like / Share / Subscribe pulsing buttons |
+At **15:00 UTC every day**, the daemon wakes up and completes an 8-stage pipeline — no human action needed:
 
----
-
-## Quick start
-
-```bash
-cd youtube_automation
-chmod +x setup.sh && ./setup.sh
 ```
-
-Edit `.env`:
-```
-YOUTUBE_CHANNEL_ID=UCxxxxxxxxxxxxxxxxxx   ← your channel ID
-YOUTUBE_PRIVACY_STATUS=public
-UPLOAD_TIME=15:00                         ← 3 PM your server's local time
-```
-
-Place `client_secrets.json` (from Google Cloud Console) in this folder.
-
-### Test without uploading
-
-```bash
-source .venv/bin/activate
-python daily_runner.py --now --no-upload
-# → output/mind_fuel_YYYY-MM-DD.mp4
-```
-
-### First real upload (OAuth opens in browser once)
-
-```bash
-python daily_runner.py --now
-```
-
-### Start the daily scheduler
-
-```bash
-# Option A — Python (stays running in background)
-nohup python daily_runner.py --schedule > logs/scheduler.log 2>&1 &
-
-# Option B — cron (recommended for VPS/cloud servers)
-crontab crontab.txt
+15:00 UTC
+  │
+  ├── Stage 1 — TREND INTELLIGENCE  (finds today's viral topic)
+  ├── Stage 2 — CINEMATIC SCRIPT    (writes a 480-second screenplay)
+  ├── Stage 3 — BROADCAST AUDIO     (records voiceover + music)
+  ├── Stage 4 — HOLLYWOOD VISUALS   (generates 1080p 24fps video)
+  ├── Stage 5 — COLOR GRADE         (cinematic color grading)
+  ├── Stage 6 — QUALITY CHECK       (must score ≥50/100 to upload)
+  ├── Stage 7 — YOUTUBE UPLOAD      (publishes to GetMindFuelNow)
+  │
+  ├── +5  min → pins a comment on the video
+  ├── +60 min → posts to YouTube Community tab
+  │
+  └── Continuously generates YouTube Shorts from the same video
 ```
 
 ---
 
-## Google Cloud setup (one-time, free)
+## Daily Output Per Video
 
-1. [console.cloud.google.com](https://console.cloud.google.com) → New project
-2. **Enable** YouTube Data API v3
-3. APIs & Services → Credentials → **Create OAuth 2.0 Client ID** → Desktop App
-4. Download JSON → rename to `client_secrets.json` → place in `youtube_automation/`
+| Deliverable | Detail |
+|---|---|
+| Main video | 1080p 24fps, ~8 minutes, Hollywood color grade |
+| Thumbnail | 1280×720, AI-generated, uploaded automatically |
+| YouTube Shorts | Up to 5 clips (≤60s, 9:16 portrait crop) |
+| Pinned comment | Posted automatically 5 minutes after upload |
+| Community post | Posted automatically 60 minutes after upload |
+| SEO package | Optimized title, description, tags, chapters |
 
 ---
 
-## Upload log
+## Architecture — All Modules
 
-Every upload is recorded in `logs/uploads.json`:
-
-```json
-[
-  {
-    "date": "2026-06-09",
-    "video_id": "dQw4w9WgXcQ",
-    "title": "5 Money Mistakes Americans in Their 20s & 30s Regret Most",
-    "url": "https://youtu.be/dQw4w9WgXcQ"
-  }
-]
+### Entry Point
+```
+start_scheduler.sh
+  └── core/automation_daemon.py        ← persistent process, runs 24/7
+        └── core/cinematic_daily_pipeline.py  ← fires at 15:00 UTC
 ```
 
+### Stage 1 — Trend Intelligence
+**`modules/intelligence/trend_analyzer.py`**
+- Scans 15+ live sources: Google Trends, Reddit, HackerNews, Twitter/X, YouTube Trending
+- Falls back to 50+ adaptive sources if primary sources fail
+- Scores each topic: virality × RPM × emotional impact × search volume
+- Picks the single best opportunity for today
+
+### Stage 2 — Cinematic Script Writer
+**`modules/production/cinematic_script_writer.py`**
+- Writes a 480-second screenplay using a psychological engagement formula
+- Structure: Cold Open (8s) → Hook (12s) → Promise (25s) → 4 Value Loops (75s each) → Climax (120s) → CTA (60s)
+- Scores: curiosity×12 + fear×10 + desire×10 + open_loops×8 + social_proof×6 + pattern_interrupts×8
+- Minimum quality score: 70/100 to proceed
+
+### Stage 3 — Broadcast Audio Engine
+**`modules/production/cinematic_audio_engine.py`**
+- Voice generation (5-tier fallback):
+  1. ElevenLabs eleven_turbo_v2_5 (Hollywood quality)
+  2. OpenAI tts-1-hd (professional)
+  3. edge-tts (free, good quality)
+  4. espeak-ng (offline fallback)
+  5. Silent WAV (last resort — video still produced)
+- Broadcast chain: HP 80Hz → warmth +2dB@200Hz → presence +3dB@3kHz → de-essing -6dB@6.5kHz → compression 3:1 → loudness -14 LUFS
+- Background music mixed at -18dB under voice
+
+### Stage 4 — Hollywood Visual Engine
+**`modules/production/hollywood_visual_engine.py`**
+- Visual generation (4-tier fallback):
+  1. Runway ML Gen-3 (AI cinematic video)
+  2. SDXL via Replicate + Ken Burns parallax (6 directions, 12% oversample)
+  3. Pexels stock footage (colour-graded to style)
+  4. PIL-generated scenes (always works, zero cost)
+- Handheld camera shake: 1.5px Gaussian RMS via cv2.warpAffine
+- Output: 1920×1080, 24fps
+
+### Stage 5 — Cinematic Editor
+**`modules/production/cinematic_editor.py`**
+- 9 Hollywood transitions: hard_cut, cross_dissolve, zoom_punch, whip_pan, glitch, light_leak, smash_cut, j_cut, l_cut
+- Word-highlight captions burned via Whisper ASR → ASS subtitles
+- Stat overlays + source lower-thirds
+- Color grades: tech_dark, documentary, education
+
+### Stage 6 — Quality Gate
+**`modules/evolution/quality_comparator.py`**
+- Scores every video: technical + content + psychological + visual diversity + emotional arc
+- Minimum 50/100 to upload — below this, video is held for manual review
+- Compares against previous video to track improvement over time
+
+### Stage 7 — YouTube Upload
+**`youtube_uploader.py`**
+- Resumable upload (5 MB chunks) — survives connection drops
+- Injects: optimized title, description with chapter markers, up to 500 tags
+- Retry queue: if YouTube quota exceeded, retries after next UTC midnight (max 3 attempts)
+
+### Stage 8 — Post-Upload Automation
+**`modules/youtube/thumbnail_generator.py`**
+- Generates thumbnail via SDXL (Replicate) → PIL gradient fallback
+- Uploads to video automatically
+
+**`modules/youtube/shorts_publisher.py`**
+- Extracts up to 5 highlight clips from main video
+- Crops each to 9:16 portrait (1080×1920)
+- Uploads each as a YouTube Short with #Shorts tag
+
+**`modules/youtube/post_scheduler.py`**
+- Pins a CTA comment 5 minutes after upload
+- Posts to YouTube Community tab 60 minutes after upload
+- All actions persisted to JSON — survives daemon restarts
+
 ---
 
-## File layout
+## Self-Healing & Self-Improvement (Runs 24/7 in Background)
+
+### API Key Manager — `services/api_key_manager.py`
+- Manages 14+ services
+- Auto-quarantines failed keys for 24h, then re-tests
+- Scans environment for new keys automatically
+
+### Source Registry — `services/source_registry.py`
+- 50+ content sources across: trending, news, facts, images, video, music
+- Each source has an EMA reliability score, updated after every use
+- Discovers new RSS feeds and public APIs on its own
+
+### Adaptive Fetcher — `services/adaptive_fetcher.py`
+- Always tries the highest-reliability source first
+- Falls through the chain on any failure
+- 10-minute in-process cache to reduce API calls
+
+### Self-Enhancement Loop — `modules/intelligence/self_enhancement_loop.py`
+- Background daemon thread, never stops
+- Every 30 minutes: health check all sources
+- Every 6 hours: discover new content sources
+- Every 24 hours: performance report
+- Correlates source choices with video quality scores to improve over time
+
+---
+
+## Full File Map
 
 ```
 youtube_automation/
-├── daily_runner.py        ← run this
-├── video_generator.py     ← pencil-sketch animation engine
-├── youtube_uploader.py    ← YouTube Data API v3 upload
-├── content_generator.py   ← daily topic & script builder (US-focused)
-├── config.py              ← settings (reads .env)
-├── requirements.txt
-├── setup.sh
-├── crontab.txt
-├── .env.example           ← copy to .env and fill in
-├── output/                ← generated MP4s
-└── logs/                  ← run logs + uploads.json
+├── start_scheduler.sh                  ← launch point (watchdog with backoff restart)
+├── config.py                           ← all settings and env vars
+├── youtube_uploader.py                 ← YouTube upload + thumbnail + comments + retry queue
+├── first_time_setup.py                 ← OAuth setup (run once only)
+│
+├── core/
+│   ├── automation_daemon.py            ← 24/7 daemon, 15:00 UTC daily trigger
+│   └── cinematic_daily_pipeline.py     ← full 8-stage pipeline
+│
+├── modules/
+│   ├── intelligence/
+│   │   ├── trend_analyzer.py           ← viral topic discovery (15+ sources)
+│   │   └── self_enhancement_loop.py    ← 24/7 background self-improvement
+│   ├── production/
+│   │   ├── cinematic_script_writer.py  ← 480s psychological screenplay
+│   │   ├── cinematic_audio_engine.py   ← broadcast-quality voice + music
+│   │   ├── hollywood_visual_engine.py  ← 1080p 24fps AI video generation
+│   │   └── cinematic_editor.py         ← 9 transitions + captions + color grade
+│   ├── evolution/
+│   │   └── quality_comparator.py       ← 50/100 quality gate + comparison
+│   └── youtube/
+│       ├── youtube_packager.py         ← SEO title / tags / description / chapters
+│       ├── thumbnail_generator.py      ← AI thumbnail generation + upload
+│       ├── shorts_publisher.py         ← Shorts extraction + upload (up to 5)
+│       └── post_scheduler.py           ← scheduled community post + pin comment
+│
+└── services/
+    ├── api_key_manager.py              ← key health tracking + quarantine + rotation
+    ├── source_registry.py              ← 50+ sources + EMA reliability scores
+    ├── adaptive_fetcher.py             ← cascading fallback across all sources
+    ├── elevenlabs_service.py
+    ├── openai_tts_service.py
+    ├── replicate_service.py
+    ├── runway_service.py
+    ├── pexels_service.py
+    └── pixabay_service.py
 ```
 
 ---
 
-## Topics covered (sample)
+## How to Start
 
-**Money** — 401k mistakes, side hustle, index funds, credit score hacks, salary negotiation  
-**Tech** — AI jobs impact, smartphone addiction, $100k tech skills, blockchain reality  
-**Career** — Getting promoted, LinkedIn secrets, negotiation scripts  
-**Health** — Ultra-processed food, Zone 2 training, sleep deprivation cost  
-**Lifestyle** — $500 Europe flights, 20-min morning routine, minimalism  
-**Science** — Dopamine & social media, memory science, cognitive biases  
-**Mindset** — Habit loops, stoicism, why goals fail  
+```bash
+# First time — authenticate YouTube OAuth (run once)
+python first_time_setup.py
+
+# Start 24/7 daemon in foreground
+bash start_scheduler.sh
+
+# Start in background (survives terminal close)
+nohup bash start_scheduler.sh &
+
+# Run one video right now (production)
+python core/cinematic_daily_pipeline.py --now
+
+# Dry run — generate but don't upload
+python core/cinematic_daily_pipeline.py --now --no-upload
+
+# Test a specific topic
+python core/cinematic_daily_pipeline.py --test --topic "AI just changed everything"
+```
+
+---
+
+## Monitoring
+
+| File | What it shows |
+|---|---|
+| `logs/daemon_heartbeat.txt` | Updated every 60s — stale = daemon hung |
+| `logs/daemon_status.json` | Status, last run date, next run time |
+| `logs/daemon.log` | Full daemon log |
+| `logs/cinematic_YYYY-MM-DD.log` | Per-day pipeline log |
+| `output/YYYY-MM-DD/production_log.json` | Stage-by-stage report per video |
+| `output/YYYY-MM-DD/HELD_FOR_REVIEW.txt` | Appears if quality score < 50 |
+
+---
+
+## API Keys (set in .env)
+
+| Service | Variable | Used For |
+|---|---|---|
+| ElevenLabs | `ELEVENLABS_API_KEY` | Best quality voice |
+| OpenAI | `OPENAI_API_KEY` | Voice fallback + script AI |
+| Replicate | `REPLICATE_API_TOKEN` | SDXL visuals + thumbnail |
+| Runway ML | `RUNWAY_API_KEY` | Top-tier AI video generation |
+| Pexels | `PEXELS_API_KEY` | Stock footage fallback |
+| Pixabay | `PIXABAY_API_KEY` | Stock image fallback |
+| YouTube OAuth | `youtube_token.json` | Upload + all channel actions |
+
+The system works with any subset — missing keys are quarantined and the system falls back automatically.
+
+---
+
+*All rights reserved. Prasad Selvaraj © 2026.*

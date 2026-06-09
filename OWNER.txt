@@ -1,0 +1,20 @@
+================================================================
+  GetMindFuelNow — YouTube Automation System
+  OWNERSHIP DECLARATION
+================================================================
+
+Owner          : Prasad Selvaraj
+Email          : prasad2t@gmail.com
+YouTube Channel: GetMindFuelNow
+Repository     : prasad-dataanalyst/energy-intelligence
+Registered On  : 2026-06-09
+
+All code, configurations, automation scripts, pipeline modules,
+prompts, and intellectual property in this repository are the
+exclusive property of Prasad Selvaraj.
+
+This system was designed, directed, and owned by Prasad Selvaraj.
+No third party holds rights to the system's outputs, channel
+content, or automation logic.
+
+================================================================
