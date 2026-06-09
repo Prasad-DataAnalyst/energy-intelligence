@@ -1544,10 +1544,53 @@ class TrendAnalyzer:
     def _build_fallback_opportunity(self) -> TrendOpportunity:
         """
         Called when all 15 sources fail or return no scoreable candidates.
-        Delegates to content_generator.build_daily_content(); wraps result
-        in a TrendOpportunity with is_fallback=True.
+        1. Tries adaptive_fetcher for additional trending topics.
+        2. Falls back to content_generator.build_daily_content().
+        3. Last resort: hard-coded safety-net topic.
         """
-        log.info("All live sources exhausted — activating static content fallback")
+        log.info("All live sources exhausted — trying adaptive fetcher")
+        try:
+            from services.adaptive_fetcher import fetch_trending_topics
+            items = fetch_trending_topics(limit=10)
+            if items:
+                # Pick highest-scored item
+                best = max(items, key=lambda x: x.get("score", 0))
+                topic = best.get("title", "")
+                if topic:
+                    log.info("Adaptive fetcher provided topic: %s", topic)
+                    category = "Technology"
+                    rpm_tier, rpm_estimate = _detect_rpm_tier(category)
+                    all_five = _build_five_angles(topic, rpm_tier, category)
+                    best_angle = _select_best_angle(all_five)
+                    return TrendOpportunity(
+                        topic=topic,
+                        category=category,
+                        selected_angle=best_angle,
+                        hook_sentence=best_angle.hook,
+                        key_facts=[topic],
+                        data_sources=[best.get("source", "adaptive_fetcher")],
+                        supporting_stats=[],
+                        emotional_trigger="curiosity",
+                        target_audience="general",
+                        predicted_ctr_range="3-6%",
+                        rpm_category=rpm_tier,
+                        rpm_estimate=rpm_estimate,
+                        competition_level="medium",
+                        opportunity_score=0.5,
+                        opportunity_window_hours=12,
+                        recommended_visual_style="tech_dark",
+                        recommended_video_length=480,
+                        shorts_potential=True,
+                        color_grade="tech_dark",
+                        all_five_angles=all_five,
+                        sources_used=["adaptive_fetcher"],
+                        timestamp_fetched=__import__("datetime").datetime.utcnow().isoformat(),
+                        is_fallback=True,
+                    )
+        except Exception as exc:
+            log.debug("Adaptive fetcher fallback failed: %s", exc)
+
+        log.info("Adaptive fetcher exhausted — activating static content fallback")
         try:
             import importlib.util
             spec = importlib.util.spec_from_file_location(

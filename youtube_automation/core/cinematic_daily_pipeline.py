@@ -52,6 +52,15 @@ logging.basicConfig(
 log = logging.getLogger("pipeline")
 
 
+# ── Self-enhancement loop: start immediately in background ────────────────────
+try:
+    from modules.intelligence.self_enhancement_loop import start_background_loop
+    _enhancement_loop = start_background_loop()
+    log.info("SelfEnhancementLoop started in background")
+except Exception as _enh_exc:
+    log.debug("SelfEnhancementLoop skipped: %s", _enh_exc)
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _divider(label: str = ""):
@@ -400,6 +409,20 @@ def run_cinematic_pipeline(upload: bool = True, test_topic: str = "") -> dict:
     except Exception as e:
         log.warning(f"Quality check skipped ({e})")
         report["stages"]["quality"] = {"ok": False, "error": str(e)}
+
+    # ── Record outcome for self-enhancement loop ─────────────────────────────
+    try:
+        from modules.intelligence.self_enhancement_loop import get_loop
+        q_score = report.get("stages", {}).get("quality", {}).get("new_score", 0) or 0
+        sources_used = [
+            s for s in [
+                "google_trends", "hackernews", "reddit_all",
+                content.get("rpm_category", ""), content.get("category", ""),
+            ] if s
+        ]
+        get_loop().record_video_outcome(sources_used, float(q_score))
+    except Exception:
+        pass
 
     # ── Stage 6.5: SEO PACKAGE ────────────────────────────────────────────────
     _divider("STAGE 6.5 — SEO PACKAGE")
