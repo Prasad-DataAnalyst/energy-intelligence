@@ -31,6 +31,9 @@ youtube_automation/.env
 .DS_Store
 Thumbs.db
 
+# Claude Code session state
+.claude/
+
 # Runtime artifacts
 youtube-ai-engine/vault/
 youtube-ai-engine/data/*.sqlite
