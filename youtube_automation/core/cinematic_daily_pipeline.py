@@ -243,7 +243,7 @@ def run_cinematic_pipeline(upload: bool = True, test_topic: str = "") -> dict:
         log.info(f"Voice: {voice_path}")
 
         # Generate music
-        total_s = script.total_duration_s if script else 50
+        total_s = getattr(script, "total_duration_seconds", None) or getattr(script, "total_duration_s", None) or 50
         music_path = audio_engine.generate_background_music(
             duration_s=total_s + 5,
             out_path=music_path,
@@ -272,7 +272,7 @@ def run_cinematic_pipeline(upload: bool = True, test_topic: str = "") -> dict:
                 generate_background_music, mix_audio
             narration = build_script(content)
             generate_voiceover(narration, voice_path)
-            total_s = script.total_duration_s if script else 50
+            total_s = getattr(script, "total_duration_seconds", None) or getattr(script, "total_duration_s", None) or 50
             generate_background_music(total_s + 5, music_path)
             mix_audio(voice_path, music_path, mixed_path, total_s)
             log.info("Legacy audio pipeline succeeded")
@@ -447,16 +447,42 @@ def run_cinematic_pipeline(upload: bool = True, test_topic: str = "") -> dict:
         log.warning(f"SEO package skipped ({e})")
         report["stages"]["seo_package"] = {"ok": False, "error": str(e)}
 
+    # ── Quality gate enforcement ───────────────────────────────────────────────
+    quality_score = (
+        report.get("stages", {}).get("quality", {}).get("new_score") or 0
+    )
+    if upload and quality_score and quality_score < 50:
+        log.error(
+            f"Quality score {quality_score}/100 is below minimum 50 — "
+            "video NOT uploaded. Saved for manual review."
+        )
+        (out_base / "HELD_FOR_REVIEW.txt").write_text(
+            f"Score: {quality_score}/100 (min 50)\n"
+            f"File: {final_path}\n"
+            f"Date: {date_tag}\n"
+        )
+        report["errors"].append(f"quality_gate: score {quality_score} < 50")
+        report["stages"]["upload"] = {
+            "ok": False,
+            "reason": f"quality gate ({quality_score}/100 < 50)",
+        }
+        upload = False
+
     # ── Stage 7: UPLOAD ───────────────────────────────────────────────────────
+    video_id = None
     if upload:
         _divider("STAGE 7 — YOUTUBE UPLOAD")
         stage_start = time.time()
         try:
-            from youtube_uploader import upload_video
-            video_url = upload_video(final_path, content)
+            import youtube_uploader
+            video_id = youtube_uploader.upload_video(final_path, content, seo_package)
+            video_url = f"https://youtu.be/{video_id}" if video_id else ""
             log.info(f"Uploaded → {video_url}")
             report["stages"]["upload"] = {
-                "ok": True, "url": video_url, "elapsed": _elapsed(stage_start)
+                "ok": True,
+                "video_id": video_id,
+                "url": video_url,
+                "elapsed": _elapsed(stage_start),
             }
             report["output_files"]["youtube_url"] = video_url
         except Exception as e:
@@ -464,8 +490,65 @@ def run_cinematic_pipeline(upload: bool = True, test_topic: str = "") -> dict:
             report["errors"].append(f"upload: {e}")
             report["stages"]["upload"] = {"ok": False, "error": str(e)}
     else:
-        log.info("Upload skipped (--no-upload flag)")
-        report["stages"]["upload"] = {"ok": True, "skipped": True}
+        if not report["stages"].get("upload"):
+            log.info("Upload skipped (--no-upload flag)")
+            report["stages"]["upload"] = {"ok": True, "skipped": True}
+
+    # ── Stage 8: POST-UPLOAD AUTOMATION ───────────────────────────────────────
+    if video_id:
+        _divider("STAGE 8 — POST-UPLOAD AUTOMATION")
+        video_url = f"https://youtu.be/{video_id}"
+
+        # 8a — Thumbnail
+        try:
+            from modules.youtube.thumbnail_generator import generate_and_upload
+            ok = generate_and_upload(
+                video_id,
+                content.get("title", ""),
+                seo_package=seo_package,
+                work_dir=str(thumbnails_dir),
+            )
+            log.info(f"Thumbnail: {'uploaded' if ok else 'failed'}")
+            report["stages"]["thumbnail"] = {"ok": ok}
+        except Exception as e:
+            log.warning(f"Thumbnail stage failed: {e}")
+            report["stages"]["thumbnail"] = {"ok": False, "error": str(e)}
+
+        # 8b — YouTube Shorts
+        try:
+            from modules.youtube.shorts_publisher import publish_all_shorts
+            short_ids = publish_all_shorts(
+                final_path,
+                content.get("title", ""),
+                seo_package=seo_package,
+                script=script,
+                work_dir=str(shorts_dir),
+            )
+            log.info(f"Shorts published: {len(short_ids)}")
+            report["stages"]["shorts"] = {"ok": True, "count": len(short_ids), "ids": short_ids}
+        except Exception as e:
+            log.warning(f"Shorts stage failed: {e}")
+            report["stages"]["shorts"] = {"ok": False, "error": str(e)}
+
+        # 8c — Pinned comment (5 min delay)
+        try:
+            from modules.youtube.post_scheduler import schedule_pinned_comment
+            schedule_pinned_comment(video_id, delay_minutes=5)
+            log.info("Pinned comment scheduled (+5 min)")
+            report["stages"]["pinned_comment"] = {"ok": True}
+        except Exception as e:
+            log.warning(f"Pin comment schedule failed: {e}")
+            report["stages"]["pinned_comment"] = {"ok": False, "error": str(e)}
+
+        # 8d — Community post (60 min delay)
+        try:
+            from modules.youtube.post_scheduler import schedule_community_post
+            schedule_community_post(video_id, video_url, delay_minutes=60)
+            log.info("Community post scheduled (+60 min)")
+            report["stages"]["community_post"] = {"ok": True}
+        except Exception as e:
+            log.warning(f"Community post schedule failed: {e}")
+            report["stages"]["community_post"] = {"ok": False, "error": str(e)}
 
     # ── Final report ──────────────────────────────────────────────────────────
     report["success"]       = len(report["errors"]) == 0

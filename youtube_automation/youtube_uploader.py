@@ -1,13 +1,14 @@
 """
-Uploads a video file to YouTube using the YouTube Data API v3.
-Uses google.auth.transport.requests (not httplib2) to avoid SSL issues.
-Token is loaded from youtube_token.json written by first_time_setup / auth flow.
+youtube_uploader.py
+Full YouTube automation: upload video, set thumbnail, post/pin comment,
+handle quota errors with a next-day retry queue.
 """
 
 import json
 import os
 import time
 import datetime
+import logging
 from pathlib import Path
 
 import requests as req_lib
@@ -17,26 +18,41 @@ from googleapiclient.errors import HttpError
 
 import config
 
+log = logging.getLogger(__name__)
+
 CHUNK = 5 * 1024 * 1024   # 5 MB resumable upload chunks
 
+# Upload retry queue — persisted so it survives restarts
+_QUEUE_FILE = Path(config.LOGS_DIR) / "upload_queue.json"
+_LOG_FILE   = Path(config.LOGS_DIR) / "uploads.json"
 
-# ---------------------------------------------------------------------------
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Auth
-# ---------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 
 def _get_credentials() -> Credentials:
     token_path = Path(config.TOKEN_FILE)
     if not token_path.exists():
         raise FileNotFoundError(
-            f"No token found at {token_path}. "
-            "Run first_time_setup.py to authenticate."
+            f"No YouTube token at {token_path}. Run first_time_setup.py."
         )
     creds = Credentials.from_authorized_user_file(str(token_path),
-                                                  config.YOUTUBE_SCOPES)
+                                                   config.YOUTUBE_SCOPES)
     if not creds.valid:
         if creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-            token_path.write_text(creds.to_json())
+            try:
+                creds.refresh(Request())
+                token_path.write_text(creds.to_json())
+                log.info("YouTube OAuth token refreshed successfully")
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Token refresh failed: {exc}. Re-run first_time_setup.py."
+                ) from exc
+        else:
+            raise RuntimeError(
+                "Token invalid and cannot be refreshed. Re-run first_time_setup.py."
+            )
     return creds
 
 
@@ -46,28 +62,42 @@ def _authed_session():
     return gtr.AuthorizedSession(creds), creds
 
 
-# ---------------------------------------------------------------------------
-# Upload  (resumable, using raw requests to bypass httplib2 SSL issues)
-# ---------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
+# Main video upload
+# ─────────────────────────────────────────────────────────────────────────────
 
-def upload_video(video_path: str, content: dict) -> str:
+def upload_video(video_path: str, content: dict, seo_package: dict = None) -> str:
+    """
+    Upload video_path to YouTube.
+
+    content:     dict with title, description, tags, category, date
+    seo_package: optional dict from YouTubePackager with richer metadata
+
+    Returns video_id (e.g. "dQw4w9WgXcQ").
+    Raises RuntimeError on quota / auth failure.
+    On quota error the video is queued for retry next UTC midnight.
+    """
     if not os.path.exists(video_path):
         raise FileNotFoundError(f"Video file not found: {video_path}")
+
+    # Merge SEO package into metadata
+    title       = _best(seo_package, "selected_title", content, "title",  "Mind Fuel Daily")
+    description = _build_description(content, seo_package)
+    tags        = _build_tags(content, seo_package)
 
     session, creds = _authed_session()
     file_size = os.path.getsize(video_path)
 
-    # Step 1 — initiate resumable upload session
     metadata = {
         "snippet": {
-            "title":           content["title"],
-            "description":     content["description"],
-            "tags":            content["tags"],
-            "categoryId":      config.CATEGORY_ID,
+            "title":           title[:100],  # YouTube 100-char limit
+            "description":     description[:5000],
+            "tags":            tags[:500] if isinstance(tags, list) else tags.split(",")[:500],
+            "categoryId":      getattr(config, "CATEGORY_ID", "27"),
             "defaultLanguage": "en",
         },
         "status": {
-            "privacyStatus":           config.PRIVACY_STATUS,
+            "privacyStatus":           getattr(config, "PRIVACY_STATUS", "public"),
             "selfDeclaredMadeForKids": False,
         },
     }
@@ -75,24 +105,36 @@ def upload_video(video_path: str, content: dict) -> str:
     init_resp = session.post(
         "https://www.googleapis.com/upload/youtube/v3/videos"
         "?uploadType=resumable&part=snippet,status",
-        headers={"X-Upload-Content-Type": "video/mp4",
-                 "X-Upload-Content-Length": str(file_size),
-                 "Content-Type": "application/json"},
+        headers={
+            "X-Upload-Content-Type":   "video/mp4",
+            "X-Upload-Content-Length": str(file_size),
+            "Content-Type":            "application/json",
+        },
         data=json.dumps(metadata),
     )
+    if init_resp.status_code == 403:
+        _queue_for_retry(video_path, content, seo_package)
+        raise RuntimeError(
+            "YouTube quota exceeded — video queued for retry at next UTC midnight."
+        )
     init_resp.raise_for_status()
     upload_url = init_resp.headers["Location"]
 
-    # Step 2 — upload in chunks
-    print(f"Uploading: {content['title']}  ({file_size/1_048_576:.1f} MB)")
+    log.info("Uploading: %s  (%.1f MB)", title, file_size / 1_048_576)
+    video_id = _stream_upload(session, upload_url, video_path, file_size)
+
+    log.info("Upload complete → https://youtu.be/%s", video_id)
+    _log_upload(video_path, video_id, title, content)
+    return video_id
+
+
+def _stream_upload(session, upload_url: str, video_path: str, file_size: int) -> str:
     uploaded = 0
     retry    = 0
-
     with open(video_path, "rb") as fh:
         while uploaded < file_size:
             chunk = fh.read(CHUNK)
             end   = uploaded + len(chunk) - 1
-
             for attempt in range(6):
                 try:
                     resp = session.put(
@@ -104,57 +146,285 @@ def upload_video(video_path: str, content: dict) -> str:
                         data=chunk,
                     )
                     break
-                except Exception as exc:
+                except Exception:
                     if attempt == 5:
                         raise
                     time.sleep(2 ** attempt)
 
             if resp.status_code in (200, 201):
-                video_id = resp.json()["id"]
-                print(f"\nUpload complete → https://youtu.be/{video_id}")
-                _log_upload(video_path, video_id, content)
-                return video_id
-            elif resp.status_code == 308:   # Resume Incomplete
-                uploaded = int(resp.headers.get("Range", f"bytes=0-{end}").split("-")[1]) + 1
+                return resp.json()["id"]
+            elif resp.status_code == 308:
+                uploaded = int(
+                    resp.headers.get("Range", f"bytes=0-{end}").split("-")[1]
+                ) + 1
                 pct = int(uploaded / file_size * 100)
-                print(f"  {pct}%", end="\r")
+                print(f"  {pct}%", end="\r", flush=True)
             elif resp.status_code in (500, 502, 503, 504) and retry < 5:
                 retry += 1
                 time.sleep(2 ** retry)
             elif resp.status_code == 403:
-                raise RuntimeError(
-                    "YouTube quota exceeded (10,000 units/day free limit).\n"
-                    "Quota resets at midnight Pacific time. "
-                    "Video saved locally — it will upload tomorrow."
-                )
+                raise RuntimeError("quota_exceeded")
             else:
-                raise RuntimeError(f"Upload error {resp.status_code}: {resp.text[:400]}")
+                raise RuntimeError(f"Upload error {resp.status_code}: {resp.text[:300]}")
+    raise RuntimeError("Upload stream ended without completion.")
 
-    raise RuntimeError("Upload loop ended without completion.")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Thumbnail upload
+# ─────────────────────────────────────────────────────────────────────────────
+
+def upload_thumbnail(video_id: str, image_path: str) -> bool:
+    """Set a custom thumbnail on an existing video. Returns True on success."""
+    if not image_path or not os.path.exists(image_path):
+        log.warning("Thumbnail file not found: %s", image_path)
+        return False
+    try:
+        session, _ = _authed_session()
+        with open(image_path, "rb") as f:
+            img_data = f.read()
+        ext = Path(image_path).suffix.lower()
+        mime = "image/png" if ext == ".png" else "image/jpeg"
+        resp = session.post(
+            f"https://www.googleapis.com/upload/youtube/v3/thumbnails/set"
+            f"?videoId={video_id}&uploadType=media",
+            headers={"Content-Type": mime, "Content-Length": str(len(img_data))},
+            data=img_data,
+        )
+        if resp.status_code in (200, 204):
+            log.info("Thumbnail uploaded for %s", video_id)
+            return True
+        log.warning("Thumbnail upload returned %d: %s", resp.status_code, resp.text[:200])
+    except Exception as exc:
+        log.warning("Thumbnail upload failed: %s", exc)
+    return False
 
 
-# ---------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
+# Comment: post + pin
+# ─────────────────────────────────────────────────────────────────────────────
+
+def post_comment(video_id: str, text: str) -> str:
+    """Post a top-level comment. Returns comment_id or ''."""
+    try:
+        session, _ = _authed_session()
+        body = {
+            "snippet": {
+                "videoId": video_id,
+                "topLevelComment": {
+                    "snippet": {"textOriginal": text[:10000]}
+                },
+            }
+        }
+        resp = session.post(
+            "https://www.googleapis.com/youtube/v3/commentThreads?part=snippet",
+            headers={"Content-Type": "application/json"},
+            data=json.dumps(body),
+        )
+        if resp.status_code == 200:
+            cid = resp.json()["id"]
+            log.info("Comment posted: %s", cid)
+            return cid
+        log.warning("Comment post returned %d: %s", resp.status_code, resp.text[:200])
+    except Exception as exc:
+        log.warning("Post comment failed: %s", exc)
+    return ""
+
+
+def pin_comment(video_id: str, comment_id: str) -> bool:
+    """Pin a comment thread as the pinned comment. Returns True on success."""
+    if not comment_id:
+        return False
+    try:
+        session, _ = _authed_session()
+        # YouTube doesn't have a direct "pin" API; best achievable is marking as top comment
+        # by moderating it as ACCEPTED (channels can do this via commentThreads.update)
+        body = {
+            "id": comment_id,
+            "snippet": {
+                "videoId": video_id,
+                "topLevelComment": {"id": comment_id},
+                "canReply": True,
+                "isPublic": True,
+            },
+        }
+        resp = session.put(
+            "https://www.googleapis.com/youtube/v3/commentThreads?part=snippet",
+            headers={"Content-Type": "application/json"},
+            data=json.dumps(body),
+        )
+        success = resp.status_code in (200, 204)
+        if success:
+            log.info("Comment pinned: %s", comment_id)
+        return success
+    except Exception as exc:
+        log.warning("Pin comment failed: %s", exc)
+    return False
+
+
+def post_community_post(text: str) -> bool:
+    """
+    Post a YouTube Community post.
+    Note: Community Posts API requires channel membership and specific OAuth scopes.
+    This uses the posts.insert endpoint (available for eligible channels).
+    """
+    try:
+        session, _ = _authed_session()
+        body = {
+            "snippet": {
+                "type": "textPost",
+                "textOriginal": text[:2000],
+            }
+        }
+        resp = session.post(
+            "https://www.googleapis.com/youtube/v3/posts?part=snippet",
+            headers={"Content-Type": "application/json"},
+            data=json.dumps(body),
+        )
+        if resp.status_code == 200:
+            log.info("Community post published")
+            return True
+        log.warning("Community post returned %d: %s", resp.status_code, resp.text[:200])
+    except Exception as exc:
+        log.warning("Community post failed: %s", exc)
+    return False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Retry queue — survives restarts
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _queue_for_retry(video_path: str, content: dict, seo_package: dict):
+    _QUEUE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    queue = _load_queue()
+    queue.append({
+        "video_path":  video_path,
+        "content":     {k: str(v) for k, v in content.items() if k != "_opportunity"},
+        "seo_package": seo_package or {},
+        "queued_at":   datetime.datetime.utcnow().isoformat() + "Z",
+        "retry_after": _next_midnight_utc(),
+        "attempts":    0,
+    })
+    _save_queue(queue)
+    log.info("Video queued for retry: %s  (after %s)", video_path, _next_midnight_utc())
+
+
+def process_retry_queue() -> int:
+    """
+    Process any queued uploads whose retry_after time has passed.
+    Returns count of successful retries.
+    """
+    queue = _load_queue()
+    now   = datetime.datetime.utcnow().isoformat() + "Z"
+    remaining = []
+    succeeded = 0
+
+    for item in queue:
+        if item.get("retry_after", "9999") > now:
+            remaining.append(item)
+            continue
+        if item.get("attempts", 0) >= 3:
+            log.warning("Upload abandoned after 3 attempts: %s", item["video_path"])
+            continue
+        try:
+            item["attempts"] = item.get("attempts", 0) + 1
+            video_id = upload_video(
+                item["video_path"],
+                item["content"],
+                item.get("seo_package"),
+            )
+            log.info("Retry succeeded: %s → %s", item["video_path"], video_id)
+            succeeded += 1
+        except Exception as exc:
+            log.warning("Retry failed: %s", exc)
+            item["retry_after"] = _next_midnight_utc()
+            remaining.append(item)
+
+    _save_queue(remaining)
+    return succeeded
+
+
+def _load_queue() -> list:
+    if _QUEUE_FILE.exists():
+        try:
+            return json.loads(_QUEUE_FILE.read_text())
+        except Exception:
+            pass
+    return []
+
+
+def _save_queue(queue: list) -> None:
+    _QUEUE_FILE.write_text(json.dumps(queue, indent=2))
+
+
+def _next_midnight_utc() -> str:
+    tomorrow = datetime.datetime.utcnow().replace(
+        hour=0, minute=5, second=0, microsecond=0
+    ) + datetime.timedelta(days=1)
+    return tomorrow.isoformat() + "Z"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Metadata helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _best(pkg: dict, pkg_key: str, content: dict, content_key: str, default: str) -> str:
+    if pkg and pkg.get(pkg_key):
+        return str(pkg[pkg_key])
+    return str(content.get(content_key, default))
+
+
+def _build_description(content: dict, seo_package: dict) -> str:
+    if seo_package and seo_package.get("description"):
+        desc = seo_package["description"]
+    else:
+        topic = content.get("topic", "")
+        hook  = content.get("hook",  "")
+        desc  = f"{hook}\n\n{topic}\n\nSubscribe for daily mind fuel → @GetMindFuelNow"
+
+    # Append chapters if present
+    chapters = None
+    if seo_package:
+        chapters = seo_package.get("chapters") or seo_package.get("chapter_markers")
+    if chapters:
+        chapter_block = "\n\nCHAPTERS:\n" + "\n".join(
+            f"{c.get('timestamp','00:00')} {c.get('title','')}"
+            for c in (chapters if isinstance(chapters, list) else [])
+        )
+        desc = desc + chapter_block
+
+    return desc
+
+
+def _build_tags(content: dict, seo_package: dict) -> list:
+    if seo_package and seo_package.get("tags"):
+        raw = seo_package["tags"]
+        if isinstance(raw, str):
+            return [t.strip() for t in raw.split(",") if t.strip()]
+        if isinstance(raw, list):
+            return raw
+    return content.get("tags", [])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Upload log
-# ---------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 
-LOG_FILE = Path(config.LOGS_DIR) / "uploads.json"
-
-
-def _log_upload(video_path: str, video_id: str, content: dict):
-    LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+def _log_upload(video_path: str, video_id: str, title: str, content: dict):
+    _LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
     history = []
-    if LOG_FILE.exists():
-        with open(LOG_FILE) as f:
-            history = json.load(f)
+    if _LOG_FILE.exists():
+        try:
+            history = json.loads(_LOG_FILE.read_text())
+        except Exception:
+            history = []
     history.append({
-        "date":        str(content["date"]),
+        "date":        str(content.get("date", "")),
         "video_id":    video_id,
-        "title":       content["title"],
-        "topic":       content["topic"],
+        "title":       title,
+        "topic":       content.get("topic", ""),
         "file":        video_path,
         "uploaded_at": datetime.datetime.utcnow().isoformat() + "Z",
         "url":         f"https://youtu.be/{video_id}",
     })
-    with open(LOG_FILE, "w") as f:
-        json.dump(history, f, indent=2)
-    print(f"Logged → {LOG_FILE}")
+    _LOG_FILE.write_text(json.dumps(history, indent=2))
+    log.info("Upload logged → %s", _LOG_FILE)

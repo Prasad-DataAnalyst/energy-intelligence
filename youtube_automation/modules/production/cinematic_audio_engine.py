@@ -380,6 +380,28 @@ class CinematicAudioEngine:
         self.tmp_dir = tmp_dir or tempfile.gettempdir()
         os.makedirs(self.tmp_dir, exist_ok=True)
 
+    def generate_voiceover_sync(
+        self, text: str, out_path: str, tone: str = "authoritative"
+    ) -> str:
+        """Synchronous wrapper around generate_voiceover() for non-async callers."""
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # Already inside an event loop (e.g. Jupyter) — run in thread
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    future = pool.submit(
+                        asyncio.run, self.generate_voiceover(text, out_path, tone)
+                    )
+                    return future.result(timeout=300)
+            else:
+                return loop.run_until_complete(
+                    self.generate_voiceover(text, out_path, tone)
+                )
+        except RuntimeError:
+            return asyncio.run(self.generate_voiceover(text, out_path, tone))
+
     # -----------------------------------------------------------------------
     # 1. Voiceover generation
     # -----------------------------------------------------------------------
