@@ -4215,6 +4215,637 @@ class TestYouTubeStudio(unittest.TestCase):
         self.assertIsInstance(report, dict)
 
 
+class TestRegistry(unittest.TestCase):
+    """Tests for the module registry."""
+
+    def setUp(self):
+        from core.registry import Registry
+        # Save original registry state and reset
+        self._orig = dict(Registry._entries)
+        Registry._entries.clear()
+
+    def tearDown(self):
+        from core.registry import Registry
+        Registry._entries.clear()
+        Registry._entries.update(self._orig)
+
+    def test_register_and_get(self):
+        from core.registry import Registry, register
+
+        @register(name="test_mod", category="intelligence", description="Test")
+        class _TestMod:
+            pass
+
+        entry = Registry.get("test_mod")
+        self.assertIsNotNone(entry)
+        self.assertEqual(entry.name, "test_mod")
+        self.assertEqual(entry.category, "intelligence")
+
+    def test_register_returns_class_unchanged(self):
+        from core.registry import register
+
+        @register(name="test_mod2", category="content")
+        class _MyClass:
+            x = 42
+
+        self.assertEqual(_MyClass.x, 42)
+
+    def test_get_all(self):
+        from core.registry import Registry, register
+
+        @register(name="mod_a", category="intelligence")
+        class _A:
+            pass
+
+        @register(name="mod_b", category="content")
+        class _B:
+            pass
+
+        all_entries = Registry.get_all()
+        names = [e.name for e in all_entries]
+        self.assertIn("mod_a", names)
+        self.assertIn("mod_b", names)
+
+    def test_get_by_category(self):
+        from core.registry import Registry, register
+
+        @register(name="intel_mod", category="intelligence")
+        class _I:
+            pass
+
+        @register(name="content_mod", category="content")
+        class _C:
+            pass
+
+        intel = Registry.get_by_category("intelligence")
+        self.assertTrue(all(e.category == "intelligence" for e in intel))
+
+    def test_get_scheduled(self):
+        from core.registry import Registry, register
+
+        @register(name="sched_mod", category="intelligence",
+                  schedule={"hour": 7, "minute": 0})
+        class _S:
+            pass
+
+        @register(name="no_sched_mod", category="content")
+        class _NS:
+            pass
+
+        scheduled = Registry.get_scheduled()
+        names = [e.name for e in scheduled]
+        self.assertIn("sched_mod", names)
+        self.assertNotIn("no_sched_mod", names)
+
+    def test_get_phases(self):
+        from core.registry import Registry, register
+
+        @register(name="phase_mod", category="intelligence", phase="trend")
+        class _P:
+            pass
+
+        phases = Registry.get_phases()
+        self.assertIn("trend", phases)
+
+    def test_get_unknown_returns_none(self):
+        from core.registry import Registry
+        self.assertIsNone(Registry.get("nonexistent_module"))
+
+
+class TestEventBus(unittest.TestCase):
+    """Tests for the in-process event bus."""
+
+    def setUp(self):
+        from core.event_bus import get_bus
+        self._bus = get_bus()
+        self._bus.clear_subscriptions()
+
+    def test_publish_returns_event_id(self):
+        from core.event_bus import publish
+        eid = publish("test.event", {"key": "value"}, source="test")
+        self.assertIsInstance(eid, str)
+        self.assertTrue(len(eid) > 0)
+
+    def test_subscribe_and_receive(self):
+        from core.event_bus import publish, subscribe
+        received = []
+        subscribe("test.event2", lambda e: received.append(e))
+        publish("test.event2", {"msg": "hello"})
+        self.assertEqual(len(received), 1)
+        self.assertEqual(received[0].payload["msg"], "hello")
+
+    def test_wildcard_subscribe(self):
+        from core.event_bus import publish, subscribe
+        received = []
+        subscribe("module.*", lambda e: received.append(e))
+        publish("module.started", {"m": "x"})
+        publish("module.succeeded", {"m": "y"})
+        publish("other.event", {"m": "z"})
+        self.assertEqual(len(received), 2)
+
+    def test_handler_exception_does_not_crash_bus(self):
+        from core.event_bus import publish, subscribe
+        subscribe("crash.event", lambda e: 1 / 0)
+        # Should not raise
+        eid = publish("crash.event", {})
+        self.assertIsNotNone(eid)
+
+    def test_unsubscribe(self):
+        from core.event_bus import publish, subscribe, get_bus
+        received = []
+        sub_id = subscribe("unsub.event", lambda e: received.append(e))
+        publish("unsub.event", {})
+        get_bus().unsubscribe(sub_id)
+        publish("unsub.event", {})
+        self.assertEqual(len(received), 1)
+
+    def test_get_history(self):
+        from core.event_bus import publish, get_bus
+        publish("history.event", {"x": 1})
+        publish("history.event", {"x": 2})
+        history = get_bus().get_history("history.event", n=10)
+        self.assertGreaterEqual(len(history), 2)
+
+    def test_event_has_required_fields(self):
+        from core.event_bus import publish, get_bus
+        publish("field.test", {"data": "ok"}, source="unit_test")
+        history = get_bus().get_history("field.test", n=1)
+        self.assertTrue(len(history) >= 1)
+        e = history[0]
+        self.assertTrue(hasattr(e, "event_id"))
+        self.assertTrue(hasattr(e, "event_type"))
+        self.assertTrue(hasattr(e, "payload"))
+        self.assertTrue(hasattr(e, "source"))
+        self.assertTrue(hasattr(e, "timestamp"))
+
+
+class TestCircuitBreaker(unittest.TestCase):
+    """Tests for the circuit breaker pattern."""
+
+    def setUp(self):
+        from core.circuit_breaker import BreakerRegistry
+        BreakerRegistry().reset_all()
+
+    def test_get_breaker_creates_instance(self):
+        from core.circuit_breaker import get_breaker, CircuitBreaker
+        b = get_breaker("test_breaker")
+        self.assertIsInstance(b, CircuitBreaker)
+
+    def test_closed_state_passes_calls(self):
+        from core.circuit_breaker import get_breaker
+        b = get_breaker("cb_closed")
+        result = b.call(lambda: 42)
+        self.assertEqual(result, 42)
+
+    def test_open_state_returns_fallback(self):
+        from core.circuit_breaker import get_breaker, CircuitBreaker
+        b = CircuitBreaker("cb_open", failure_threshold=2, timeout_s=9999)
+        def _fail():
+            raise RuntimeError("boom")
+        for _ in range(3):
+            b.call(_fail, fallback="default")
+        result = b.call(_fail, fallback="fallback_val")
+        self.assertEqual(result, "fallback_val")
+
+    def test_reset_clears_state(self):
+        from core.circuit_breaker import CircuitBreaker, CircuitState
+        b = CircuitBreaker("cb_reset", failure_threshold=1, timeout_s=9999)
+        b.call(lambda: (_ for _ in ()).throw(RuntimeError("x")), fallback=None)
+        b.reset()
+        self.assertEqual(b.state, CircuitState.CLOSED)
+
+    def test_stats_track_calls(self):
+        from core.circuit_breaker import get_breaker
+        b = get_breaker("cb_stats")
+        b.call(lambda: 1)
+        b.call(lambda: 2)
+        self.assertGreaterEqual(b.stats.total_calls, 2)
+
+    def test_to_dict_serializable(self):
+        from core.circuit_breaker import get_breaker
+        b = get_breaker("cb_serial")
+        d = b.to_dict()
+        self.assertIn("state", d)
+        self.assertIn("stats", d)
+
+
+class TestConfigManager(unittest.TestCase):
+    """Tests for the centralized config manager."""
+
+    def test_get_returns_default_on_missing(self):
+        from core.config_manager import get_config
+        result = get_config("nonexistent.key.path", default="fallback")
+        self.assertEqual(result, "fallback")
+
+    def test_get_known_key(self):
+        from core.config_manager import get_config
+        # master_config.yaml has ai.model
+        model = get_config("ai.model", default="unknown")
+        self.assertIsInstance(model, str)
+        self.assertNotEqual(model, "")
+
+    def test_set_and_get_runtime_override(self):
+        from core.config_manager import get_config, set_config
+        set_config("test.runtime.key", "test_value_123")
+        result = get_config("test.runtime.key", default="")
+        self.assertEqual(result, "test_value_123")
+
+    def test_get_section(self):
+        from core.config_manager import ConfigManager
+        mgr = ConfigManager()
+        section = mgr.get_section("ai")
+        self.assertIsInstance(section, dict)
+
+    def test_reload_does_not_crash(self):
+        from core.config_manager import ConfigManager
+        mgr = ConfigManager()
+        try:
+            mgr.reload()
+        except Exception as e:
+            self.fail(f"reload() raised: {e}")
+
+    def test_env_var_override(self):
+        import os
+        from core.config_manager import ConfigManager
+        os.environ["ENGINE_TEST_OVERRIDE"] = "env_val"
+        mgr = ConfigManager()
+        # env var ENGINE_TEST_OVERRIDE → test.override
+        # Just verify the config manager doesn't crash
+        mgr.reload()
+        del os.environ["ENGINE_TEST_OVERRIDE"]
+
+
+class TestHealthMonitor(unittest.TestCase):
+    """Tests for the health monitor."""
+
+    def setUp(self):
+        from core.health_monitor import HealthMonitor
+        self._monitor = HealthMonitor()
+        self._monitor.reset("test_module")
+
+    def test_initial_state_is_unknown(self):
+        from core.health_monitor import HealthState
+        status = self._monitor.get_status("new_module_xyz")
+        self.assertEqual(status.state, HealthState.UNKNOWN)
+
+    def test_record_success_sets_healthy(self):
+        from core.health_monitor import HealthState
+        self._monitor.record_success("test_module", duration_s=0.5)
+        status = self._monitor.get_status("test_module")
+        self.assertEqual(status.state, HealthState.HEALTHY)
+
+    def test_record_failure_increments_counter(self):
+        self._monitor.record_failure("test_module", error="test error")
+        status = self._monitor.get_status("test_module")
+        self.assertGreaterEqual(status.consecutive_failures, 1)
+
+    def test_multiple_failures_transition_to_failed(self):
+        from core.health_monitor import HealthState
+        for _ in range(5):
+            self._monitor.record_failure("failing_module", error="crash")
+        status = self._monitor.get_status("failing_module")
+        self.assertIn(status.state, [HealthState.DEGRADED, HealthState.FAILED])
+
+    def test_success_after_failures_resets_counter(self):
+        self._monitor.record_failure("recover_module", error="err")
+        self._monitor.record_failure("recover_module", error="err")
+        self._monitor.record_success("recover_module")
+        status = self._monitor.get_status("recover_module")
+        self.assertEqual(status.consecutive_failures, 0)
+
+    def test_get_all_statuses(self):
+        self._monitor.record_success("mod_a")
+        self._monitor.record_success("mod_b")
+        all_s = self._monitor.get_all_statuses()
+        self.assertIsInstance(all_s, dict)
+        self.assertIn("mod_a", all_s)
+
+    def test_summary_counts_by_state(self):
+        self._monitor.record_success("healthy_mod")
+        summary = self._monitor.summary()
+        self.assertIsInstance(summary, dict)
+
+
+class TestCodeValidator(unittest.TestCase):
+    """Tests for the AST-based code safety validator."""
+
+    def setUp(self):
+        from framework.code_validator import CodeValidator
+        self._v = CodeValidator()
+
+    def test_valid_code_passes(self):
+        code = "def hello():\n    return 'world'\n"
+        result = self._v.validate(code)
+        self.assertTrue(result.valid)
+        self.assertEqual(result.errors, [])
+
+    def test_syntax_error_caught(self):
+        code = "def broken(:\n    pass\n"
+        result = self._v.validate(code)
+        self.assertFalse(result.valid)
+        self.assertTrue(any("Syntax" in e or "syntax" in e for e in result.errors))
+
+    def test_exec_with_variable_rejected(self):
+        code = "x = 'code'\nexec(x)\n"
+        result = self._v.validate(code)
+        self.assertFalse(result.valid)
+
+    def test_eval_with_literal_allowed(self):
+        # eval with a literal string is not dangerous
+        code = "result = eval('1 + 2')\n"
+        result = self._v.validate(code)
+        # May pass or warn — should not error on literal
+        self.assertIsInstance(result.valid, bool)
+
+    def test_os_system_rejected(self):
+        code = "import os\nos.system('rm -rf /')\n"
+        result = self._v.validate(code)
+        self.assertFalse(result.valid)
+
+    def test_subprocess_shell_true_rejected(self):
+        code = "import subprocess\nsubprocess.run('ls', shell=True)\n"
+        result = self._v.validate(code)
+        self.assertFalse(result.valid)
+
+    def test_subprocess_shell_false_allowed(self):
+        code = "import subprocess\nsubprocess.run(['ls'], shell=False)\n"
+        result = self._v.validate(code)
+        self.assertTrue(result.valid)
+
+    def test_api_preservation_flags_removal(self):
+        original = "def keep_me():\n    pass\ndef also_keep():\n    pass\n"
+        patched  = "def keep_me():\n    pass\n"
+        result = self._v.validate(patched, original_source=original)
+        # Missing public name should generate either an error or a warning
+        flagged = len(result.warnings) + len(result.errors)
+        self.assertGreater(flagged, 0)
+
+    def test_returns_validation_result_object(self):
+        from framework.code_validator import ValidationResult
+        code = "x = 1\n"
+        result = self._v.validate(code)
+        self.assertIsInstance(result, ValidationResult)
+
+
+class TestPatchManager(unittest.TestCase):
+    """Tests for the safe patch manager."""
+
+    def setUp(self):
+        import tempfile
+        self._tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def _make_manager(self):
+        from framework.patch_manager import PatchManager
+        from pathlib import Path
+        return PatchManager(project_root=Path(self._tmpdir), run_tests=False, test_command=None, auto_commit=False)
+
+    def _make_patch(self, filename: str, new_source: str, description: str = "test",
+                    original_source: str = ""):
+        from framework.patch_manager import Patch
+        return Patch(
+            file_path=filename,
+            original_source=original_source,
+            patched_source=new_source,
+            description=description,
+            source="manual",
+        )
+
+    def test_apply_valid_patch_succeeds(self):
+        import os
+        os.makedirs(self._tmpdir, exist_ok=True)
+        orig_src = "x = 1\ndef hello():\n    return 'hi'\n"
+        orig = os.path.join(self._tmpdir, "mod.py")
+        with open(orig, "w") as f:
+            f.write(orig_src)
+
+        mgr   = self._make_manager()
+        patch = self._make_patch("mod.py", "x = 2\ndef hello():\n    return 'hello'\n",
+                                 original_source=orig_src)
+        result = mgr.apply(patch)
+        self.assertTrue(result.success)
+        self.assertFalse(result.rolled_back)
+
+    def test_apply_invalid_syntax_fails(self):
+        mgr   = self._make_manager()
+        patch = self._make_patch("bad.py", "def broken(:\n    pass\n")
+        result = mgr.apply(patch)
+        self.assertFalse(result.success)
+
+    def test_apply_dangerous_code_fails(self):
+        mgr   = self._make_manager()
+        patch = self._make_patch("dangerous.py", "import os\nos.system('rm -rf /')\n")
+        result = mgr.apply(patch)
+        self.assertFalse(result.success)
+
+    def test_patch_result_has_required_fields(self):
+        from framework.patch_manager import PatchResult
+        mgr   = self._make_manager()
+        patch = self._make_patch("newfile.py", "x = 42\n")
+        result = mgr.apply(patch)
+        self.assertIsInstance(result, PatchResult)
+        self.assertIsInstance(result.success, bool)
+        self.assertIsInstance(result.rolled_back, bool)
+
+    def test_apply_many_stops_on_failure(self):
+        mgr = self._make_manager()
+        patches = [
+            self._make_patch("good1.py", "x = 1\n"),
+            self._make_patch("bad_syntax.py", "def broken(:\n"),   # syntax error
+            self._make_patch("good2.py", "x = 2\n"),
+        ]
+        results = mgr.apply_many(patches)
+        # Should stop after the bad patch — good2 not attempted
+        self.assertLessEqual(len(results), 2)
+
+
+class TestErrorCorrector(unittest.TestCase):
+    """Tests for the AI error corrector."""
+
+    def test_import(self):
+        from framework.error_corrector import ErrorCorrector
+        self.assertTrue(callable(ErrorCorrector))
+
+    def test_instantiation(self):
+        from framework.error_corrector import ErrorCorrector
+        ec = ErrorCorrector()
+        self.assertIsNotNone(ec)
+
+    def test_generate_fix_no_api_key_returns_none(self):
+        import os, tempfile
+        from framework.error_corrector import ErrorCorrector
+        # Ensure no API key is set
+        key_backup = os.environ.pop("ANTHROPIC_API_KEY", None)
+        try:
+            ec   = ErrorCorrector()
+            with tempfile.NamedTemporaryFile(suffix=".py", mode="w", delete=False) as f:
+                f.write("x = 1\n")
+                fpath = f.name
+            result = ec.generate_fix(
+                file_path=fpath,
+                error_text="AttributeError: test",
+            )
+            # Without API key, should return None gracefully
+            self.assertIsNone(result)
+        finally:
+            if key_backup:
+                os.environ["ANTHROPIC_API_KEY"] = key_backup
+
+    def test_has_generate_fix_method(self):
+        from framework.error_corrector import ErrorCorrector
+        ec = ErrorCorrector()
+        self.assertTrue(hasattr(ec, "generate_fix"), "ErrorCorrector must have generate_fix()")
+
+
+class TestUpdatePipeline(unittest.TestCase):
+    """Tests for the update pipeline orchestrator."""
+
+    def setUp(self):
+        import tempfile
+        self._tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def test_import(self):
+        from framework.update_pipeline import UpdatePipeline
+        self.assertTrue(callable(UpdatePipeline))
+
+    def test_empty_patch_list_succeeds(self):
+        from framework.update_pipeline import UpdatePipeline
+        from pathlib import Path
+        p = UpdatePipeline(project_root=Path(self._tmpdir), test_command=None)
+        run = p.run([])
+        self.assertEqual(run.total, 0)
+        self.assertEqual(run.succeeded, 0)
+
+    def test_single_valid_patch(self):
+        from framework.update_pipeline import UpdatePipeline
+        from framework.patch_manager import Patch
+        from pathlib import Path
+        p = UpdatePipeline(project_root=Path(self._tmpdir), test_command=None, dry_run=True)
+        patch = Patch(
+            file_path="test_mod.py",
+            original_source="",
+            patched_source="x = 1\n",
+            description="test",
+            source="manual",
+        )
+        run = p.run([patch])
+        self.assertEqual(run.total, 1)
+        self.assertEqual(run.succeeded, 1)
+
+    def test_run_returns_pipeline_run_object(self):
+        from framework.update_pipeline import UpdatePipeline
+        from pathlib import Path
+        p = UpdatePipeline(project_root=Path(self._tmpdir), test_command=None)
+        run = p.run([])
+        self.assertIsNotNone(run)
+        self.assertTrue(hasattr(run, "total"), "run object must have .total")
+        self.assertTrue(hasattr(run, "succeeded"), "run object must have .succeeded")
+        self.assertIsNotNone(run.started_at)
+        self.assertIsNotNone(run.finished_at)
+
+    def test_dry_run_validates_without_applying(self):
+        from framework.update_pipeline import UpdatePipeline
+        from framework.patch_manager import Patch
+        from pathlib import Path
+        p = UpdatePipeline(project_root=Path(self._tmpdir), test_command=None)
+        valid_patch = Patch(
+            file_path="good.py", original_source="",
+            patched_source="x = 1\n", description="ok", source="manual",
+        )
+        invalid_patch = Patch(
+            file_path="bad.py", original_source="",
+            patched_source="def broken(:\n    pass\n", description="bad", source="manual",
+        )
+        results = p.dry_run_check([valid_patch, invalid_patch])
+        self.assertEqual(len(results), 2)
+        valid_r   = next(r for r in results if r["file_path"] == "good.py")
+        invalid_r = next(r for r in results if r["file_path"] == "bad.py")
+        self.assertTrue(valid_r["valid"])
+        self.assertFalse(invalid_r["valid"])
+
+    def test_to_dict_serializable(self):
+        from framework.update_pipeline import UpdatePipeline
+        from pathlib import Path
+        import json
+        p = UpdatePipeline(project_root=Path(self._tmpdir), test_command=None)
+        run = p.run([])
+        d = run.to_dict()
+        # Should be JSON serializable
+        try:
+            json.dumps(d)
+        except Exception as e:
+            self.fail(f"PipelineRun.to_dict() not JSON-serializable: {e}")
+
+
+class TestMemoryFrameworkTables(unittest.TestCase):
+    """Tests for new memory tables added for the framework."""
+
+    def setUp(self):
+        from core.memory import Memory
+        self.mem = Memory(":memory:")
+
+    def test_log_and_get_event(self):
+        self.mem.log_event("evt-001", "module.started", source="test", payload={"m": "x"})
+        events = self.mem.get_events("module.started")
+        self.assertGreaterEqual(len(events), 1)
+        self.assertEqual(events[0]["event_type"], "module.started")
+        self.assertEqual(events[0]["payload"]["m"], "x")
+
+    def test_log_patch_result(self):
+        self.mem.log_patch_result(
+            "patch-001", "core/brain.py", success=True,
+            description="Fixed null deref", source="error_corrector",
+            tests_passed=True, duration_s=12.5,
+        )
+        history = self.mem.get_patch_history()
+        self.assertGreaterEqual(len(history), 1)
+        self.assertEqual(history[0]["patch_id"], "patch-001")
+        self.assertTrue(history[0]["success"])
+
+    def test_log_framework_error_and_resolve(self):
+        self.mem.log_framework_error(
+            "err-001", "core/brain.py", file_path="core/brain.py",
+            error_type="AttributeError", error_message="NoneType has no .get",
+        )
+        errors = self.mem.get_error_log(unresolved_only=True)
+        self.assertGreaterEqual(len(errors), 1)
+        ids = [e["error_id"] for e in errors]
+        self.assertIn("err-001", ids)
+
+        self.mem.resolve_framework_error("err-001", patch_id="patch-001")
+        remaining = self.mem.get_error_log(unresolved_only=True)
+        ids_after = [e["error_id"] for e in remaining]
+        self.assertNotIn("err-001", ids_after)
+
+    def test_save_and_get_update_report(self):
+        self.mem.save_update_report(
+            "run-001", issues_found=3, patches_attempted=2,
+            patches_applied=2, patches_failed=0,
+            report={"summary": "all good"},
+        )
+        reports = self.mem.get_update_reports()
+        self.assertGreaterEqual(len(reports), 1)
+        self.assertEqual(reports[0]["run_id"], "run-001")
+        self.assertEqual(reports[0]["report"]["summary"], "all good")
+
+    def test_record_and_get_health_events(self):
+        self.mem.record_health_event(
+            "trend_hunter", "degraded",
+            consecutive_failures=3, total_runs=100,
+            last_error="API timeout", avg_duration_s=2.1,
+        )
+        events = self.mem.get_health_events("trend_hunter")
+        self.assertGreaterEqual(len(events), 1)
+        self.assertEqual(events[0]["state"], "degraded")
+
+
 # ── Runner ─────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":

@@ -443,6 +443,13 @@ class Scheduler:
                 max_instances=1, coalesce=True,
             )
 
+            # Automated update pipeline at 03:30 UTC (after archive mining, before morning brief)
+            sched.add_job(
+                self._run_update_pipeline, CronTrigger(hour=3, minute=30),
+                id="update_pipeline", name="Self-modification update pipeline",
+                max_instances=1, coalesce=True,
+            )
+
             return sched
         except ImportError:
             log.warning("APScheduler not installed — using sleep-loop fallback")
@@ -703,6 +710,45 @@ class Scheduler:
             )
         except Exception as e:
             log.error(f"Studio maintenance crashed: {e}", exc_info=True)
+
+    def _run_update_pipeline(self):
+        try:
+            from framework.update_pipeline import UpdatePipeline
+            from framework.error_corrector import ErrorCorrector
+            corrector = ErrorCorrector()
+            pipeline  = UpdatePipeline(stop_on_first_failure=True)
+            # Collect pending fixes from memory error log
+            errors = []
+            try:
+                errors = self.memory.get_error_log(unresolved_only=True, n=5) if self.memory else []
+            except Exception:
+                pass
+            patches = []
+            for err in errors:
+                patch = corrector.generate_fix(
+                    file_path=err.get("file_path", ""),
+                    error_text=err.get("error_message", ""),
+                    traceback_text=err.get("traceback_text", ""),
+                )
+                if patch:
+                    patches.append(patch)
+            if patches:
+                run = pipeline.run(patches)
+                log.info(
+                    f"Update pipeline: {run.succeeded}/{run.total} patches applied"
+                )
+                # Resolve fixed errors in memory
+                for i, result in enumerate(run.results):
+                    if result.success and i < len(errors):
+                        try:
+                            self.memory.resolve_framework_error(
+                                errors[i].get("error_id", ""))
+                        except Exception:
+                            pass
+            else:
+                log.debug("Update pipeline: no pending errors to fix")
+        except Exception as e:
+            log.error(f"Update pipeline crashed: {e}", exc_info=True)
 
     def _run_version_snapshot(self):
         try:

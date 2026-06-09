@@ -705,6 +705,66 @@ CREATE TABLE IF NOT EXISTS bulk_operations (
     details_json    TEXT,
     created_at      TEXT    NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS event_log (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id        TEXT    UNIQUE,
+    event_type      TEXT    NOT NULL,
+    source          TEXT,
+    payload_json    TEXT,
+    created_at      TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS health_events (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    module_name     TEXT    NOT NULL,
+    state           TEXT    NOT NULL,
+    consecutive_failures INTEGER DEFAULT 0,
+    total_runs      INTEGER DEFAULT 0,
+    last_error      TEXT,
+    avg_duration_s  REAL    DEFAULT 0,
+    recorded_at     TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS patch_history (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    patch_id        TEXT    UNIQUE NOT NULL,
+    file_path       TEXT    NOT NULL,
+    description     TEXT,
+    source          TEXT,
+    success         INTEGER DEFAULT 0,
+    tests_passed    INTEGER DEFAULT 0,
+    rolled_back     INTEGER DEFAULT 0,
+    validation_errors TEXT,
+    error_message   TEXT,
+    duration_s      REAL    DEFAULT 0,
+    created_at      TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS error_log (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    error_id        TEXT    UNIQUE,
+    module_name     TEXT    NOT NULL,
+    file_path       TEXT,
+    error_type      TEXT,
+    error_message   TEXT,
+    traceback_text  TEXT,
+    resolved        INTEGER DEFAULT 0,
+    resolution_patch_id TEXT,
+    created_at      TEXT    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS update_reports (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id          TEXT    UNIQUE NOT NULL,
+    issues_found    INTEGER DEFAULT 0,
+    patches_attempted INTEGER DEFAULT 0,
+    patches_applied INTEGER DEFAULT 0,
+    patches_failed  INTEGER DEFAULT 0,
+    report_json     TEXT,
+    started_at      TEXT,
+    completed_at    TEXT    NOT NULL
+);
 """
 
 
@@ -2717,6 +2777,171 @@ class Memory:
                  _json.dumps(details or {}),
                  datetime.now(timezone.utc).isoformat()),
             )
+
+    # ── Framework: Event Log ─────────────────────────────────────────────────
+
+    def log_event(self, event_id: str, event_type: str,
+                   source: str = "", payload: Dict = None) -> None:
+        import json as _json
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT OR IGNORE INTO event_log
+                   (event_id, event_type, source, payload_json, created_at)
+                   VALUES (?,?,?,?,?)""",
+                (event_id, event_type, source,
+                 _json.dumps(payload or {}),
+                 datetime.now(timezone.utc).isoformat()),
+            )
+
+    def get_events(self, event_type: str = None, n: int = 100) -> List[Dict]:
+        import json as _json
+        clause = "WHERE event_type LIKE ?" if event_type else ""
+        params: List = ([f"{event_type}%"] if event_type else []) + [n]
+        with self._conn() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM event_log {clause} ORDER BY created_at DESC LIMIT ?",
+                params,
+            ).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            try:
+                d["payload"] = _json.loads(d.get("payload_json") or "{}")
+            except Exception:
+                d["payload"] = {}
+            result.append(d)
+        return result
+
+    # ── Framework: Health Events ─────────────────────────────────────────────
+
+    def record_health_event(self, module_name: str, state: str,
+                             consecutive_failures: int = 0,
+                             total_runs: int = 0,
+                             last_error: str = "",
+                             avg_duration_s: float = 0.0) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO health_events
+                   (module_name, state, consecutive_failures, total_runs,
+                    last_error, avg_duration_s, recorded_at)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (module_name, state, consecutive_failures, total_runs,
+                 last_error, avg_duration_s,
+                 datetime.now(timezone.utc).isoformat()),
+            )
+
+    def get_health_events(self, module_name: str = None, n: int = 50) -> List[Dict]:
+        clause = "WHERE module_name=?" if module_name else ""
+        params: List = ([module_name] if module_name else []) + [n]
+        with self._conn() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM health_events {clause} ORDER BY recorded_at DESC LIMIT ?",
+                params,
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    # ── Framework: Patch History ─────────────────────────────────────────────
+
+    def log_patch_result(self, patch_id: str, file_path: str,
+                          success: bool, description: str = "",
+                          source: str = "",
+                          tests_passed: bool = False,
+                          rolled_back: bool = False,
+                          validation_errors: str = "",
+                          error_message: str = "",
+                          duration_s: float = 0.0) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT OR REPLACE INTO patch_history
+                   (patch_id, file_path, description, source, success,
+                    tests_passed, rolled_back, validation_errors,
+                    error_message, duration_s, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                (patch_id, file_path, description, source,
+                 int(success), int(tests_passed), int(rolled_back),
+                 validation_errors, error_message, duration_s,
+                 datetime.now(timezone.utc).isoformat()),
+            )
+
+    def get_patch_history(self, n: int = 20, successful_only: bool = False) -> List[Dict]:
+        clause = "WHERE success=1" if successful_only else ""
+        with self._conn() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM patch_history {clause} ORDER BY created_at DESC LIMIT ?",
+                (n,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    # ── Framework: Error Log ─────────────────────────────────────────────────
+
+    def log_framework_error(self, error_id: str, module_name: str,
+                             file_path: str = "", error_type: str = "",
+                             error_message: str = "",
+                             traceback_text: str = "") -> None:
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT OR IGNORE INTO error_log
+                   (error_id, module_name, file_path, error_type,
+                    error_message, traceback_text, created_at)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (error_id, module_name, file_path, error_type,
+                 error_message, traceback_text,
+                 datetime.now(timezone.utc).isoformat()),
+            )
+
+    def resolve_framework_error(self, error_id: str,
+                                 patch_id: str = "") -> None:
+        with self._conn() as conn:
+            conn.execute(
+                """UPDATE error_log SET resolved=1, resolution_patch_id=?
+                   WHERE error_id=?""",
+                (patch_id, error_id),
+            )
+
+    def get_error_log(self, unresolved_only: bool = True,
+                       n: int = 50) -> List[Dict]:
+        clause = "WHERE resolved=0" if unresolved_only else ""
+        with self._conn() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM error_log {clause} ORDER BY created_at DESC LIMIT ?",
+                (n,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    # ── Framework: Update Reports ────────────────────────────────────────────
+
+    def save_update_report(self, run_id: str, issues_found: int,
+                            patches_attempted: int, patches_applied: int,
+                            patches_failed: int, report: Dict,
+                            started_at: str = "") -> None:
+        import json as _json
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT OR REPLACE INTO update_reports
+                   (run_id, issues_found, patches_attempted, patches_applied,
+                    patches_failed, report_json, started_at, completed_at)
+                   VALUES (?,?,?,?,?,?,?,?)""",
+                (run_id, issues_found, patches_attempted, patches_applied,
+                 patches_failed, _json.dumps(report),
+                 started_at, datetime.now(timezone.utc).isoformat()),
+            )
+
+    def get_update_reports(self, n: int = 10) -> List[Dict]:
+        import json as _json
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM update_reports ORDER BY completed_at DESC LIMIT ?",
+                (n,),
+            ).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            try:
+                d["report"] = _json.loads(d.get("report_json") or "{}")
+            except Exception:
+                d["report"] = {}
+            result.append(d)
+        return result
 
 
 # Module-level singleton

@@ -34,6 +34,8 @@ Usage:
   python main.py --phase sprint                 Run monetization fast-track sprint
   python main.py --phase studio                 Run YouTube Studio daily maintenance
   python main.py --mode studio                  Run YouTube Studio daily maintenance
+  python main.py --phase update                 Run self-modification update pipeline
+  python main.py --mode update                  Run self-modification update pipeline
   python main.py --topic "Your topic"           Override topic selection
   python main.py --style tech-dark              Override style preset
   python main.py --length 600                   Override video length (seconds)
@@ -404,6 +406,41 @@ def run_studio_phase(memory):
     result = studio.run_daily_maintenance()
     studio.print_dashboard(result)
 
+
+def run_update_phase(memory):
+    from framework.update_pipeline import UpdatePipeline
+    from framework.error_corrector import ErrorCorrector
+    corrector = ErrorCorrector()
+    pipeline  = UpdatePipeline(stop_on_first_failure=True)
+
+    errors  = memory.get_error_log(unresolved_only=True, n=5)
+    patches = []
+    for err in errors:
+        patch = corrector.generate_fix(
+            file_path=err.get("file_path", ""),
+            error_text=err.get("error_message", ""),
+            traceback_text=err.get("traceback_text", ""),
+        )
+        if patch:
+            patches.append(patch)
+
+    if not patches:
+        print("\n  No pending errors to fix.")
+        return
+
+    run = pipeline.run(patches)
+    print(f"\n{'='*60}")
+    print(f"  UPDATE PIPELINE RESULTS")
+    print(f"{'='*60}")
+    print(f"  Patches attempted: {run.total}")
+    print(f"  Patches applied:   {run.succeeded}")
+    print(f"  Patches failed:    {run.failed}")
+    print(f"  Patches skipped:   {run.skipped}")
+    print(f"  Duration:          {(run.finished_at - run.started_at).total_seconds():.1f}s")
+    for r in run.results:
+        status = "OK" if r.success else "FAIL"
+        print(f"  [{status}] {r.patch.file_path}: {r.message[:60]}")
+
     active = result.get("active_streams", [])
     if active:
         print(f"\n  Active revenue streams: {', '.join(s['stream_id'] for s in active)}")
@@ -649,6 +686,8 @@ def main():
             run_synthesize_phase(memory)
         elif args.mode == "studio":
             run_studio_phase(memory)
+        elif args.mode == "update":
+            run_update_phase(memory)
         return
 
     # Single-phase execution
@@ -661,7 +700,7 @@ def main():
     ANALYSIS_PHASES = {"audit", "feedback", "competitor", "meta", "algo",
                         "monetize", "dominate", "global", "shorts", "community",
                         "growth", "future", "ingest", "feeds", "archive",
-                        "category", "synthesize", "sprint", "studio"}
+                        "category", "synthesize", "sprint", "studio", "update"}
     if args.phase in ANALYSIS_PHASES:
         if args.phase == "algo":
             run_algo_phase(memory)
@@ -693,6 +732,8 @@ def main():
             run_sprint_phase(memory)
         elif args.phase == "studio":
             run_studio_phase(memory)
+        elif args.phase == "update":
+            run_update_phase(memory)
         else:
             {"audit":      run_audit_phase,
              "feedback":   run_feedback_phase,
