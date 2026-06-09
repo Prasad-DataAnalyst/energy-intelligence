@@ -1,7 +1,9 @@
 """
 modules/production/cinematic_audio_engine.py
-Broadcast-quality audio: edge-tts → noise reduction → EQ → compression → loudness normalize
-Replaces: audio_generator.py (espeak-ng)
+Broadcast-quality audio pipeline.
+Voice chain: ElevenLabs → OpenAI TTS → edge-tts → espeak-ng → silent WAV
+Post-process: noise reduction → HP filter → EQ → compression → de-essing → -14 LUFS
+Replaces: audio_generator.py (espeak-ng only)
 """
 
 from __future__ import annotations
@@ -24,12 +26,48 @@ logger = logging.getLogger(__name__)
 # Voice maps
 # ---------------------------------------------------------------------------
 
+# edge-tts voices (fallback tier)
 VOICE_MAP: dict[str, str] = {
     "authoritative": "en-US-GuyNeural",
     "warm":          "en-US-AriaNeural",
     "urgent":        "en-US-DavisNeural",
     "calm":          "en-US-JennyNeural",
     "energetic":     "en-US-TonyNeural",
+    "shocked":       "en-US-DavisNeural",
+    "intimate":      "en-US-AriaNeural",
+    "conspiratorial":"en-US-GuyNeural",
+}
+
+# ElevenLabs voice IDs by tone (primary tier)
+ELEVENLABS_VOICE_MAP: dict[str, str] = {
+    "authoritative": "pNInz6obpgDQGcFmaJgB",  # Adam
+    "warm":          "21m00Tcm4TlvDq8ikWAM",  # Rachel
+    "urgent":        "TxGEqnHWrfWFTfGW9XjX",  # Josh
+    "calm":          "EXAVITQu4vr4xnSDxMaL",  # Bella
+    "energetic":     "ErXwobaYiN019PkySvjV",  # Antoni
+    "shocked":       "pNInz6obpgDQGcFmaJgB",  # Adam
+    "intimate":      "21m00Tcm4TlvDq8ikWAM",  # Rachel
+    "conspiratorial":"TxGEqnHWrfWFTfGW9XjX",  # Josh
+}
+
+# OpenAI TTS voices by tone (fallback 1)
+OPENAI_VOICE_MAP: dict[str, str] = {
+    "authoritative": "onyx",
+    "warm":          "nova",
+    "urgent":        "echo",
+    "calm":          "shimmer",
+    "energetic":     "fable",
+    "shocked":       "onyx",
+    "intimate":      "nova",
+    "conspiratorial":"echo",
+}
+
+ELEVENLABS_MODEL = "eleven_turbo_v2_5"
+ELEVENLABS_SETTINGS = {
+    "stability": 0.40,
+    "similarity_boost": 0.85,
+    "style": 0.65,
+    "use_speaker_boost": True,
 }
 
 # Chord frequencies (Am - F - C - G progression, root notes)
@@ -57,6 +95,93 @@ def _save_wav(y: np.ndarray, sr: int, path: str) -> None:
         wf.setsampwidth(2)
         wf.setframerate(sr)
         wf.writeframes(y_i16.tobytes())
+
+
+# ---------------------------------------------------------------------------
+# Tier 1: ElevenLabs primary
+# ---------------------------------------------------------------------------
+
+def _elevenlabs_primary(text: str, out_path: str, tone: str = "authoritative") -> bool:
+    """ElevenLabs eleven_turbo_v2_5 — primary voice engine. Return True on success."""
+    api_key = os.environ.get("ELEVENLABS_API_KEY", "").strip()
+    if not api_key:
+        return False
+    try:
+        from services.elevenlabs_service import generate as el_generate
+        el_generate(text, out_path, tone=tone)
+        if os.path.exists(out_path) and os.path.getsize(out_path) > 1000:
+            logger.info("Voiceover generated via ElevenLabs eleven_turbo_v2_5")
+            return True
+    except Exception:
+        pass
+    # Direct requests fallback if service module unavailable
+    try:
+        import requests as _req
+        voice_id = os.environ.get("ELEVENLABS_VOICE_ID") or \
+                   ELEVENLABS_VOICE_MAP.get(tone, ELEVENLABS_VOICE_MAP["authoritative"])
+        url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
+        headers = {"Accept": "audio/mpeg", "xi-api-key": api_key,
+                   "Content-Type": "application/json"}
+        payload = {
+            "text": text,
+            "model_id": ELEVENLABS_MODEL,
+            "voice_settings": {
+                "stability": ELEVENLABS_SETTINGS["stability"],
+                "similarity_boost": ELEVENLABS_SETTINGS["similarity_boost"],
+                "style": ELEVENLABS_SETTINGS["style"],
+                "use_speaker_boost": ELEVENLABS_SETTINGS["use_speaker_boost"],
+            },
+        }
+        resp = _req.post(url, json=payload, headers=headers, timeout=60)
+        if resp.status_code == 200:
+            mp3_path = out_path.rsplit(".", 1)[0] + "_el.mp3"
+            with open(mp3_path, "wb") as f:
+                f.write(resp.content)
+            r = subprocess.run(
+                ["ffmpeg", "-y", "-i", mp3_path, out_path],
+                capture_output=True, text=True
+            )
+            try: os.remove(mp3_path)
+            except OSError: pass
+            if r.returncode == 0 and os.path.exists(out_path):
+                logger.info("Voiceover generated via ElevenLabs (direct)")
+                return True
+        logger.warning("ElevenLabs HTTP %d", resp.status_code)
+    except Exception as exc:
+        logger.warning("ElevenLabs error: %s", exc)
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Tier 2: OpenAI TTS fallback
+# ---------------------------------------------------------------------------
+
+def _openai_tts_fallback(text: str, out_path: str, tone: str = "authoritative") -> bool:
+    """OpenAI tts-1-hd fallback. Return True on success."""
+    api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        return False
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key)
+        voice = OPENAI_VOICE_MAP.get(tone, "onyx")
+        response = client.audio.speech.create(model="tts-1-hd", voice=voice, input=text)
+        mp3_path = out_path.rsplit(".", 1)[0] + "_oai.mp3"
+        response.stream_to_file(mp3_path)
+        r = subprocess.run(
+            ["ffmpeg", "-y", "-i", mp3_path, out_path],
+            capture_output=True, text=True
+        )
+        try: os.remove(mp3_path)
+        except OSError: pass
+        if r.returncode == 0 and os.path.exists(out_path):
+            logger.info("Voiceover generated via OpenAI TTS (%s)", voice)
+            return True
+    except ImportError:
+        logger.warning("openai package not installed")
+    except Exception as exc:
+        logger.warning("OpenAI TTS error: %s", exc)
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -248,7 +373,7 @@ def _simple_reverb(y: np.ndarray, sr: int, room_size: float = 0.4,
 class CinematicAudioEngine:
     """
     Broadcast-quality audio pipeline:
-      edge-tts → noisereduce → EQ → compression → pyloudnorm → WAV 44100 Hz
+      ElevenLabs → OpenAI TTS → edge-tts → espeak-ng → noisereduce → EQ → compression → de-essing → pyloudnorm → WAV 44100 Hz
     """
 
     def __init__(self, tmp_dir: Optional[str] = None) -> None:
@@ -265,10 +390,11 @@ class CinematicAudioEngine:
         """
         Generate broadcast-quality voiceover audio.
 
-        Primary:   edge-tts (free, Microsoft neural voices)
-        Fallback1: ElevenLabs (if ELEVENLABS_API_KEY set)
-        Fallback2: espeak-ng
-        Fallback3: silent WAV (never crashes)
+        Primary:   ElevenLabs eleven_turbo_v2_5 (if ELEVENLABS_API_KEY set)
+        Fallback1: OpenAI tts-1-hd (if OPENAI_API_KEY set)
+        Fallback2: edge-tts (free, Microsoft neural voices)
+        Fallback3: espeak-ng
+        Fallback4: silent WAV (never crashes)
 
         Audio is run through the full post-processing pipeline after generation.
         Returns out_path.
@@ -281,35 +407,41 @@ class CinematicAudioEngine:
 
         generated = False
 
-        # ── Primary: edge-tts ──────────────────────────────────────────────
-        try:
-            import edge_tts  # type: ignore
-
-            voice = VOICE_MAP.get(tone, "en-US-AriaNeural")
-            communicate = edge_tts.Communicate(text, voice)
-            await communicate.save(raw_path)
-
-            if os.path.exists(raw_path) and os.path.getsize(raw_path) > 0:
-                logger.info("Voiceover generated via edge-tts voice=%s", voice)
-                generated = True
-            else:
-                logger.warning("edge-tts produced empty file")
-        except ImportError:
-            logger.warning("edge-tts not installed; pip install edge-tts")
-        except Exception as exc:
-            logger.warning("edge-tts error: %s", exc)
-
-        # ── Fallback 1: ElevenLabs ─────────────────────────────────────────
+        # ── Primary: ElevenLabs eleven_turbo_v2_5 ─────────────────────────
         if not generated:
-            if _elevenlabs_fallback(text, raw_path):
+            if _elevenlabs_primary(text, raw_path, tone):
                 generated = True
 
-        # ── Fallback 2: espeak-ng ──────────────────────────────────────────
+        # ── Fallback 1: OpenAI tts-1-hd ───────────────────────────────────
+        if not generated:
+            if _openai_tts_fallback(text, raw_path, tone):
+                generated = True
+
+        # ── Fallback 2: edge-tts ───────────────────────────────────────────
+        if not generated:
+            try:
+                import edge_tts  # type: ignore
+
+                voice = VOICE_MAP.get(tone, "en-US-AriaNeural")
+                communicate = edge_tts.Communicate(text, voice)
+                await communicate.save(raw_path)
+
+                if os.path.exists(raw_path) and os.path.getsize(raw_path) > 0:
+                    logger.info("Voiceover generated via edge-tts voice=%s", voice)
+                    generated = True
+                else:
+                    logger.warning("edge-tts produced empty file")
+            except ImportError:
+                logger.warning("edge-tts not installed; pip install edge-tts")
+            except Exception as exc:
+                logger.warning("edge-tts error: %s", exc)
+
+        # ── Fallback 3: espeak-ng ──────────────────────────────────────────
         if not generated:
             if _espeak_fallback(text, raw_path):
                 generated = True
 
-        # ── Fallback 3: 1 second of silence so pipeline never crashes ──────
+        # ── Fallback 4: 1 second of silence so pipeline never crashes ──────
         if not generated:
             logger.error("All TTS backends failed — generating silent WAV")
             sr_fallback = 44100
@@ -404,6 +536,16 @@ class CinematicAudioEngine:
             * (threshold + (abs_y[mask] - threshold) / ratio)
         )
         logger.debug("Compression applied (threshold=%.2f ratio=%.1f:1)", threshold, ratio)
+
+        # ── Step 4b: De-essing (5–8 kHz narrow notch, −6 dB) ─────────────
+        try:
+            from scipy import signal as _sig  # type: ignore
+            # Sibilance lives 5–8 kHz; reduce with a peaking cut at 6.5 kHz
+            b_ds, a_ds = _design_peak(sr, 6500, gain_db=-6.0, Q=1.8)
+            y = _sig.filtfilt(b_ds, a_ds, y)
+            logger.debug("De-essing applied (−6 dB @ 6.5 kHz)")
+        except ImportError:
+            pass  # scipy already checked above; skip silently if missing
 
         # ── Step 5: Loudness normalisation to −14 LUFS ────────────────────
         try:

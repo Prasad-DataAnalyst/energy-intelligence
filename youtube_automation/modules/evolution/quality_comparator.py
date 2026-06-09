@@ -564,3 +564,95 @@ class QualityComparator:
 
         logger.info("Quality report written → %s", out_path)
         return out_path
+
+    # ------------------------------------------------------------------
+    # 4. Quality gate (85/100 threshold)
+    # ------------------------------------------------------------------
+    def passes_quality_gate(
+        self,
+        video_path: str,
+        threshold: float = 85.0,
+        script=None,
+    ) -> tuple:
+        """
+        Analyse *video_path* and return (passes: bool, score: float, report: dict).
+
+        If *script* (CinematicScript) is provided, its quality and psychological
+        scores are blended into the overall score (boosting content weight to 40%).
+
+        Parameters
+        ----------
+        video_path: Path to the video file.
+        threshold:  Minimum score required. Default 85.
+        script:     Optional CinematicScript dataclass for content scoring.
+
+        Returns
+        -------
+        (passes, score, report_dict)
+        """
+        metrics = self.analyze_video(video_path)
+
+        if script is not None:
+            metrics["content"] = self._score_from_script(script, metrics["content"])
+
+        score = self._weighted_score_extended(metrics, include_script=script is not None)
+        passes = score >= threshold
+
+        report = {
+            "passes": passes,
+            "score": round(score, 1),
+            "threshold": threshold,
+            "metrics": metrics,
+            "verdict": "PASS" if passes else "FAIL",
+        }
+        logger.info(
+            "Quality gate: %s  (%.1f / %.1f)",
+            report["verdict"], score, threshold,
+        )
+        return passes, round(score, 1), report
+
+    @staticmethod
+    def _score_from_script(script, existing_content: dict) -> dict:
+        """Merge CinematicScript quality metrics into content metrics dict."""
+        content = dict(existing_content)
+
+        q_score = _safe_float(getattr(script, "quality_score", 0), 50.0)
+        p_score = _safe_float(getattr(script, "psychological_score", 0), 50.0)
+        pi_count = _safe_float(getattr(script, "pattern_interrupt_count", 0), 0)
+        dv_count = _safe_float(getattr(script, "data_viz_scene_count", 0), 0)
+        arc = 100.0 if getattr(script, "emotional_arc_complete", False) else 40.0
+        sources = 100.0 if getattr(script, "all_sources_cited", False) else 30.0
+        first_word = 100.0 if getattr(script, "first_word_valid", True) else 0.0
+
+        # Pattern interrupts: 6 needed → 100 if ≥6
+        pi_score = min(100.0, pi_count / 6.0 * 100.0)
+        # Data viz scenes: 3 needed → 100 if ≥3
+        dv_score = min(100.0, dv_count / 3.0 * 100.0)
+
+        content["script_quality_score"] = q_score
+        content["psychological_score"] = p_score
+        content["pattern_interrupts"] = pi_score
+        content["data_viz_coverage"] = dv_score
+        content["emotional_arc"] = arc
+        content["sources_cited"] = sources
+        content["hook_validity"] = first_word
+        return content
+
+    @staticmethod
+    def _weighted_score_extended(metrics: dict, include_script: bool = False) -> float:
+        """Weighted score with optional script content boost."""
+        if include_script:
+            weights = {"visual": 0.35, "audio": 0.25, "content": 0.40}
+        else:
+            weights = {"visual": 0.40, "audio": 0.30, "content": 0.30}
+
+        group_scores: dict[str, float] = {}
+        for group, w in weights.items():
+            group_data = metrics.get(group, {})
+            if not group_data:
+                group_scores[group] = 50.0
+                continue
+            vals = [v for v in group_data.values() if isinstance(v, (int, float))]
+            group_scores[group] = sum(vals) / len(vals) if vals else 50.0
+
+        return sum(group_scores[g] * weights[g] for g in weights)

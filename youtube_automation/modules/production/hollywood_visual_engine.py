@@ -1231,6 +1231,299 @@ class HollywoodVisualEngine:
         return out_path
 
     # ─────────────────────────────────────────────────────────────────────────
+    # CINEMATIC SCRIPT ENTRY POINT  (Level 1→4 tiered pipeline)
+    # ─────────────────────────────────────────────────────────────────────────
+    def generate_from_script(
+        self,
+        script,                  # CinematicScript dataclass
+        audio_package,           # AudioPackage or dict with master_audio_path
+        out_path: str,
+        work_dir: Optional[str] = None,
+    ) -> Tuple[str, float]:
+        """
+        Generate a full cinematic video from a CinematicScript.
+
+        Per scene:
+          Level 1 — Runway ML Gen-3 Alpha (AI video)
+          Level 2 — SDXL via Replicate + parallax animation
+          Level 3 — Pexels stock footage + color grade
+          Level 4 — PIL-generated frame (always works)
+
+        Returns (out_path, total_duration_seconds).
+        """
+        try:
+            from moviepy import concatenate_videoclips, AudioFileClip
+        except ImportError as exc:
+            raise RuntimeError("moviepy not installed") from exc
+
+        work_dir = work_dir or os.path.join(
+            os.path.dirname(os.path.abspath(out_path)), "scene_clips"
+        )
+        os.makedirs(work_dir, exist_ok=True)
+
+        scene_clips = []
+        for scene in script.scenes:
+            dur = float(scene.duration_seconds)
+            scene_out = os.path.join(work_dir, f"scene_{scene.scene_id:02d}.mp4")
+            clip = None
+
+            clip = clip or self._try_runway_scene(scene, scene_out)
+            clip = clip or self._try_replicate_scene(scene, scene_out)
+            clip = clip or self._try_pexels_scene(scene, scene_out)
+            clip = clip or self._generate_pil_scene(scene)
+
+            if clip is not None:
+                try:
+                    scene_clips.append(clip.with_duration(dur))
+                except Exception:
+                    scene_clips.append(clip)
+
+        if not scene_clips:
+            return self.generate_video({"topic": script.title}, out_path)
+
+        final_clip = concatenate_videoclips(scene_clips, method="compose")
+
+        audio_path = ""
+        if hasattr(audio_package, "master_audio_path"):
+            audio_path = str(audio_package.master_audio_path)
+        elif isinstance(audio_package, dict):
+            audio_path = str(audio_package.get("master_audio_path", ""))
+
+        if audio_path and os.path.exists(audio_path):
+            try:
+                audio = AudioFileClip(audio_path)
+                if audio.duration > final_clip.duration:
+                    audio = audio.with_end(final_clip.duration)
+                final_clip = final_clip.with_audio(audio)
+            except Exception as exc:
+                print(f"[HollywoodVisualEngine] Audio attach failed: {exc}")
+
+        final_clip.write_videofile(
+            out_path,
+            fps=FPS,
+            codec="libx264",
+            bitrate="8000k",
+            audio_codec="aac",
+            ffmpeg_params=["-crf", "18", "-pix_fmt", "yuv420p"],
+            logger="bar",
+        )
+        return out_path, float(final_clip.duration)
+
+    # ── Level 1: Runway ML Gen-3 Alpha ────────────────────────────────────────
+    def _try_runway_scene(self, scene, out_path: str):
+        """Generate AI video clip via Runway ML. Returns MoviePy clip or None."""
+        try:
+            import sys, importlib
+            svc_dir = str(Path(__file__).parent.parent.parent / "services")
+            if svc_dir not in sys.path:
+                sys.path.insert(0, svc_dir)
+            runway = importlib.import_module("runway_service")
+            if not runway.is_available():
+                return None
+            desc = scene.visual.description
+            style = scene.visual.style
+            grade = getattr(scene.visual, "color_grade", self.style)
+            result = runway.generate_clip(
+                prompt=f"{desc}, {style}, {grade}, cinematic 4K, film grain",
+                out_path=out_path,
+                duration=scene.duration_seconds,
+                width=WIDTH,
+                height=HEIGHT,
+            )
+            if result and os.path.exists(result):
+                from moviepy import VideoFileClip
+                clip = VideoFileClip(result).resized((WIDTH, HEIGHT))
+                return self._enhance_stock_footage(clip, grade)
+        except Exception as exc:
+            print(f"[HollywoodVisualEngine] Runway L1 scene {scene.scene_id}: {exc}")
+        return None
+
+    # ── Level 2: SDXL via Replicate + parallax animation ─────────────────────
+    def _try_replicate_scene(self, scene, out_path: str):
+        """Generate SDXL still then animate with parallax. Returns clip or None."""
+        try:
+            import sys, importlib
+            svc_dir = str(Path(__file__).parent.parent.parent / "services")
+            if svc_dir not in sys.path:
+                sys.path.insert(0, svc_dir)
+            rep = importlib.import_module("replicate_service")
+            if not rep.is_available():
+                return None
+            img_path = out_path.replace(".mp4", "_sdxl.png")
+            grade = getattr(scene.visual, "color_grade", self.style)
+            result = rep.generate_image(
+                prompt=f"{scene.visual.description}, {scene.visual.style}, "
+                       f"{grade} color grade, cinematic lighting",
+                out_path=img_path,
+            )
+            if result and os.path.exists(result):
+                move = getattr(scene.visual, "camera_movement", "push_in")
+                clip = self._animate_still(result, float(scene.duration_seconds), move)
+                return self._apply_handheld_shake(clip)
+        except Exception as exc:
+            print(f"[HollywoodVisualEngine] Replicate L2 scene {scene.scene_id}: {exc}")
+        return None
+
+    # ── Level 3: Pexels stock footage ────────────────────────────────────────
+    def _try_pexels_scene(self, scene, out_path: str):
+        """Download Pexels stock clip and color-grade it. Returns clip or None."""
+        try:
+            import sys, importlib
+            svc_dir = str(Path(__file__).parent.parent.parent / "services")
+            if svc_dir not in sys.path:
+                sys.path.insert(0, svc_dir)
+            pex = importlib.import_module("pexels_service")
+            if not pex.is_available():
+                return None
+            work_dir = os.path.dirname(out_path)
+            query = f"{scene.visual.description} {scene.visual.style}"
+            result = pex.get_video_for_scene(query, work_dir, scene.scene_id)
+            if result and os.path.exists(result):
+                from moviepy import VideoFileClip
+                raw = VideoFileClip(result)
+                dur = float(scene.duration_seconds)
+                if raw.duration > dur:
+                    raw = raw.subclipped(0, dur)
+                clip = raw.resized((WIDTH, HEIGHT))
+                grade = getattr(scene.visual, "color_grade", self.style)
+                return self._enhance_stock_footage(clip, grade)
+        except Exception as exc:
+            print(f"[HollywoodVisualEngine] Pexels L3 scene {scene.scene_id}: {exc}")
+        return None
+
+    # ── Level 4: PIL generated (always works) ────────────────────────────────
+    def _generate_pil_scene(self, scene):
+        """Generate a PIL-based cinematic frame for this scene. Never fails."""
+        from moviepy import VideoClip
+
+        dur = float(scene.duration_seconds)
+        hook = ""
+        body = ""
+        if scene.text_overlay:
+            hook = scene.text_overlay.hook_text or ""
+        if scene.audio:
+            body = scene.audio.voiceover[:120] if scene.audio.voiceover else ""
+
+        section = scene.section
+        content = {"topic": hook or body, "hook": body}
+
+        if section in ("cold_open", "amplify_hook"):
+            renderer = lambda t, s: self._render_hook_scene(t, s, content)
+        elif section == "cta":
+            renderer = lambda t, s: self._render_cta_scene(t, s, hook)
+        elif section == "promise":
+            renderer = lambda t, s: self._render_context_scene(t, s, content)
+        else:
+            renderer = lambda t, s: self._render_bullet_scene(
+                t, s, scene.scene_id, body
+            )
+
+        def make_frame(t: float) -> np.ndarray:
+            try:
+                return _to_uint8(renderer(t, 0.0))
+            except Exception:
+                return np.zeros((HEIGHT, WIDTH, 3), dtype=np.uint8)
+
+        return VideoClip(make_frame, duration=dur).with_fps(FPS)
+
+    # ── Animation: parallax still ─────────────────────────────────────────────
+    def _animate_still(
+        self, img_path: str, duration: float, camera_move: str = "push_in"
+    ):
+        """
+        Ken-Burns-style parallax animation from a static SDXL image.
+        Oversample by 12% so camera movement never reveals edges.
+        """
+        from moviepy import VideoClip
+
+        oversample = 1.12
+        ow, oh = int(WIDTH * oversample), int(HEIGHT * oversample)
+        try:
+            img = Image.open(img_path).convert("RGB").resize((ow, oh), Image.LANCZOS)
+        except Exception:
+            img = Image.new("RGB", (ow, oh), color=(10, 10, 26))
+        img_arr = np.array(img)
+
+        mx = (ow - WIDTH) // 2
+        my = (oh - HEIGHT) // 2
+
+        def make_frame(t: float) -> np.ndarray:
+            prog = _clamp(t / max(duration, 1e-6))
+            ease = self._ease_in_out_cubic(prog)
+
+            if camera_move == "push_in":
+                x0 = int(mx * (1.0 - ease))
+                y0 = int(my * (1.0 - ease * 0.5))
+            elif camera_move == "pull_out":
+                x0 = int(mx * ease)
+                y0 = int(my * ease * 0.5)
+            elif camera_move == "pan_left":
+                x0 = int(mx * 2 * ease)
+                y0 = my
+            elif camera_move == "pan_right":
+                x0 = int(mx * 2 * (1.0 - ease))
+                y0 = my
+            elif camera_move == "crane_up":
+                x0 = mx
+                y0 = int(my * 2 * ease)
+            elif camera_move == "orbit":
+                x0 = mx + int(mx * 0.4 * math.sin(ease * math.pi))
+                y0 = my + int(my * 0.2 * math.cos(ease * math.pi))
+            else:
+                x0, y0 = mx, my
+
+            x0 = max(0, min(x0, ow - WIDTH))
+            y0 = max(0, min(y0, oh - HEIGHT))
+            return img_arr[y0: y0 + HEIGHT, x0: x0 + WIDTH]
+
+        return VideoClip(make_frame, duration=duration).with_fps(FPS)
+
+    # ── Color grading: stock footage ──────────────────────────────────────────
+    def _enhance_stock_footage(self, clip, color_grade: str):
+        """Apply per-grade color matrix to a MoviePy clip."""
+        _GRADE_PARAMS = {
+            "tech_dark":   dict(brightness=-0.05, contrast=1.15, saturation=0.90, tint_b=1.18),
+            "documentary": dict(brightness=0.02,  contrast=1.10, saturation=0.85, tint_r=1.08),
+            "thriller":    dict(brightness=-0.10, contrast=1.25, saturation=0.70, tint_r=1.28),
+            "education":   dict(brightness=0.05,  contrast=1.05, saturation=1.10, tint_g=1.08),
+            "news":        dict(brightness=0.00,  contrast=1.20, saturation=0.95, tint_r=1.12),
+        }
+        params = _GRADE_PARAMS.get(color_grade) or _GRADE_PARAMS.get(self.style) or {}
+
+        def process_frame(f: np.ndarray) -> np.ndarray:
+            img = f.astype(np.float32) / 255.0
+            img = img * params.get("contrast", 1.0) + params.get("brightness", 0.0)
+            img[:, :, 0] *= params.get("tint_r", 1.0)
+            img[:, :, 1] *= params.get("tint_g", 1.0)
+            img[:, :, 2] *= params.get("tint_b", 1.0)
+            img_u8 = np.clip(img * 255, 0, 255).astype(np.uint8)
+            hsv = cv2.cvtColor(img_u8, cv2.COLOR_RGB2HSV).astype(np.float32)
+            hsv[:, :, 1] = np.clip(hsv[:, :, 1] * params.get("saturation", 1.0), 0, 255)
+            return cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2RGB)
+
+        return clip.image_transform(process_frame)
+
+    # ── Handheld shake ────────────────────────────────────────────────────────
+    def _apply_handheld_shake(self, clip):
+        """Add subtle Gaussian handheld camera shake (~1.5px RMS)."""
+        import random
+        rng = random.Random(42)
+        n = int(clip.duration * FPS) + 4
+        sx = [int(rng.gauss(0, 1.5)) for _ in range(n)]
+        sy = [int(rng.gauss(0, 1.0)) for _ in range(n)]
+
+        def transform(get_frame, t: float) -> np.ndarray:
+            idx = min(int(t * FPS), n - 1)
+            frame = get_frame(t)
+            M = np.float32([[1, 0, sx[idx]], [0, 1, sy[idx]]])
+            return cv2.warpAffine(
+                frame, M, (frame.shape[1], frame.shape[0]),
+                borderMode=cv2.BORDER_REFLECT_101,
+            )
+
+        return clip.transform(transform, apply_to="video")
+
+    # ─────────────────────────────────────────────────────────────────────────
     # FONT DOWNLOADER
     # ─────────────────────────────────────────────────────────────────────────
     def _download_font(self) -> bool:
