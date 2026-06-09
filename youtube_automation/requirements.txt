@@ -11,3 +11,16 @@ python-dotenv==1.0.1
 schedule==1.2.1
 Faker==24.11.0
 tqdm==4.66.4
+
+# Cinematic pipeline — Hollywood-quality audio/video
+edge-tts>=6.1.9
+noisereduce>=3.0.0
+pyloudnorm>=0.1.1
+soundfile>=0.12.1
+librosa>=0.10.1
+scipy>=1.12.0
+praw>=7.7.1
+aiohttp>=3.9.3
+APScheduler>=3.10.4
+pytrends>=4.9.2
+feedparser>=6.0.11

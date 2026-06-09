@@ -6,4 +6,4 @@
 #
 # Logs go to: youtube_automation/logs/cron_YYYY-MM-DD.log
 
-0 15 * * * python3 daily_runner.py --now >> logs/cron_$(date +\%Y-\%m-\%d).log 2>&1
+0 15 * * * cd /home/user/energy-intelligence/youtube_automation && python3 core/cinematic_daily_pipeline.py --now >> logs/cron_$(date +\%Y-\%m-\%d).log 2>&1
