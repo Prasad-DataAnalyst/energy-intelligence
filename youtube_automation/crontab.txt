@@ -1,6 +1,9 @@
-# Daily YouTube upload at 08:00 local time
-# Install with: crontab crontab.txt
+# Mind Fuel Daily — post one video every day at 15:00 UTC (11 AM ET)
+# Install: crontab /home/user/energy-intelligence/youtube_automation/crontab.txt
 #
-# Replace /home/user/energy-intelligence with your actual path.
+# This runs the full pipeline automatically:
+#   content → voiceover → video → upload → done
+#
+# Logs go to: youtube_automation/logs/cron_YYYY-MM-DD.log
 
-0 8 * * * cd /home/user/energy-intelligence/youtube_automation && .venv/bin/python daily_runner.py --now >> logs/cron.log 2>&1
+0 15 * * * python3 daily_runner.py --now >> logs/cron_$(date +\%Y-\%m-\%d).log 2>&1
