@@ -1,0 +1,154 @@
+## GetMindFuelNow — Master Configuration
+## All tuneable values live here. Never hardcode in .py files.
+## Safety level: locked (changes require manual edit + git commit)
+
+pipeline:
+  daily_upload_time_utc: "15:00"
+  min_quality_score: 85
+  target_quality_score: 95
+  max_retries_per_stage: 3
+  backoff_seconds: [2, 4, 8]
+  test_mode_topic: ""
+
+video:
+  width: 1920
+  height: 1080
+  fps: 24
+  target_duration_minutes: 8
+  crf: 18
+  preset: slow
+  pix_fmt: yuv420p
+  audio_bitrate: "320k"
+
+audio:
+  sample_rate: 44100
+  target_lufs: -14.0
+  true_peak_dbtp: -1.0
+  music_duck_voice: -22
+  music_duck_silence: -12
+  compression_threshold_db: -18
+  compression_ratio: 3.0
+  compression_attack_ms: 5
+  compression_release_ms: 50
+  deess_freq_hz: 6000
+  deess_reduction_db: -6
+  noise_reduce_prop: 0.75
+  eq_highpass_hz: 80
+  eq_warmth_hz: 200
+  eq_warmth_db: 2
+  eq_presence_hz: 3000
+  eq_presence_db: 3
+  eq_air_hz: 6500
+  eq_air_db: 2
+
+trend_intelligence:
+  max_trends_to_score: 20
+  top_n_to_return: 5
+  min_opportunity_score: 0.4
+  recency_bonus_hours: 6
+  first_mover_bonus: 0.25
+  finance_rpm_bonus: 0.20
+  controversial_bonus: 0.15
+  visual_potential_bonus: 0.10
+  oversaturated_penalty: -0.25
+  stale_topic_hours: 48
+  stale_penalty: -0.15
+
+script:
+  target_duration_seconds: 480
+  min_duration_seconds: 360
+  max_duration_seconds: 600
+  min_pattern_interrupts: 6
+  pattern_interrupt_interval_seconds: 47
+  min_psychological_score: 80
+  min_data_viz_scenes: 3
+  cold_open_seconds: 8
+  amplify_hook_seconds: 12
+  promise_seconds: 25
+  value_loop_seconds: 90
+  climax_seconds: 120
+  cta_seconds: 120
+  words_per_minute: 160
+
+elevenlabs:
+  model: eleven_turbo_v2_5
+  stability: 0.40
+  similarity_boost: 0.85
+  style: 0.65
+  use_speaker_boost: true
+  default_voice_id: ""
+
+voice_fallback_chain:
+  - elevenlabs
+  - openai_tts
+  - azure_neural
+  - edge_tts
+  - espeak_ng
+
+openai_tts:
+  model: tts-1-hd
+  voice: onyx
+
+azure_neural:
+  voice: en-US-AndrewNeural
+  region: eastus
+
+edge_tts:
+  voice: en-US-GuyNeural
+
+espeak_ng:
+  voice: en-us+m3
+  speed: 168
+  pitch: 50
+  amplitude: 180
+
+runway:
+  model: gen3a_turbo
+  duration_seconds: 5
+  width: 1280
+  height: 768
+  max_concurrent_jobs: 3
+
+replicate:
+  sdxl_model: "stability-ai/sdxl:39ed52f2319f9ee9a0f3780b2de...latest"
+  steps: 30
+  guidance_scale: 7.5
+  width: 1344
+  height: 768
+
+pexels:
+  per_page: 15
+  video_quality: hd
+  orientation: landscape
+  min_duration_seconds: 5
+  max_duration_seconds: 30
+
+pixabay:
+  per_page: 15
+  video_type: film
+  category: backgrounds
+
+quality_gates:
+  min_resolution_score: 90
+  min_sharpness_score: 75
+  min_audio_lufs_min: -15.0
+  min_audio_lufs_max: -13.0
+  min_voice_intelligibility: 70
+  min_scene_variety_count: 4
+  min_visual_score: 75
+  min_audio_score: 75
+  min_content_score: 75
+
+seo:
+  max_title_length: 70
+  title_variants: 3
+  max_description_length: 5000
+  max_tags_characters: 500
+  min_chapters: 5
+  max_hashtags: 15
+  thumbnail_width: 1280
+  thumbnail_height: 720
+  thumbnail_variants: 3
+  shorts_count: 3
+  community_post_delay_minutes: 60
+  pinned_comment_delay_minutes: 5

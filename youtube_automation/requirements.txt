@@ -9,18 +9,31 @@ google-auth-oauthlib==1.2.0
 google-auth-httplib2==0.2.0
 python-dotenv==1.0.1
 schedule==1.2.1
-Faker==24.11.0
 tqdm==4.66.4
+PyYAML>=6.0.1
 
-# Cinematic pipeline — Hollywood-quality audio/video
+# Cinematic pipeline — broadcast audio
 edge-tts>=6.1.9
 noisereduce>=3.0.0
 pyloudnorm>=0.1.1
 soundfile>=0.12.1
 librosa>=0.10.1
 scipy>=1.12.0
+pydub>=0.25.1
+
+# Trend intelligence
 praw>=7.7.1
 aiohttp>=3.9.3
-APScheduler>=3.10.4
-pytrends>=4.9.2
 feedparser>=6.0.11
+pytrends>=4.9.2
+
+# Scheduling
+APScheduler>=3.10.4
+
+# AI services (install as needed — all are optional with fallbacks)
+# elevenlabs>=1.0.0
+# openai>=1.0.0
+# replicate>=0.25.0
+
+# Caption sync (optional — improves word-highlight captions)
+# openai-whisper>=20231117

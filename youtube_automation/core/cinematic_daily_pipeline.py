@@ -109,20 +109,24 @@ def run_cinematic_pipeline(upload: bool = True, test_topic: str = "") -> dict:
             content["hook"] = f"What {test_topic} means for you."
         else:
             try:
-                from modules.intelligence.trend_analyzer import get_best_opportunity_sync
-                opportunity = get_best_opportunity_sync()
+                from modules.intelligence.trend_analyzer import TrendAnalyzer
+                analyzer = TrendAnalyzer()
+                opportunity = analyzer.get_best_opportunity_sync()
                 content = {
-                    "topic":    opportunity.topic,
-                    "hook":     opportunity.hook,
-                    "bullets":  opportunity.key_facts[:5],
-                    "takeaway": opportunity.key_facts[-1] if opportunity.key_facts else "",
-                    "category": opportunity.category,
-                    "tags":     [],
-                    "date":     datetime.date.today(),
-                    "trend_score": opportunity.score,
-                    "predicted_ctr": opportunity.predicted_ctr,
+                    "topic":        opportunity.topic,
+                    "hook":         opportunity.hook_sentence,
+                    "bullets":      opportunity.key_facts[:5],
+                    "takeaway":     opportunity.key_facts[-1] if opportunity.key_facts else "",
+                    "category":     opportunity.category,
+                    "tags":         [],
+                    "date":         datetime.date.today(),
+                    "trend_score":  opportunity.opportunity_score,
+                    "predicted_ctr": opportunity.predicted_ctr_range,
+                    "rpm_category": opportunity.rpm_category,
+                    "color_grade":  opportunity.color_grade,
+                    "_opportunity": opportunity,  # keep full object for packager
                 }
-                log.info(f"Trend: {opportunity.topic} (score={opportunity.score:.2f})")
+                log.info(f"Trend: {opportunity.topic} (score={opportunity.opportunity_score:.2f})")
             except Exception as e:
                 log.warning(f"Trend analysis failed ({e}), using content library")
                 from content_generator import build_daily_content
@@ -156,20 +160,21 @@ def run_cinematic_pipeline(upload: bool = True, test_topic: str = "") -> dict:
     try:
         from modules.production.cinematic_script_writer import CinematicScriptWriter
         writer = CinematicScriptWriter()
-        script = writer.generate(content)
+        opportunity = content.get("_opportunity")
+        script = writer.generate(opportunity) if opportunity else writer.generate(content)
         log.info(f"Script quality score: {script.quality_score:.1f}/100")
-        log.info(f"Total duration: {script.total_duration_s}s, words: {script.word_count}")
+        log.info(f"Total duration: {script.total_duration_seconds}s, words: {script.word_count}")
 
-        if script.quality_score < writer.QUALITY_THRESHOLD:
-            log.warning(f"Script quality {script.quality_score:.1f} below threshold "
-                        f"{writer.QUALITY_THRESHOLD} — continuing anyway")
+        if script.quality_score < 70.0:
+            log.warning(f"Script quality {script.quality_score:.1f} below 70 — continuing anyway")
 
         # Save script
         script_path = out_base / "script.txt"
         with open(script_path, "w") as f:
-            f.write(f"TOPIC: {script.topic}\n")
-            f.write(f"HOOK: {script.hook}\n")
-            f.write(f"QUALITY SCORE: {script.quality_score:.1f}/100\n\n")
+            f.write(f"TOPIC: {script.title}\n")
+            f.write(f"HOOK: {script.hook_sentence}\n")
+            f.write(f"QUALITY SCORE: {script.quality_score:.1f}/100\n")
+            f.write(f"DURATION: {script.total_duration_seconds}s | WORDS: {script.word_count}\n\n")
             for scene in script.scenes:
                 f.write(f"[{scene.timestamp_start}–{scene.timestamp_end}] "
                         f"Scene {scene.scene_id}: {scene.visual.type.upper()}\n")
@@ -179,7 +184,8 @@ def run_cinematic_pipeline(upload: bool = True, test_topic: str = "") -> dict:
         report["stages"]["script"] = {
             "ok": True,
             "quality_score": script.quality_score,
-            "duration_s": script.total_duration_s,
+            "duration_s": script.total_duration_seconds,
+            "word_count": script.word_count,
             "elapsed": _elapsed(stage_start),
         }
     except Exception as e:
@@ -200,9 +206,16 @@ def run_cinematic_pipeline(upload: bool = True, test_topic: str = "") -> dict:
         audio_engine = CinematicAudioEngine()
 
         # Build narration text
-        if script:
-            from modules.production.cinematic_script_writer import CinematicScriptWriter
-            narration = CinematicScriptWriter().build_voiceover_text(script)
+        if script and hasattr(script, 'scenes') and script.scenes:
+            narration = " ".join(
+                s.audio.voiceover for s in script.scenes if s.audio.voiceover
+            )
+        elif script:
+            try:
+                from modules.production.cinematic_script_writer import CinematicScriptWriter
+                narration = CinematicScriptWriter().build_voiceover_text(script)
+            except Exception:
+                narration = script.hook_sentence
         else:
             # Fallback to old script builder
             from audio_generator import build_script
@@ -281,7 +294,8 @@ def run_cinematic_pipeline(upload: bool = True, test_topic: str = "") -> dict:
         style = style_map.get(content.get("category", "Tech"), "tech_dark")
 
         visual_engine = HollywoodVisualEngine(style=style)
-        silent_path, total_s = visual_engine.generate_video(content, silent_path)
+        result = visual_engine.generate_video(content, silent_path)
+        silent_path, total_s = (result if isinstance(result, tuple) else (result, 50))
         log.info(f"Visual: {silent_path} ({total_s:.1f}s)")
 
         report["stages"]["visuals"] = {
@@ -386,6 +400,29 @@ def run_cinematic_pipeline(upload: bool = True, test_topic: str = "") -> dict:
     except Exception as e:
         log.warning(f"Quality check skipped ({e})")
         report["stages"]["quality"] = {"ok": False, "error": str(e)}
+
+    # ── Stage 6.5: SEO PACKAGE ────────────────────────────────────────────────
+    _divider("STAGE 6.5 — SEO PACKAGE")
+    seo_package = None
+    try:
+        from modules.youtube.youtube_packager import YouTubePackager
+        packager = YouTubePackager()
+        opportunity = content.get("_opportunity")
+        seo_package = packager.generate_package(script, opportunity, final_path)
+        # Merge SEO data into content for upload
+        if seo_package:
+            content["title"]       = seo_package.get("selected_title", content.get("topic", ""))
+            content["description"] = seo_package.get("description", "")
+            content["tags"]        = seo_package.get("tags", content.get("tags", []))
+            pkg_path = out_base / "seo_package.json"
+            with open(pkg_path, "w") as f:
+                json.dump(seo_package, f, indent=2, default=str)
+            log.info(f"SEO package saved: {pkg_path}")
+            log.info(f"Selected title: {content['title']}")
+        report["stages"]["seo_package"] = {"ok": True, "title": content.get("title", "")}
+    except Exception as e:
+        log.warning(f"SEO package skipped ({e})")
+        report["stages"]["seo_package"] = {"ok": False, "error": str(e)}
 
     # ── Stage 7: UPLOAD ───────────────────────────────────────────────────────
     if upload:
