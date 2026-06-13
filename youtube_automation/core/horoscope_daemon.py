@@ -136,36 +136,42 @@ def _release_lock(video_type: str, date: datetime.date) -> None:
 # Schedule checking
 # ---------------------------------------------------------------------------
 
-def _time_matches(target_hhmm: str, now: datetime.datetime, tolerance_minutes: int = 2) -> bool:
-    """
-    Return True if now is within ±tolerance_minutes of target_hhmm (HH:MM UTC).
-    This allows the 60-second polling loop to catch scheduled times reliably.
-    """
+def _is_past_scheduled_time(target_hhmm: str, now: datetime.datetime) -> bool:
+    """Return True if now is at or past target_hhmm today (UTC)."""
     h, m = map(int, target_hhmm.split(":"))
     target = now.replace(hour=h, minute=m, second=0, microsecond=0)
-    diff = abs((now - target).total_seconds())
-    return diff <= tolerance_minutes * 60
+    return now >= target
 
 
 def _should_run(video_type: str, now: datetime.datetime) -> bool:
     """
-    Determine if a specific video type should run right now.
+    Determine if a specific video type should run now.
 
-    Rules:
-      daily:         every day at 19:00 UTC
-      weekly:        every Monday at 18:00 UTC
-      monthly:       1st of month at 17:00 UTC
-      yearly:        January 1st at 12:00 UTC
-      special_event: any day in SPECIAL_EVENTS_2026 at 20:00 UTC
+    Strategy: catch-up scheduling.
+      If the scheduled time has passed today and we haven't run yet → run now.
+      This means a daemon that starts at 23:00 will still produce today's video.
+
+    Catch-up windows (so we don't upload a day-late video):
+      daily:         19:00–23:59 UTC same day
+      weekly:        18:00–23:59 UTC same Monday
+      monthly:       17:00–23:59 UTC same 1st-of-month
+      yearly:        12:00–23:59 UTC same Jan 1st
+      special_event: 20:00–23:59 UTC same event day
     """
     today = now.date()
-    upload_time = SCHEDULE[video_type]
 
-    if not _time_matches(upload_time, now):
+    # Already ran today for this type? Skip.
+    if _is_locked(video_type, today):
         return False
 
-    if _is_locked(video_type, today):
-        return False  # Already ran today
+    upload_time = SCHEDULE[video_type]
+
+    # Not past the scheduled time yet? Wait.
+    if not _is_past_scheduled_time(upload_time, now):
+        return False
+
+    # Past window close (midnight UTC) — don't upload a stale video
+    # (We allow the full rest of the day after the scheduled time.)
 
     if video_type == "daily":
         return True

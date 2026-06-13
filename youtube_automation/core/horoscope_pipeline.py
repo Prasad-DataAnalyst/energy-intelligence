@@ -1,28 +1,25 @@
 """
 core/horoscope_pipeline.py
-GetMindFuelNow — Dedicated Horoscope Video Production Pipeline
-
-Replaces the general trend-based pipeline with a purpose-built system
-covering all 12 zodiac signs across 5 video types.
+GetMindFuelNow — Horoscope Video Production Pipeline
 
 Stages:
   1. CONTENT    — generate all 12 sign readings via content_engine
-  2. AUDIO      — voiceover via CinematicAudioEngine (espeak-ng / edge-tts)
-  3. THUMBNAIL  — zodiac wheel image via PIL (no moviepy)
-  4. VIDEO      — ffmpeg: dark purple/navy gradient + zodiac overlays
+  2. AUDIO      — edge-tts female voice + soft ambient background music
+  3. THUMBNAIL  — zodiac wheel via PIL
+  4. VIDEO      — beautiful animated frames with reading text (ffmpeg)
   5. MUX        — combine audio + video
-  6. UPLOAD     — YouTube with chapters in description
+  6. UPLOAD     — YouTube with chapters
 
 Usage:
   python core/horoscope_pipeline.py --now
   python core/horoscope_pipeline.py --now --type weekly
   python core/horoscope_pipeline.py --now --no-upload
-  python core/horoscope_pipeline.py --schedule
 """
 
 from __future__ import annotations
 
 import argparse
+import asyncio
 import datetime
 import json
 import logging
@@ -31,7 +28,7 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
+import textwrap
 import time
 import traceback
 from pathlib import Path
@@ -56,18 +53,13 @@ logging.basicConfig(
 )
 log = logging.getLogger("horoscope_pipeline")
 
-# ── Retry queue path ──────────────────────────────────────────────────────────
 RETRY_QUEUE_PATH = HERE / "logs" / "upload_retry_queue.json"
 
-
-# ---------------------------------------------------------------------------
-# Divider helpers
-# ---------------------------------------------------------------------------
 
 def _div(label: str = "") -> None:
     w = 60
     if label:
-        pad = (w - len(label) - 2) // 2
+        pad = max(0, (w - len(label) - 2) // 2)
         log.info("═" * pad + f" {label} " + "═" * pad)
     else:
         log.info("═" * w)
@@ -79,7 +71,7 @@ def _elapsed(t0: float) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Retry queue management
+# Retry queue
 # ---------------------------------------------------------------------------
 
 def _load_retry_queue() -> list[dict]:
@@ -108,19 +100,15 @@ def _add_to_retry_queue(video_path: str, metadata: dict) -> None:
 
 
 def process_retry_queue() -> int:
-    """Attempt to upload any videos in the retry queue. Returns number processed."""
     queue = _load_retry_queue()
     if not queue:
         return 0
-
     remaining = []
     processed = 0
     for item in queue:
         video_path = item.get("video_path", "")
         if not os.path.exists(video_path):
-            log.warning(f"Retry queue: video not found, dropping: {video_path}")
             continue
-
         item["attempts"] = item.get("attempts", 0) + 1
         try:
             from youtube_uploader import upload_video
@@ -131,33 +119,22 @@ def process_retry_queue() -> int:
             log.warning(f"Retry upload failed (attempt {item['attempts']}): {e}")
             if item["attempts"] < 5:
                 remaining.append(item)
-            else:
-                log.error(f"Dropping after 5 failed attempts: {video_path}")
-
     _save_retry_queue(remaining)
     return processed
 
 
 # ---------------------------------------------------------------------------
-# Stage 1: Content generation
+# Stage 1: Content
 # ---------------------------------------------------------------------------
 
-def _stage_content(
-    video_type: str,
-    date: datetime.date,
-    event_name: str,
-    event_type: str,
-) -> dict:
-    """Generate all 12 sign readings and full voiceover script."""
+def _stage_content(video_type: str, date: datetime.date,
+                   event_name: str, event_type: str) -> dict:
     _div("STAGE 1 — HOROSCOPE CONTENT")
     t0 = time.time()
 
     from modules.horoscope.content_engine import (
-        generate_all_signs,
-        get_video_title,
-        get_video_description,
-        get_tags,
-        build_full_voiceover_script,
+        generate_all_signs, get_video_title, get_video_description,
+        get_tags, build_full_voiceover_script,
     )
 
     readings = generate_all_signs(video_type, date, event_name, event_type)
@@ -168,8 +145,7 @@ def _stage_content(
 
     log.info(f"Generated {len(readings)} sign readings for type={video_type!r}")
     log.info(f"Title: {title}")
-    log.info(f"Script length: {len(full_script.split())} words")
-    log.info(f"Elapsed: {_elapsed(t0)}")
+    log.info(f"Script: {len(full_script.split())} words ({_elapsed(t0)})")
 
     return {
         "readings": readings,
@@ -182,84 +158,234 @@ def _stage_content(
 
 
 # ---------------------------------------------------------------------------
-# Stage 2: Audio generation
+# Stage 2: Audio — edge-tts female voice + ambient background music
 # ---------------------------------------------------------------------------
 
-def _stage_audio(full_script: str, audio_dir: Path, date_tag: str, voice_tone: str) -> str:
-    """Generate voiceover WAV. Returns path to mixed audio file."""
-    _div("STAGE 2 — VOICEOVER AUDIO")
+async def _async_edge_tts(text: str, out_path: str, voice: str, rate: str) -> None:
+    """Generate speech using edge-tts (Microsoft Neural TTS, free)."""
+    import edge_tts
+    communicate = edge_tts.Communicate(text, voice=voice, rate=rate)
+    await communicate.save(out_path)
+
+
+def _edge_tts_voiceover(text: str, out_path: str) -> bool:
+    """
+    Generate voiceover with edge-tts using a calm female voice at slow pace.
+    Returns True on success.
+
+    Voice: en-US-AriaNeural — clear, warm, professional female voice
+    Rate: -15% — noticeably slower than normal (clear for all listeners)
+    """
+    try:
+        voice = "en-US-AriaNeural"
+        rate = "-15%"
+        log.info(f"edge-tts: voice={voice}, rate={rate}, chars={len(text)}")
+        asyncio.run(_async_edge_tts(text, out_path, voice, rate))
+        if os.path.exists(out_path) and os.path.getsize(out_path) > 1000:
+            log.info(f"edge-tts voice: {out_path} ({os.path.getsize(out_path)//1024}KB)")
+            return True
+        log.warning("edge-tts produced empty output")
+        return False
+    except ImportError:
+        log.warning("edge-tts not installed — run: pip install edge-tts")
+        return False
+    except Exception as e:
+        log.warning(f"edge-tts failed: {e}")
+        return False
+
+
+def _espeak_voiceover(text: str, out_path: str) -> bool:
+    """Fallback: espeak-ng with best female-sounding voice settings."""
+    try:
+        result = subprocess.run(
+            [
+                "espeak-ng",
+                "-v", "en-us+f3",   # female voice variant 3
+                "-s", "140",         # words per minute (140 = slow, clear)
+                "-p", "55",          # pitch 55/100 (lower = more pleasant)
+                "-a", "180",         # amplitude (volume)
+                "-w", out_path,
+                text[:8000],
+            ],
+            capture_output=True, text=True, timeout=300,
+        )
+        if result.returncode == 0 and os.path.exists(out_path):
+            log.info(f"espeak-ng voice: {out_path}")
+            return True
+        log.warning(f"espeak-ng failed: {result.stderr[:200]}")
+        return False
+    except Exception as e:
+        log.warning(f"espeak-ng exception: {e}")
+        return False
+
+
+def _generate_ambient_music(duration_s: int, out_path: str) -> bool:
+    """
+    Generate soft ambient background music using ffmpeg sine wave synthesis.
+
+    Uses a three-note chord in solfeggio frequencies (432, 540, 648 Hz)
+    with long reverb tails to create a gentle mystical atmosphere.
+    Volume is kept low so it sits under the voice without competing.
+    """
+    try:
+        cmd = [
+            "ffmpeg", "-y",
+            # Three sine waves — a gentle A-major-ish chord
+            "-f", "lavfi", "-i", f"sine=f=432:d={duration_s + 5}",
+            "-f", "lavfi", "-i", f"sine=f=540:d={duration_s + 5}",
+            "-f", "lavfi", "-i", f"sine=f=648:d={duration_s + 5}",
+            "-filter_complex",
+            (
+                # Volume-balance each tone
+                "[0]volume=0.12,aecho=0.8:0.9:800:0.5[a0];"
+                "[1]volume=0.07,aecho=0.7:0.85:1200:0.4[a1];"
+                "[2]volume=0.05,aecho=0.6:0.8:1600:0.3[a2];"
+                # Mix, lowpass to make it warm and soft
+                "[a0][a1][a2]amix=inputs=3:duration=first,"
+                "lowpass=f=700,highpass=f=80,"
+                # Fade in 2s, fade out 3s
+                f"afade=t=in:d=2,afade=t=out:st={duration_s - 3}:d=3[out]"
+            ),
+            "-map", "[out]",
+            "-ar", "44100", "-ac", "2",
+            "-t", str(duration_s),
+            "-acodec", "pcm_s16le",
+            out_path,
+        ]
+        result = subprocess.run(cmd, capture_output=True, timeout=120)
+        if result.returncode == 0 and os.path.exists(out_path):
+            log.info(f"Ambient music generated: {out_path}")
+            return True
+        log.warning(f"Music gen failed: {result.stderr.decode()[-300:]}")
+        return False
+    except Exception as e:
+        log.warning(f"Music gen exception: {e}")
+        return False
+
+
+def _mix_voice_and_music(voice_path: str, music_path: str,
+                          out_path: str, voice_duration_s: int) -> str:
+    """
+    Mix voice (loud) + music (quiet background). Returns out_path.
+    Music is ducked to -18 dB relative to voice.
+    """
+    try:
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", voice_path,
+            "-i", music_path,
+            "-filter_complex",
+            (
+                # Voice at full volume, music at -18 dB
+                "[0]volume=1.0[v];"
+                "[1]volume=0.12[m];"
+                f"[v][m]amix=inputs=2:duration=first,"
+                f"alimiter=limit=0.95:level=true,"
+                f"afade=t=in:d=0.5,"
+                f"afade=t=out:st={max(0, voice_duration_s - 2)}:d=2[out]"
+            ),
+            "-map", "[out]",
+            "-ar", "44100", "-ac", "2",
+            "-acodec", "pcm_s16le",
+            out_path,
+        ]
+        result = subprocess.run(cmd, capture_output=True, timeout=300)
+        if result.returncode == 0 and os.path.exists(out_path):
+            return out_path
+        log.warning("Mix failed — using voice only")
+        return voice_path
+    except Exception as e:
+        log.warning(f"Mix exception: {e}")
+        return voice_path
+
+
+def _get_audio_duration(path: str) -> int:
+    """Get duration of audio file in seconds using ffprobe."""
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", path],
+            capture_output=True, text=True, timeout=30,
+        )
+        return max(60, int(float(result.stdout.strip())))
+    except Exception:
+        return 60
+
+
+def _stage_audio(full_script: str, audio_dir: Path, date_tag: str,
+                 word_count: int) -> tuple[str, int]:
+    """
+    Generate voice + background music. Returns (mixed_audio_path, duration_seconds).
+
+    Priority:
+      1. edge-tts (Microsoft Neural TTS — best quality, free)
+      2. espeak-ng (robot fallback)
+      3. Silent audio (last resort so video still generates)
+    """
+    _div("STAGE 2 — AUDIO")
     t0 = time.time()
 
-    voice_path = str(audio_dir / f"horoscope_voice_{date_tag}.wav")
-    music_path = str(audio_dir / f"horoscope_music_{date_tag}.wav")
-    mixed_path = str(audio_dir / f"horoscope_mixed_{date_tag}.wav")
+    voice_mp3 = str(audio_dir / f"voice_{date_tag}.mp3")
+    voice_wav = str(audio_dir / f"voice_{date_tag}.wav")
+    music_wav = str(audio_dir / f"music_{date_tag}.wav")
+    mixed_wav = str(audio_dir / f"mixed_{date_tag}.wav")
 
-    # Estimate total duration for music (avg ~150 words/min)
-    word_count = len(full_script.split())
-    estimated_seconds = max(60, int(word_count / 2.5))  # 2.5 words/sec
+    # ── Generate voice ────────────────────────────────────────────────────────
+    voice_ok = _edge_tts_voiceover(full_script, voice_mp3)
 
-    try:
-        from modules.production.cinematic_audio_engine import CinematicAudioEngine
-        engine = CinematicAudioEngine()
-
-        # Voiceover
-        voice_path = engine.generate_voiceover_sync(full_script, voice_path, tone=voice_tone)
-        log.info(f"Voice generated: {voice_path}")
-
-        # Background music
-        music_path = engine.generate_background_music(
-            duration_s=estimated_seconds + 10,
-            out_path=music_path,
-            energy="calm",
+    if voice_ok:
+        # Convert mp3 → wav for ffmpeg pipeline compatibility
+        conv = subprocess.run(
+            ["ffmpeg", "-y", "-i", voice_mp3, "-ar", "44100", "-ac", "2",
+             "-acodec", "pcm_s16le", voice_wav],
+            capture_output=True, timeout=60,
         )
-        log.info(f"Music generated: {music_path}")
+        if conv.returncode != 0 or not os.path.exists(voice_wav):
+            # Keep mp3 if conversion failed
+            voice_wav = voice_mp3
 
-        # Mix
-        mixed_path = engine.mix_audio(voice_path, music_path, mixed_path, estimated_seconds)
-        log.info(f"Mixed: {mixed_path}")
+    if not voice_ok or not os.path.exists(voice_wav):
+        log.warning("edge-tts failed — trying espeak-ng fallback")
+        voice_ok = _espeak_voiceover(full_script, voice_wav)
 
-    except Exception as e:
-        log.warning(f"CinematicAudioEngine failed ({e}) — trying espeak-ng fallback")
-        # espeak-ng fallback
-        try:
-            result = subprocess.run(
-                ["espeak-ng", "-v", "en-us+f3", "-s", "155", "-w", voice_path, full_script[:5000]],
-                capture_output=True, text=True, timeout=120,
-            )
-            if result.returncode != 0:
-                raise RuntimeError(result.stderr[:300])
-            log.info(f"espeak-ng voice: {voice_path}")
-            # No music without engine — use voice only
-            mixed_path = voice_path
-        except Exception as e2:
-            log.warning(f"espeak-ng also failed ({e2}) — generating silent audio placeholder")
-            # Generate 1-second silent WAV so pipeline can continue
-            _generate_silent_wav(mixed_path, duration_s=estimated_seconds)
+    if not voice_ok or not os.path.exists(voice_wav):
+        log.warning("All TTS failed — using silence")
+        estimated_s = max(60, word_count * 60 // 140)  # 140 wpm
+        _generate_silent_wav(voice_wav, duration_s=estimated_s)
 
-    log.info(f"Audio stage elapsed: {_elapsed(t0)}")
-    return mixed_path
+    # Get actual voice duration
+    voice_duration = _get_audio_duration(voice_wav)
+    log.info(f"Voice duration: {voice_duration}s")
+
+    # ── Generate ambient music ────────────────────────────────────────────────
+    music_ok = _generate_ambient_music(voice_duration + 5, music_wav)
+
+    # ── Mix voice + music ─────────────────────────────────────────────────────
+    if music_ok and os.path.exists(music_wav):
+        final_audio = _mix_voice_and_music(voice_wav, music_wav, mixed_wav, voice_duration)
+    else:
+        log.info("Skipping music mix — voice only")
+        final_audio = voice_wav
+
+    log.info(f"Audio stage: {_elapsed(t0)}, output: {final_audio}")
+    return final_audio, voice_duration
 
 
-def _generate_silent_wav(path: str, duration_s: int = 60, sample_rate: int = 22050) -> None:
-    """Write a silent WAV file using ffmpeg."""
+def _generate_silent_wav(path: str, duration_s: int = 60, sample_rate: int = 44100) -> None:
     cmd = [
-        "ffmpeg", "-y",
-        "-f", "lavfi",
-        "-i", f"anullsrc=channel_layout=mono:sample_rate={sample_rate}",
-        "-t", str(duration_s),
-        "-acodec", "pcm_s16le",
-        path,
+        "ffmpeg", "-y", "-f", "lavfi",
+        "-i", f"anullsrc=channel_layout=stereo:sample_rate={sample_rate}",
+        "-t", str(duration_s), "-acodec", "pcm_s16le", path,
     ]
     subprocess.run(cmd, capture_output=True, timeout=30)
 
 
 # ---------------------------------------------------------------------------
-# Stage 3: Thumbnail generation (PIL only)
+# Stage 3: Thumbnail
 # ---------------------------------------------------------------------------
 
 def _stage_thumbnail(readings: list[dict], out_dir: Path, video_type: str,
                      date: datetime.date) -> str:
-    """Generate a zodiac wheel thumbnail using PIL. Returns path."""
     _div("STAGE 3 — THUMBNAIL")
     t0 = time.time()
     thumb_path = str(out_dir / f"thumbnail_{date.isoformat()}.png")
@@ -268,161 +394,171 @@ def _stage_thumbnail(readings: list[dict], out_dir: Path, video_type: str,
         from PIL import Image, ImageDraw, ImageFont
         _make_thumbnail(readings, thumb_path, video_type, date)
         log.info(f"Thumbnail: {thumb_path} ({_elapsed(t0)})")
-    except ImportError:
-        log.warning("PIL not available — creating placeholder thumbnail via ffmpeg")
-        _ffmpeg_thumbnail(thumb_path, video_type, date)
     except Exception as e:
-        log.warning(f"Thumbnail generation failed ({e}) — using ffmpeg fallback")
+        log.warning(f"PIL thumbnail failed ({e}) — using ffmpeg fallback")
         _ffmpeg_thumbnail(thumb_path, video_type, date)
 
     return thumb_path
 
 
-def _make_thumbnail(readings: list[dict], out_path: str, video_type: str,
-                    date: datetime.date) -> None:
-    """Build a 1280×720 zodiac wheel thumbnail with PIL."""
-    from PIL import Image, ImageDraw, ImageFont
-
-    W, H = 1280, 720
-    img = Image.new("RGB", (W, H), (10, 5, 30))  # deep navy
-    draw = ImageDraw.Draw(img)
-
-    # Dark purple gradient overlay (manual rows)
-    for y in range(H):
-        ratio = y / H
-        r = int(10 + ratio * 20)
-        g = int(5 + ratio * 0)
-        b = int(30 + ratio * 50)
-        draw.rectangle([(0, y), (W, y + 1)], fill=(r, g, b))
-
-    # Nebula glow effect (semi-transparent circles)
-    overlay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    ov_draw = ImageDraw.Draw(overlay)
-    glow_centers = [(W // 2, H // 2, 350, (80, 0, 180, 40)),
-                    (200, 150, 200, (0, 100, 180, 30)),
-                    (1080, 580, 180, (180, 50, 0, 25))]
-    for cx, cy, r, color in glow_centers:
-        ov_draw.ellipse([(cx - r, cy - r), (cx + r, cy + r)], fill=color)
-    img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
-    draw = ImageDraw.Draw(img)
-
-    # Zodiac wheel (circle of 12 symbols)
-    cx, cy = W // 2, H // 2
-    wheel_r = min(W, H) // 2 - 40
-    symbols = [r["symbol"] for r in readings]
-    sign_names = [r["sign"] for r in readings]
-    element_colors = {
-        "Fire": (255, 80, 30),
-        "Earth": (60, 180, 60),
-        "Air": (80, 180, 255),
-        "Water": (60, 80, 220),
-    }
-
-    # Try to load a Unicode-capable font
-    font_symbol = None
-    font_sign = None
-    font_title = None
-    for font_path in [
+def _load_font(size: int, bold: bool = False) -> Any:
+    """Load the best available font. Always returns a font object."""
+    bold_fonts = [
+        "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+    ]
+    regular_fonts = [
         "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
         "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
-    ]:
-        if os.path.exists(font_path):
+    ]
+    from PIL import ImageFont
+    for fp in (bold_fonts if bold else regular_fonts):
+        if os.path.exists(fp):
             try:
-                from PIL import ImageFont as _IF
-                font_symbol = _IF.truetype(font_path, 28)
-                font_sign = _IF.truetype(font_path, 14)
-                font_title = _IF.truetype(font_path, 42)
-                break
+                return ImageFont.truetype(fp, size)
             except Exception:
                 pass
-    if font_symbol is None:
-        from PIL import ImageFont as _IF
-        font_symbol = _IF.load_default()
-        font_sign = font_symbol
-        font_title = font_symbol
+    return ImageFont.load_default()
 
-    # Draw wheel segments
-    for i, (sym, name, reading) in enumerate(zip(symbols, sign_names, readings)):
-        angle_deg = -90 + i * 30  # start from top
+
+def _draw_text_centered(draw, text: str, y: int, font, color: tuple, W: int) -> None:
+    """Draw text centered horizontally at y position."""
+    try:
+        bbox = draw.textbbox((0, 0), text, font=font)
+        tw = bbox[2] - bbox[0]
+        x = max(0, (W - tw) // 2)
+        draw.text((x, y), text, font=font, fill=color)
+    except Exception:
+        draw.text((W // 2 - 100, y), text, fill=color)
+
+
+def _make_thumbnail(readings: list[dict], out_path: str, video_type: str,
+                    date: datetime.date) -> None:
+    """Build a 1280×720 zodiac wheel thumbnail."""
+    from PIL import Image, ImageDraw
+
+    W, H = 1280, 720
+    img = Image.new("RGB", (W, H))
+    draw = ImageDraw.Draw(img)
+
+    # Dark purple → deep navy gradient
+    for y in range(H):
+        r = int(y / H * 15)
+        g = int(y / H * 5)
+        b = int(20 + y / H * 40)
+        draw.rectangle([(0, y), (W, y + 1)], fill=(r, g, b))
+
+    # Nebula glows
+    import random as _rnd
+    from PIL import Image as _Img
+    overlay = _Img.new("RGBA", (W, H), (0, 0, 0, 0))
+    from PIL import ImageDraw as _ID
+    ov = _ID.Draw(overlay)
+    for cx, cy, r, color in [
+        (W // 2, H // 2, 320, (80, 0, 180, 45)),
+        (160, 140, 180, (0, 80, 180, 30)),
+        (1100, 580, 160, (160, 40, 0, 25)),
+    ]:
+        ov.ellipse([(cx - r, cy - r), (cx + r, cy + r)], fill=color)
+    img = _Img.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
+    draw = ImageDraw.Draw(img)
+
+    # Stars
+    star_rng = _rnd.Random(42)
+    for _ in range(200):
+        sx, sy = star_rng.randint(0, W), star_rng.randint(0, H)
+        sz = star_rng.randint(1, 2)
+        br = star_rng.randint(80, 220)
+        draw.ellipse([(sx, sy), (sx + sz, sy + sz)], fill=(br, br, br))
+
+    # Zodiac wheel (right side)
+    wheel_cx, wheel_cy = int(W * 0.72), H // 2
+    wheel_r = 260
+    ELEM_COLORS = {"Fire": (255, 80, 30), "Earth": (60, 180, 60),
+                   "Air": (80, 180, 255), "Water": (60, 80, 220)}
+    f_sym = _load_font(26)
+    f_sign = _load_font(13)
+
+    for i, r in enumerate(readings):
+        angle_deg = -90 + i * 30
         angle_rad = math.radians(angle_deg)
-        sym_r = wheel_r - 30
-        sx = int(cx + sym_r * math.cos(angle_rad))
-        sy = int(cy + sym_r * math.sin(angle_rad))
+        sym_r = wheel_r - 28
+        elem_col = ELEM_COLORS.get(r.get("element", "Fire"), (200, 160, 255))
 
-        elem_color = element_colors.get(reading.get("element", "Fire"), (255, 255, 255))
+        # Spoke
+        ex = int(wheel_cx + (wheel_r - 8) * math.cos(angle_rad))
+        ey = int(wheel_cy + (wheel_r - 8) * math.sin(angle_rad))
+        draw.line([(wheel_cx, wheel_cy), (ex, ey)], fill=(*elem_col, 60), width=1)
 
-        # Draw spoke line
-        line_x = int(cx + (wheel_r - 10) * math.cos(angle_rad))
-        line_y = int(cy + (wheel_r - 10) * math.sin(angle_rad))
-        draw.line([(cx, cy), (line_x, line_y)], fill=(*elem_color, 80), width=1)
-
-        # Draw symbol dot
-        dot_x = int(cx + (sym_r - 25) * math.cos(angle_rad))
-        dot_y = int(cy + (sym_r - 25) * math.sin(angle_rad))
-        draw.ellipse([(dot_x - 22, dot_y - 22), (dot_x + 22, dot_y + 22)],
-                     fill=(20, 10, 60), outline=elem_color, width=2)
-
-        # Draw symbol text
+        # Symbol dot
+        dx = int(wheel_cx + (sym_r - 24) * math.cos(angle_rad))
+        dy = int(wheel_cy + (sym_r - 24) * math.sin(angle_rad))
+        draw.ellipse([(dx - 20, dy - 20), (dx + 20, dy + 20)],
+                     fill=(18, 8, 55), outline=elem_col, width=2)
+        sx = int(wheel_cx + sym_r * math.cos(angle_rad))
+        sy_y = int(wheel_cy + sym_r * math.sin(angle_rad))
         try:
-            draw.text((sx - 10, sy - 14), sym, font=font_symbol, fill=elem_color)
+            draw.text((sx - 9, sy_y - 12), r["symbol"], font=f_sym, fill=elem_col)
         except Exception:
-            draw.text((sx - 8, sy - 12), sym, fill=elem_color)
+            draw.text((sx - 8, sy_y - 10), r["symbol"], fill=elem_col)
 
-        # Draw sign name (small, outside wheel)
-        name_r = wheel_r + 10
-        nx = int(cx + name_r * math.cos(angle_rad))
-        ny = int(cy + name_r * math.sin(angle_rad))
+        # Sign name outside wheel
+        nr = wheel_r + 18
+        nx = int(wheel_cx + nr * math.cos(angle_rad))
+        ny = int(wheel_cy + nr * math.sin(angle_rad))
         try:
-            draw.text((nx - 20, ny - 7), name, font=font_sign, fill=(200, 180, 255))
+            draw.text((nx - 18, ny - 6), r["sign"], font=f_sign, fill=(190, 170, 255))
         except Exception:
-            draw.text((nx - 15, ny - 6), name, fill=(200, 180, 255))
+            draw.text((nx - 15, ny - 6), r["sign"], fill=(190, 170, 255))
 
-    # Center circle
-    draw.ellipse([(cx - 55, cy - 55), (cx + 55, cy + 55)],
-                 fill=(30, 10, 80), outline=(160, 100, 255), width=3)
-    draw.text((cx - 28, cy - 20), "✨", font=font_symbol, fill=(255, 220, 80))
+    # Center
+    draw.ellipse(
+        [(wheel_cx - 50, wheel_cy - 50), (wheel_cx + 50, wheel_cy + 50)],
+        fill=(25, 8, 75), outline=(150, 90, 255), width=3,
+    )
 
-    # Title text
+    # Left side: titles
+    f_big = _load_font(72, bold=True)
+    f_med = _load_font(44, bold=True)
+    f_sm = _load_font(28)
+
     type_labels = {
-        "daily": f"DAILY {date.strftime('%b %d').upper()}",
-        "weekly": f"WEEKLY {date.strftime('%b %d').upper()}",
-        "monthly": f"MONTHLY {date.strftime('%B %Y').upper()}",
-        "yearly": f"YEARLY {date.year}",
+        "daily": f"DAILY • {date.strftime('%b %d').upper()}",
+        "weekly": f"WEEKLY • {date.strftime('%b %d').upper()}",
+        "monthly": f"MONTHLY • {date.strftime('%B %Y').upper()}",
+        "yearly": f"YEARLY • {date.year}",
         "special_event": "SPECIAL EVENT",
     }
-    label = type_labels.get(video_type, "HOROSCOPE")
-    try:
-        draw.text((40, 30), "HOROSCOPE", font=font_title, fill=(255, 220, 80))
-        draw.text((40, 80), label, font=font_title, fill=(180, 100, 255))
-        draw.text((40, 130), "ALL 12 SIGNS", font=font_sign, fill=(160, 160, 255))
-        draw.text((40, H - 50), "GetMindFuelNow", font=font_sign, fill=(120, 120, 200))
-    except Exception:
-        pass  # font errors are non-fatal
+
+    _draw_text_centered(draw, "✨ HOROSCOPE ✨", 80, f_big, (255, 215, 80), W // 2)
+    _draw_text_centered(draw, type_labels.get(video_type, "HOROSCOPE"), 175, f_med, (200, 140, 255), W // 2)
+    _draw_text_centered(draw, "ALL 12 SIGNS  •  GetMindFuelNow", 245, f_sm, (160, 140, 220), W // 2)
+
+    # Accent line
+    draw.rectangle([(0, 0), (W, 6)], fill=(120, 60, 220))
+    draw.rectangle([(0, H - 6), (W, H)], fill=(120, 60, 220))
 
     img.save(out_path, "PNG")
 
 
 def _ffmpeg_thumbnail(out_path: str, video_type: str, date: datetime.date) -> None:
-    """Minimal fallback thumbnail using ffmpeg lavfi."""
     label = f"Horoscope {date.strftime('%B %d %Y')}"
     cmd = [
-        "ffmpeg", "-y",
-        "-f", "lavfi",
-        "-i", f"color=c=0x0a0520:s=1280x720:r=1",
+        "ffmpeg", "-y", "-f", "lavfi",
+        "-i", "color=c=0x0a0520:s=1280x720:r=1",
         "-frames:v", "1",
         "-vf", f"drawtext=text='{label}':fontcolor=white:fontsize=48:x=(w-text_w)/2:y=(h-text_h)/2",
         out_path,
     ]
-    try:
-        subprocess.run(cmd, capture_output=True, timeout=30)
-    except Exception as e:
-        log.warning(f"ffmpeg thumbnail fallback failed: {e}")
+    subprocess.run(cmd, capture_output=True, timeout=30)
 
 
 # ---------------------------------------------------------------------------
-# Stage 4: Video generation (ffmpeg + PIL, no moviepy)
+# Stage 4: Video — animated frames with reading text on screen
 # ---------------------------------------------------------------------------
 
 def _stage_video(
@@ -432,24 +568,25 @@ def _stage_video(
     date_tag: str,
     video_type: str,
     date: datetime.date,
+    audio_duration: int,
 ) -> str:
     """
-    Generate the full horoscope video using ffmpeg.
+    Generate the full video using ffmpeg.
 
-    Approach:
-      1. Create one background PNG per zodiac sign (dark purple/navy gradient + symbol)
-      2. Concatenate them into a video with the audio track
-      3. Return path to final MP4
+    Each sign gets a beautifully rendered 1920×1080 frame showing:
+      - Zodiac symbol (large)
+      - Sign name
+      - Date range + element
+      - The actual reading text (wrapped, readable)
+      - Lucky numbers / color / day
 
-    No moviepy is used anywhere.
+    Frames are animated with fade-in/fade-out transitions.
     """
     _div("STAGE 4 — VIDEO GENERATION")
     t0 = time.time()
 
     from modules.horoscope.video_types import (
-        get_duration_per_sign,
-        get_intro_duration,
-        get_outro_duration,
+        get_duration_per_sign, get_intro_duration, get_outro_duration,
     )
 
     intro_dur = get_intro_duration(video_type)
@@ -463,136 +600,151 @@ def _stage_video(
     concat_list_path = str(out_dir / "concat_list.txt")
     final_silent_path = str(out_dir / f"horoscope_silent_{date_tag}.mp4")
 
-    # ── Build intro frame ────────────────────────────────────────────────────
+    # ── Intro ─────────────────────────────────────────────────────────────────
     intro_frame = str(frames_dir / "intro.png")
-    _make_sign_frame(
-        frame_path=intro_frame,
-        sign_name="HOROSCOPE",
-        symbol="✨",
-        element="cosmic",
-        date=date,
-        video_type=video_type,
-        is_intro=True,
-    )
-    intro_video = str(out_dir / "seg_intro.mp4")
-    _image_to_video(intro_frame, intro_video, duration=intro_dur)
-    segment_files.append(intro_video)
+    _render_intro_frame(intro_frame, video_type, date)
+    intro_seg = str(out_dir / "seg_intro.mp4")
+    _frame_to_animated_video(intro_frame, intro_seg, duration=intro_dur)
+    segment_files.append(intro_seg)
+    log.info(f"Intro segment: {intro_dur}s")
 
-    # ── Build one video segment per sign ────────────────────────────────────
+    # ── One segment per sign ──────────────────────────────────────────────────
     for i, reading in enumerate(readings):
-        sign_name = reading["sign"]
-        symbol = reading["symbol"]
-        element = reading.get("element", "Fire")
+        frame_path = str(frames_dir / f"sign_{i:02d}_{reading['sign'].lower()}.png")
+        _render_sign_frame(frame_path, reading, date, video_type)
 
-        frame_path = str(frames_dir / f"sign_{i:02d}_{sign_name.lower()}.png")
-        _make_sign_frame(
-            frame_path=frame_path,
-            sign_name=sign_name,
-            symbol=symbol,
-            element=element,
-            date=date,
-            video_type=video_type,
-            reading=reading,
-        )
-
-        seg_path = str(out_dir / f"seg_{i:02d}_{sign_name.lower()}.mp4")
-        _image_to_video(frame_path, seg_path, duration=sign_dur)
+        seg_path = str(out_dir / f"seg_{i:02d}_{reading['sign'].lower()}.mp4")
+        _frame_to_animated_video(frame_path, seg_path, duration=sign_dur)
         segment_files.append(seg_path)
-        log.info(f"  Segment {i + 1:02d}/12: {sign_name} ({sign_dur}s)")
+        log.info(f"  [{i+1:02d}/12] {reading['sign']} — {sign_dur}s")
 
-    # ── Build outro frame ────────────────────────────────────────────────────
+    # ── Outro ─────────────────────────────────────────────────────────────────
     outro_frame = str(frames_dir / "outro.png")
-    _make_sign_frame(
-        frame_path=outro_frame,
-        sign_name="SUBSCRIBE",
-        symbol="🔔",
-        element="cosmic",
-        date=date,
-        video_type=video_type,
-        is_outro=True,
-    )
-    outro_video = str(out_dir / "seg_outro.mp4")
-    _image_to_video(outro_frame, outro_video, duration=outro_dur)
-    segment_files.append(outro_video)
+    _render_outro_frame(outro_frame, date)
+    outro_seg = str(out_dir / "seg_outro.mp4")
+    _frame_to_animated_video(outro_frame, outro_seg, duration=outro_dur)
+    segment_files.append(outro_seg)
+    log.info(f"Outro segment: {outro_dur}s")
 
-    # ── Concatenate all segments ─────────────────────────────────────────────
+    # ── Concatenate ───────────────────────────────────────────────────────────
     with open(concat_list_path, "w") as f:
         for seg in segment_files:
             f.write(f"file '{seg}'\n")
 
-    concat_cmd = [
-        "ffmpeg", "-y",
-        "-f", "concat",
-        "-safe", "0",
-        "-i", concat_list_path,
-        "-c", "copy",
-        final_silent_path,
-    ]
-    result = subprocess.run(concat_cmd, capture_output=True, timeout=600)
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+         "-i", concat_list_path, "-c", "copy", final_silent_path],
+        capture_output=True, timeout=600,
+    )
     if result.returncode != 0:
-        err = result.stderr.decode()[-500:]
-        raise RuntimeError(f"ffmpeg concat failed:\n{err}")
+        raise RuntimeError(f"ffmpeg concat failed:\n{result.stderr.decode()[-500:]}")
 
     log.info(f"Silent video: {final_silent_path} ({_elapsed(t0)})")
     return final_silent_path
 
 
-def _make_sign_frame(
-    frame_path: str,
-    sign_name: str,
-    symbol: str,
-    element: str,
-    date: datetime.date,
-    video_type: str,
-    reading: dict | None = None,
-    is_intro: bool = False,
-    is_outro: bool = False,
-) -> None:
-    """
-    Generate a 1920×1080 PNG frame for a zodiac sign segment.
-    Uses PIL when available, falls back to a solid-color ffmpeg frame.
-    """
+def _render_intro_frame(frame_path: str, video_type: str, date: datetime.date) -> None:
+    """Render a beautiful intro title card."""
     try:
-        from PIL import Image, ImageDraw, ImageFont
-        _pil_sign_frame(frame_path, sign_name, symbol, element, date,
-                        video_type, reading, is_intro, is_outro)
-    except ImportError:
-        _ffmpeg_sign_frame(frame_path, sign_name, symbol)
+        from PIL import Image, ImageDraw
+        W, H = 1920, 1080
+        img = _make_cosmic_background(W, H, "cosmic", seed=0)
+        draw = ImageDraw.Draw(img)
+
+        type_labels = {
+            "daily": f"DAILY HOROSCOPE",
+            "weekly": "WEEKLY HOROSCOPE",
+            "monthly": "MONTHLY HOROSCOPE",
+            "yearly": "YEARLY HOROSCOPE",
+            "special_event": "SPECIAL EVENT HOROSCOPE",
+        }
+        subtitle_labels = {
+            "daily": date.strftime("%B %d, %Y"),
+            "weekly": f"Week of {date.strftime('%B %d, %Y')}",
+            "monthly": date.strftime("%B %Y"),
+            "yearly": str(date.year),
+            "special_event": date.strftime("%B %d, %Y"),
+        }
+
+        f_huge = _load_font(130, bold=True)
+        f_big = _load_font(80, bold=True)
+        f_med = _load_font(52)
+        f_sm = _load_font(36)
+
+        # Decorative top line
+        draw.rectangle([(0, 0), (W, 10)], fill=(140, 70, 240))
+
+        _draw_text_centered(draw, "✨", H // 2 - 260, _load_font(100), (255, 215, 80), W)
+        _draw_text_centered(draw, type_labels.get(video_type, "HOROSCOPE"),
+                            H // 2 - 150, f_huge, (255, 215, 80), W)
+        _draw_text_centered(draw, subtitle_labels.get(video_type, ""),
+                            H // 2 + 20, f_big, (200, 150, 255), W)
+        _draw_text_centered(draw, "All 12 Zodiac Signs — Complete Reading",
+                            H // 2 + 130, f_med, (160, 140, 220), W)
+        _draw_text_centered(draw, "GetMindFuelNow", H - 70, f_sm, (120, 100, 200), W)
+
+        draw.rectangle([(0, H - 10), (W, H)], fill=(140, 70, 240))
+        img.save(frame_path, "PNG")
     except Exception as e:
-        log.debug(f"PIL frame error for {sign_name}: {e}")
-        _ffmpeg_sign_frame(frame_path, sign_name, symbol)
+        log.debug(f"Intro frame PIL error: {e}")
+        _ffmpeg_solid_frame(frame_path, "HOROSCOPE — All 12 Signs")
 
 
-def _pil_sign_frame(
-    frame_path: str,
-    sign_name: str,
-    symbol: str,
-    element: str,
-    date: datetime.date,
-    video_type: str,
-    reading: dict | None,
-    is_intro: bool,
-    is_outro: bool,
-) -> None:
-    """Create a stylized 1920×1080 frame using PIL."""
+def _render_outro_frame(frame_path: str, date: datetime.date) -> None:
+    """Render outro / subscribe call-to-action card."""
+    try:
+        from PIL import Image, ImageDraw
+        W, H = 1920, 1080
+        img = _make_cosmic_background(W, H, "cosmic", seed=99)
+        draw = ImageDraw.Draw(img)
+
+        f_big = _load_font(100, bold=True)
+        f_med = _load_font(62, bold=True)
+        f_reg = _load_font(44)
+        f_sm = _load_font(34)
+
+        draw.rectangle([(0, 0), (W, 10)], fill=(140, 70, 240))
+
+        _draw_text_centered(draw, "✨ GetMindFuelNow ✨",
+                            H // 2 - 220, f_big, (255, 215, 80), W)
+        _draw_text_centered(draw, "Thank You for Watching",
+                            H // 2 - 90, f_med, (220, 180, 255), W)
+        _draw_text_centered(draw, "🔔  SUBSCRIBE for Daily Horoscopes  🔔",
+                            H // 2 + 50, f_reg, (255, 200, 80), W)
+        _draw_text_centered(draw, "Drop your zodiac sign in the comments below!",
+                            H // 2 + 140, f_sm, (170, 150, 230), W)
+        _draw_text_centered(draw, "New reading every day • Like • Subscribe • Share",
+                            H - 90, f_sm, (120, 100, 200), W)
+
+        draw.rectangle([(0, H - 10), (W, H)], fill=(140, 70, 240))
+        img.save(frame_path, "PNG")
+    except Exception as e:
+        log.debug(f"Outro frame PIL error: {e}")
+        _ffmpeg_solid_frame(frame_path, "SUBSCRIBE — GetMindFuelNow")
+
+
+ELEMENT_COLORS = {
+    "Fire":   {"top": (25, 5, 8),   "bot": (60, 10, 5),   "glow": (220, 55, 20)},
+    "Earth":  {"top": (5, 20, 8),   "bot": (8, 45, 15),   "glow": (50, 180, 50)},
+    "Air":    {"top": (5, 10, 35),  "bot": (8, 20, 70),   "glow": (50, 150, 240)},
+    "Water":  {"top": (5, 8, 45),   "bot": (8, 12, 90),   "glow": (30, 60, 240)},
+    "cosmic": {"top": (8, 5, 45),   "bot": (18, 10, 70),  "glow": (130, 50, 220)},
+}
+
+
+def _make_cosmic_background(W: int, H: int, element: str, seed: int = 0):
+    """Create a gradient background with stars and glow effects."""
     from PIL import Image, ImageDraw
+    import random as _rnd
 
-    W, H = 1920, 1080
-
-    # Background gradient colors by element
-    BG_COLORS = {
-        "Fire":   ((20, 5, 30), (50, 10, 10)),
-        "Earth":  ((5, 20, 10), (10, 40, 20)),
-        "Air":    ((5, 10, 30), (10, 20, 60)),
-        "Water":  ((5, 10, 40), (10, 10, 80)),
-        "cosmic": ((5, 5, 40), (20, 10, 60)),
-    }
-    top_c, bot_c = BG_COLORS.get(element, BG_COLORS["cosmic"])
+    colors = ELEMENT_COLORS.get(element, ELEMENT_COLORS["cosmic"])
+    top_c, bot_c = colors["top"], colors["bot"]
+    glow_c = colors["glow"]
 
     img = Image.new("RGB", (W, H))
     draw = ImageDraw.Draw(img)
 
-    # Draw vertical gradient
+    # Gradient
     for y in range(H):
         ratio = y / H
         r = int(top_c[0] + ratio * (bot_c[0] - top_c[0]))
@@ -600,118 +752,177 @@ def _pil_sign_frame(
         b = int(top_c[2] + ratio * (bot_c[2] - top_c[2]))
         draw.rectangle([(0, y), (W, y + 1)], fill=(r, g, b))
 
-    # Glow circles
-    ELEM_GLOW = {
-        "Fire":   (200, 40, 20),
-        "Earth":  (40, 160, 40),
-        "Air":    (40, 120, 220),
-        "Water":  (20, 40, 220),
-        "cosmic": (120, 40, 200),
-    }
-    glow = ELEM_GLOW.get(element, (120, 40, 200))
-
-    for radius, alpha in [(400, 20), (250, 35), (150, 50)]:
-        overlay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-        ov_draw = ImageDraw.Draw(overlay)
+    # Glow orbs
+    from PIL import Image as _Img, ImageDraw as _ID
+    for radius, alpha in [(500, 18), (300, 30), (180, 45)]:
+        ov = _Img.new("RGBA", (W, H), (0, 0, 0, 0))
+        ovd = _ID.Draw(ov)
         cx, cy = W // 2, H // 2
-        ov_draw.ellipse([(cx - radius, cy - radius), (cx + radius, cy + radius)],
-                         fill=(*glow, alpha))
-        img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
+        ovd.ellipse([(cx - radius, cy - radius), (cx + radius, cy + radius)],
+                    fill=(*glow_c, alpha))
+        img = _Img.alpha_composite(img.convert("RGBA"), ov).convert("RGB")
+
+    draw = ImageDraw.Draw(img)
+
+    # Star field
+    rng = _rnd.Random(seed)
+    for _ in range(180):
+        sx, sy = rng.randint(0, W), rng.randint(0, H)
+        sz = rng.randint(1, 3)
+        br = rng.randint(80, 230)
+        draw.ellipse([(sx, sy), (sx + sz, sy + sz)], fill=(br, br, br))
+
+    return img
+
+
+def _render_sign_frame(
+    frame_path: str,
+    reading: dict,
+    date: datetime.date,
+    video_type: str,
+) -> None:
+    """
+    Render a beautiful 1920×1080 sign frame.
+
+    Layout:
+      - Header: GetMindFuelNow + date
+      - Large zodiac symbol (top-center)
+      - Sign name (bold, large)
+      - Date range + element/modality
+      - Reading text box (main content — 4-6 lines of wrapped text)
+      - Lucky info bar (numbers, color, day)
+      - Footer accent line
+    """
+    try:
+        from PIL import Image, ImageDraw
+        W, H = 1920, 1080
+
+        sign = reading.get("sign", "")
+        symbol = reading.get("symbol", "★")
+        element = reading.get("element", "cosmic")
+        modality = reading.get("modality", "")
+        ruling_planet = reading.get("ruling_planet", "")
+        dates_str = reading.get("dates", "")
+        lucky_numbers = reading.get("lucky_numbers", [])
+        lucky_color = reading.get("lucky_color", "")
+        lucky_day = reading.get("lucky_day", "")
+        script_text = reading.get("script_text", "")
+
+        colors = ELEMENT_COLORS.get(element, ELEMENT_COLORS["cosmic"])
+        glow_c = colors["glow"]
+        # Lighter accent from glow
+        accent = tuple(min(255, c + 80) for c in glow_c)
+
+        img = _make_cosmic_background(W, H, element, seed=hash(sign + str(date)) % 10000)
         draw = ImageDraw.Draw(img)
 
-    # Star field (pseudo-random but consistent)
-    import random as _rnd
-    star_rng = _rnd.Random(hash(sign_name + str(date)))
-    for _ in range(120):
-        sx = star_rng.randint(0, W)
-        sy = star_rng.randint(0, H)
-        sz = star_rng.randint(1, 3)
-        brightness = star_rng.randint(100, 255)
-        draw.ellipse([(sx, sy), (sx + sz, sy + sz)], fill=(brightness, brightness, brightness))
+        # ── Decorative lines ────────────────────────────────────────────────
+        draw.rectangle([(0, 0), (W, 8)], fill=(*glow_c,))
+        draw.rectangle([(0, H - 8), (W, H)], fill=(*glow_c,))
 
-    # Load font
-    font_large = font_medium = font_small = None
-    for fp in [
-        "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-        "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
-    ]:
-        if os.path.exists(fp):
-            try:
-                from PIL import ImageFont as _IF
-                font_large = _IF.truetype(fp, 120)
-                font_medium = _IF.truetype(fp, 56)
-                font_small = _IF.truetype(fp, 32)
-                break
-            except Exception:
-                pass
-    if font_large is None:
-        from PIL import ImageFont as _IF
-        font_large = font_medium = font_small = _IF.load_default()
-
-    elem_accent = tuple(c + 80 for c in glow)  # lighter version
-
-    if is_intro:
-        # Intro frame
-        lines = [
-            ("GetMindFuelNow", font_small, (160, 130, 255), H // 2 - 220),
-            ("✨ HOROSCOPE ✨", font_large, (255, 220, 80), H // 2 - 100),
-            (f"All 12 Signs", font_medium, (200, 160, 255), H // 2 + 60),
-            (date.strftime("%B %d, %Y"), font_medium, (160, 160, 255), H // 2 + 140),
-        ]
-    elif is_outro:
-        lines = [
-            ("✨ GetMindFuelNow ✨", font_medium, (255, 220, 80), H // 2 - 150),
-            ("Thank You for Watching", font_medium, (200, 180, 255), H // 2 - 50),
-            ("SUBSCRIBE for Daily Horoscopes", font_medium, (255, 200, 80), H // 2 + 60),
-            ("🔔 Hit the Bell!", font_small, (180, 140, 255), H // 2 + 140),
-        ]
-    else:
-        # Sign frame
-        lines = [
-            (symbol, font_large, elem_accent, H // 2 - 200),
-            (sign_name.upper(), font_large, (255, 255, 255), H // 2 - 50),
-        ]
-        if reading:
-            planet_text = f"Ruling Planet: {reading.get('ruling_planet', '')}"
-            element_text = f"{reading.get('element', '')} Sign · {reading.get('modality', '')} Energy"
-            lines.append((planet_text, font_small, elem_accent, H // 2 + 120))
-            lines.append((element_text, font_small, (160, 160, 220), H // 2 + 170))
-        lines.append(("GetMindFuelNow", font_small, (100, 100, 180), H - 60))
-
-    # Render text centered
-    for text, font, color, y_pos in lines:
+        # ── Header bar ──────────────────────────────────────────────────────
+        f_header = _load_font(34)
+        draw.text((50, 20), "GetMindFuelNow", font=f_header, fill=(130, 100, 220))
+        date_str = date.strftime("%B %d, %Y")
         try:
-            bbox = draw.textbbox((0, 0), text, font=font)
-            tw = bbox[2] - bbox[0]
-            x_pos = (W - tw) // 2
-            draw.text((x_pos, y_pos), text, font=font, fill=color)
+            bbox = draw.textbbox((0, 0), date_str, font=f_header)
+            draw.text((W - bbox[2] - 50, 20), date_str, font=f_header, fill=(130, 100, 220))
         except Exception:
+            draw.text((W - 300, 20), date_str, fill=(130, 100, 220))
+
+        # ── Central symbol ──────────────────────────────────────────────────
+        f_symbol = _load_font(160, bold=True)
+        f_name = _load_font(110, bold=True)
+        f_sub = _load_font(44)
+        f_planet = _load_font(38)
+
+        _draw_text_centered(draw, symbol, 80, f_symbol, accent, W)
+        _draw_text_centered(draw, sign.upper(), 265, f_name, (255, 255, 255), W)
+
+        # Dates + element line
+        elem_line = f"{dates_str}  •  {element} Sign  •  {modality}"
+        if ruling_planet:
+            elem_line += f"  •  {ruling_planet}"
+        _draw_text_centered(draw, elem_line, 395, f_sub, (*accent,), W)
+
+        # ── Reading text box ─────────────────────────────────────────────────
+        # Extract best preview text from script (first 65 words for daily,
+        # proportionally more for weekly/monthly)
+        preview_words = {
+            "daily": 65, "weekly": 90, "monthly": 110,
+            "yearly": 120, "special_event": 75,
+        }.get(video_type, 65)
+        words = script_text.split()
+        preview_text = " ".join(words[:preview_words])
+        if len(words) > preview_words:
+            preview_text += "..."
+
+        # Wrap text to ~56 chars per line
+        wrapped_lines = textwrap.wrap(preview_text, width=56)[:7]  # max 7 lines
+
+        f_reading = _load_font(40)
+
+        # Semi-transparent box behind text
+        box_y1 = 475
+        box_y2 = box_y1 + len(wrapped_lines) * 52 + 30
+        box_x1, box_x2 = 200, W - 200
+
+        box_overlay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        box_draw = ImageDraw.Draw(box_overlay)
+        box_draw.rounded_rectangle(
+            [(box_x1, box_y1), (box_x2, box_y2)],
+            radius=20,
+            fill=(10, 5, 40, 140),
+            outline=(*glow_c, 160),
+            width=2,
+        )
+        img = Image.alpha_composite(img.convert("RGBA"), box_overlay).convert("RGB")
+        draw = ImageDraw.Draw(img)
+
+        # Opening quote mark
+        f_quote = _load_font(60)
+        draw.text((box_x1 + 20, box_y1 + 5), "“", font=f_quote, fill=(*accent,))
+
+        # Render wrapped lines
+        for li, line in enumerate(wrapped_lines):
+            ly = box_y1 + 50 + li * 52
             try:
-                draw.text((W // 2 - 100, y_pos), text, fill=color)
+                bbox = draw.textbbox((0, 0), line, font=f_reading)
+                tw = bbox[2] - bbox[0]
+                lx = (W - tw) // 2
+                draw.text((lx, ly), line, font=f_reading, fill=(230, 220, 255))
             except Exception:
-                pass
+                draw.text((box_x1 + 40, ly), line, fill=(230, 220, 255))
 
-    # Bottom accent line
-    accent = glow
-    draw.rectangle([(0, H - 8), (W, H)], fill=(*accent, 255))
-    draw.rectangle([(0, 0), (W, 8)], fill=(*accent, 255))
+        # Closing quote mark
+        draw.text((box_x2 - 60, box_y2 - 55), "”", font=f_quote, fill=(*accent,))
 
-    img.save(frame_path, "PNG")
+        # ── Lucky info bar ───────────────────────────────────────────────────
+        luck_y = H - 80
+        f_lucky = _load_font(36)
+        lucky_nums = ", ".join(str(n) for n in lucky_numbers[:3]) if lucky_numbers else "—"
+        lucky_line = f"✦  Lucky: {lucky_nums}  |  {lucky_color}  |  {lucky_day}  ✦"
+        _draw_text_centered(draw, lucky_line, luck_y, f_lucky, (*accent,), W)
+
+        img.save(frame_path, "PNG")
+
+    except Exception as e:
+        log.debug(f"PIL sign frame error for {reading.get('sign', '?')}: {e}")
+        _ffmpeg_solid_frame(
+            frame_path,
+            f"{reading.get('symbol', '★')} {reading.get('sign', '').upper()}",
+        )
 
 
-def _ffmpeg_sign_frame(frame_path: str, sign_name: str, symbol: str) -> None:
-    """Minimal ffmpeg-only fallback frame."""
-    color = "0x0a0520"
-    label = f"{symbol} {sign_name}"
+def _ffmpeg_solid_frame(frame_path: str, label: str) -> None:
+    """Minimal ffmpeg fallback frame."""
+    label_safe = label.replace("'", "").replace(":", "")
     cmd = [
-        "ffmpeg", "-y",
-        "-f", "lavfi",
-        "-i", f"color=c={color}:s=1920x1080:r=1",
+        "ffmpeg", "-y", "-f", "lavfi",
+        "-i", "color=c=0x080520:s=1920x1080:r=1",
         "-frames:v", "1",
         "-vf", (
-            f"drawtext=text='{label}':fontcolor=white:fontsize=96:"
+            f"drawtext=text='{label_safe}':fontcolor=white:fontsize=96:"
             f"x=(w-text_w)/2:y=(h-text_h)/2,"
             f"drawtext=text='GetMindFuelNow':fontcolor=0xaaaaff:fontsize=40:"
             f"x=(w-text_w)/2:y=h-80"
@@ -721,8 +932,15 @@ def _ffmpeg_sign_frame(frame_path: str, sign_name: str, symbol: str) -> None:
     subprocess.run(cmd, capture_output=True, timeout=30)
 
 
-def _image_to_video(image_path: str, out_path: str, duration: int) -> None:
-    """Convert a still image to an MP4 video of specified duration using ffmpeg."""
+def _frame_to_animated_video(image_path: str, out_path: str, duration: int) -> None:
+    """
+    Convert a still PNG to a video with smooth fade-in and fade-out.
+    The fade transitions (0.5s each) make the slideshow look much more
+    professional than a hard cut between segments.
+    """
+    fade_dur = 0.5
+    fade_out_start = max(0.5, duration - fade_dur)
+
     cmd = [
         "ffmpeg", "-y",
         "-loop", "1",
@@ -730,24 +948,28 @@ def _image_to_video(image_path: str, out_path: str, duration: int) -> None:
         "-c:v", "libx264",
         "-t", str(duration),
         "-pix_fmt", "yuv420p",
-        "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2",
+        "-vf", (
+            f"scale=1920:1080:force_original_aspect_ratio=decrease,"
+            f"pad=1920:1080:(ow-iw)/2:(oh-ih)/2,"
+            f"fade=t=in:st=0:d={fade_dur},"
+            f"fade=t=out:st={fade_out_start}:d={fade_dur}"
+        ),
         "-r", "24",
         "-preset", "ultrafast",
-        "-crf", "28",
+        "-crf", "26",
         out_path,
     ]
-    result = subprocess.run(cmd, capture_output=True, timeout=120)
+    result = subprocess.run(cmd, capture_output=True, timeout=180)
     if result.returncode != 0:
         err = result.stderr.decode()[-300:]
-        raise RuntimeError(f"image_to_video failed for {image_path}:\n{err}")
+        raise RuntimeError(f"frame_to_animated_video failed for {image_path}:\n{err}")
 
 
 # ---------------------------------------------------------------------------
-# Stage 5: Mux audio + video
+# Stage 5: Mux
 # ---------------------------------------------------------------------------
 
 def _stage_mux(silent_path: str, audio_path: str, final_path: str) -> str:
-    """Mux video and audio using ffmpeg. Returns final video path."""
     _div("STAGE 5 — MUX")
     t0 = time.time()
 
@@ -763,9 +985,7 @@ def _stage_mux(silent_path: str, audio_path: str, final_path: str) -> str:
     ]
     result = subprocess.run(cmd, capture_output=True, timeout=300)
     if result.returncode != 0:
-        err = result.stderr.decode()[-500:]
-        log.warning(f"Mux with audio failed: {err}")
-        # Fallback: copy silent video (no audio track)
+        log.warning(f"Mux failed: {result.stderr.decode()[-500:]}")
         shutil.copy2(silent_path, final_path)
 
     size_mb = os.path.getsize(final_path) / 1_048_576 if os.path.exists(final_path) else 0
@@ -774,7 +994,7 @@ def _stage_mux(silent_path: str, audio_path: str, final_path: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Stage 6: YouTube upload
+# Stage 6: Upload
 # ---------------------------------------------------------------------------
 
 def _stage_upload(
@@ -786,14 +1006,13 @@ def _stage_upload(
     video_type: str,
     upload: bool,
 ) -> dict:
-    """Upload video to YouTube. Returns upload stage dict."""
     _div("STAGE 6 — YOUTUBE UPLOAD")
     t0 = time.time()
 
     metadata = {
-        "title": title[:100],  # YouTube title limit
+        "title": title[:100],
         "description": description,
-        "tags": tags[:500],    # YouTube tags limit (500 chars)
+        "tags": tags[:500],
         "category_id": "22",
         "privacy_status": "public",
         "made_for_kids": False,
@@ -816,7 +1035,7 @@ def _stage_upload(
 
 
 # ---------------------------------------------------------------------------
-# Main pipeline function
+# Main pipeline
 # ---------------------------------------------------------------------------
 
 def run_horoscope_pipeline(
@@ -826,34 +1045,16 @@ def run_horoscope_pipeline(
     event_name: str = "",
     event_type: str = "",
 ) -> dict:
-    """
-    Execute the full horoscope video production pipeline.
-
-    Args:
-        video_type: 'auto' (decide based on today), 'daily', 'weekly',
-                    'monthly', 'yearly', 'special_event'
-        date:       Override the production date (defaults to today)
-        upload:     If False, generate video but do not upload
-        event_name: For special_event type (e.g. "Full Moon in Scorpio")
-        event_type: For special_event type (e.g. "full_moon")
-
-    Returns:
-        Production report dict.
-    """
     pipeline_start = time.time()
     if date is None:
         date = datetime.date.today()
     date_tag = date.isoformat()
 
-    # Resolve 'auto' → actual type(s)
     if video_type == "auto":
         from modules.horoscope.video_types import get_todays_video_types, get_event_for_date
         types_today = get_todays_video_types(date)
-        # Run highest-priority type first; daily always runs last
         primary_type = types_today[0]
         log.info(f"Auto-detected video types for {date_tag}: {types_today}")
-
-        # For special_event, populate event details from the calendar
         if primary_type == "special_event" and not event_name:
             ev = get_event_for_date(date)
             if ev:
@@ -864,9 +1065,7 @@ def run_horoscope_pipeline(
 
     from modules.horoscope.video_types import VIDEO_TYPES
     vt_config = VIDEO_TYPES.get(primary_type, VIDEO_TYPES["daily"])
-    voice_tone = vt_config.get("voice_tone", "warm")
 
-    # ── Output directories ────────────────────────────────────────────────────
     out_base = HERE / "output" / f"horoscope_{date_tag}_{primary_type}"
     out_base.mkdir(parents=True, exist_ok=True)
     audio_dir = out_base / "audio"
@@ -884,7 +1083,7 @@ def run_horoscope_pipeline(
         "success": False,
     }
 
-    # ── Stage 1: Content ──────────────────────────────────────────────────────
+    # Stage 1: Content
     try:
         content = _stage_content(primary_type, date, event_name, event_type)
         readings = content["readings"]
@@ -892,50 +1091,52 @@ def run_horoscope_pipeline(
         description = content["description"]
         tags = content["tags"]
         full_script = content["full_script"]
-        report["stages"]["content"] = {"ok": True, "title": title}
-        report["output_files"]["script"] = str(out_base / "voiceover_script.txt")
         (out_base / "voiceover_script.txt").write_text(full_script)
+        report["stages"]["content"] = {"ok": True, "title": title}
     except Exception as e:
         log.error(f"Content stage failed: {e}\n{traceback.format_exc()}")
         report["errors"].append(f"content: {e}")
         report["stages"]["content"] = {"ok": False, "error": str(e)}
-        report["success"] = False
         return report
 
-    # ── Stage 2: Audio ────────────────────────────────────────────────────────
+    # Stage 2: Audio
+    word_count = len(full_script.split())
     try:
-        mixed_audio = _stage_audio(full_script, audio_dir, date_tag, voice_tone)
-        report["stages"]["audio"] = {"ok": True, "path": mixed_audio}
-        report["output_files"]["audio"] = mixed_audio
+        mixed_audio, audio_duration = _stage_audio(
+            full_script, audio_dir, date_tag, word_count
+        )
+        report["stages"]["audio"] = {"ok": True, "path": mixed_audio,
+                                      "duration_s": audio_duration}
     except Exception as e:
         log.error(f"Audio stage failed: {e}\n{traceback.format_exc()}")
         report["errors"].append(f"audio: {e}")
         report["stages"]["audio"] = {"ok": False, "error": str(e)}
         mixed_audio = ""
+        audio_duration = max(60, word_count * 60 // 140)
 
-    # ── Stage 3: Thumbnail ────────────────────────────────────────────────────
+    # Stage 3: Thumbnail
     try:
         thumb_path = _stage_thumbnail(readings, thumb_dir, primary_type, date)
         report["stages"]["thumbnail"] = {"ok": True, "path": thumb_path}
-        report["output_files"]["thumbnail"] = thumb_path
     except Exception as e:
-        log.warning(f"Thumbnail stage failed: {e}")
-        report["errors"].append(f"thumbnail: {e}")
-        report["stages"]["thumbnail"] = {"ok": False, "error": str(e)}
+        log.warning(f"Thumbnail failed: {e}")
         thumb_path = ""
+        report["stages"]["thumbnail"] = {"ok": False, "error": str(e)}
 
-    # ── Stage 4: Video ────────────────────────────────────────────────────────
+    # Stage 4: Video
     try:
-        silent_path = _stage_video(readings, mixed_audio, out_base, date_tag, primary_type, date)
+        silent_path = _stage_video(
+            readings, mixed_audio, out_base, date_tag,
+            primary_type, date, audio_duration,
+        )
         report["stages"]["video"] = {"ok": True, "path": silent_path}
-        report["output_files"]["silent_video"] = silent_path
     except Exception as e:
         log.error(f"Video stage failed: {e}\n{traceback.format_exc()}")
         report["errors"].append(f"video: {e}")
         report["stages"]["video"] = {"ok": False, "error": str(e)}
         silent_path = ""
 
-    # ── Stage 5: Mux ─────────────────────────────────────────────────────────
+    # Stage 5: Mux
     final_path = str(out_base / f"horoscope_{primary_type}_{date_tag}.mp4")
     try:
         if silent_path and mixed_audio and os.path.exists(silent_path) and os.path.exists(mixed_audio):
@@ -946,35 +1147,34 @@ def run_horoscope_pipeline(
         else:
             raise RuntimeError("No video to mux")
         report["stages"]["mux"] = {"ok": True, "path": final_path}
-        report["output_files"]["final_video"] = final_path
     except Exception as e:
-        log.error(f"Mux stage failed: {e}")
+        log.error(f"Mux failed: {e}")
         report["errors"].append(f"mux: {e}")
         report["stages"]["mux"] = {"ok": False, "error": str(e)}
 
-    # ── Stage 6: Upload ───────────────────────────────────────────────────────
-    upload_result = _stage_upload(final_path, thumb_path, title, description, tags, primary_type, upload)
+    # Stage 6: Upload
+    upload_result = _stage_upload(
+        final_path, thumb_path, title, description, tags, primary_type, upload
+    )
     report["stages"]["upload"] = upload_result
     if upload_result.get("url"):
         report["output_files"]["youtube_url"] = upload_result["url"]
 
-    # ── Final report ──────────────────────────────────────────────────────────
     report["success"] = len(report["errors"]) == 0
     report["total_elapsed"] = _elapsed(pipeline_start)
 
-    report_path = out_base / "production_report.json"
-    with open(report_path, "w") as f:
-        json.dump(report, f, indent=2, default=str)
+    (out_base / "production_report.json").write_text(
+        json.dumps(report, indent=2, default=str)
+    )
 
     _div("COMPLETE")
-    status = "SUCCESS" if report["success"] else f"COMPLETED WITH {len(report['errors'])} ERRORS"
+    status = "SUCCESS" if report["success"] else f"DONE WITH {len(report['errors'])} ERRORS"
     log.info(f"Pipeline: {status} in {report['total_elapsed']}")
     for stage, data in report["stages"].items():
         ok = "OK" if data.get("ok") else "FAIL"
         log.info(f"  [{ok}] {stage}")
-    if report["errors"]:
-        for e in report["errors"]:
-            log.warning(f"  ERROR: {e}")
+    for e in report.get("errors", []):
+        log.warning(f"  ERROR: {e}")
     if report["output_files"].get("youtube_url"):
         log.info(f"  YouTube: {report['output_files']['youtube_url']}")
 
@@ -987,34 +1187,24 @@ def run_horoscope_pipeline(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="GetMindFuelNow Horoscope Pipeline")
-    parser.add_argument("--now",        action="store_true",   help="Run immediately")
-    parser.add_argument("--schedule",   action="store_true",   help="Run on schedule (daemon mode)")
-    parser.add_argument("--no-upload",  action="store_true",   help="Generate video only, do not upload")
+    parser.add_argument("--now",        action="store_true",  help="Run immediately")
+    parser.add_argument("--no-upload",  action="store_true",  help="Generate only, no upload")
     parser.add_argument("--type",       type=str, default="auto",
-                        choices=["auto", "daily", "weekly", "monthly", "yearly", "special_event"],
-                        help="Video type to produce")
-    parser.add_argument("--date",       type=str, default="",  help="Override date (YYYY-MM-DD)")
-    parser.add_argument("--event-name", type=str, default="",  help="Event name for special_event type")
-    parser.add_argument("--event-type", type=str, default="",  help="Event type (full_moon, retrograde, eclipse, ...)")
+                        choices=["auto", "daily", "weekly", "monthly", "yearly", "special_event"])
+    parser.add_argument("--date",       type=str, default="",  help="Override date YYYY-MM-DD")
+    parser.add_argument("--event-name", type=str, default="")
+    parser.add_argument("--event-type", type=str, default="")
     args = parser.parse_args()
 
-    target_date = None
-    if args.date:
-        target_date = datetime.date.fromisoformat(args.date)
-
-    do_upload = not args.no_upload
+    target_date = datetime.date.fromisoformat(args.date) if args.date else None
 
     if args.now:
         run_horoscope_pipeline(
             video_type=args.type,
             date=target_date,
-            upload=do_upload,
+            upload=not args.no_upload,
             event_name=args.event_name,
             event_type=args.event_type,
         )
-    elif args.schedule:
-        # Hand off to daemon
-        daemon_path = Path(__file__).parent / "horoscope_daemon.py"
-        os.execv(sys.executable, [sys.executable, str(daemon_path), "--schedule"])
     else:
         parser.print_help()
