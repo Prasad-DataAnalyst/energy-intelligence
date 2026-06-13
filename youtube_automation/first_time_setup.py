@@ -41,8 +41,10 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-SCOPES = ["https://www.googleapis.com/auth/youtube.upload",
-          "https://www.googleapis.com/auth/youtube.readonly"]
+SCOPES = [
+    "https://www.googleapis.com/auth/youtube.upload",
+    "https://www.googleapis.com/auth/youtube",        # needed for channel branding
+]
 
 SECRETS = HERE / "client_secrets.json"
 TOKEN   = HERE / "youtube_token.json"
@@ -118,7 +120,12 @@ def authenticate() -> object:
   (Your password is NEVER shared with this script.)
 """)
     flow = InstalledAppFlow.from_client_secrets_file(str(SECRETS), SCOPES)
-    creds = flow.run_console()
+    flow.redirect_uri = "urn:ietf:wg:oauth:2.0:oob"
+    auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
+    print(f"\n  Open this URL in your browser (phone or laptop):\n\n  {auth_url}\n")
+    code = input("  Paste the authorisation code shown after you click Allow: ").strip()
+    flow.fetch_token(code=code)
+    creds = flow.credentials
     _save_token(creds)
     print("  ✓  Authorised — token saved")
     return creds
