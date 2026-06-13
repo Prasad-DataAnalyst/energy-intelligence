@@ -88,17 +88,20 @@ def upload_video(video_path: str, content: dict, seo_package: dict = None) -> st
     session, creds = _authed_session()
     file_size = os.path.getsize(video_path)
 
+    category_id   = str(content.get("category_id", getattr(config, "CATEGORY_ID", "22")))
+    privacy_status = str(content.get("privacy_status", getattr(config, "PRIVACY_STATUS", "public")))
+
     metadata = {
         "snippet": {
-            "title":           title[:100],  # YouTube 100-char limit
+            "title":           title[:100],
             "description":     description[:5000],
-            "tags":            tags[:500] if isinstance(tags, list) else tags.split(",")[:500],
-            "categoryId":      getattr(config, "CATEGORY_ID", "27"),
+            "tags":            tags,           # already character-limited by _build_tags
+            "categoryId":      category_id,
             "defaultLanguage": "en",
         },
         "status": {
-            "privacyStatus":           getattr(config, "PRIVACY_STATUS", "public"),
-            "selfDeclaredMadeForKids": False,
+            "privacyStatus":           privacy_status,
+            "selfDeclaredMadeForKids": content.get("made_for_kids", False),
         },
     }
 
@@ -376,6 +379,9 @@ def _best(pkg: dict, pkg_key: str, content: dict, content_key: str, default: str
 def _build_description(content: dict, seo_package: dict) -> str:
     if seo_package and seo_package.get("description"):
         desc = seo_package["description"]
+    elif content.get("description"):
+        # horoscope pipeline passes description directly
+        desc = content["description"]
     else:
         topic = content.get("topic", "")
         hook  = content.get("hook",  "")
@@ -399,10 +405,24 @@ def _build_tags(content: dict, seo_package: dict) -> list:
     if seo_package and seo_package.get("tags"):
         raw = seo_package["tags"]
         if isinstance(raw, str):
-            return [t.strip() for t in raw.split(",") if t.strip()]
-        if isinstance(raw, list):
-            return raw
-    return content.get("tags", [])
+            tags = [t.strip() for t in raw.split(",") if t.strip()]
+        elif isinstance(raw, list):
+            tags = raw
+        else:
+            tags = []
+    else:
+        tags = content.get("tags", [])
+
+    # YouTube enforces a 500-character TOTAL limit across all tags
+    result, total = [], 0
+    for tag in tags:
+        tag = str(tag).strip()
+        addition = len(tag) + (1 if result else 0)   # +1 for comma separator
+        if total + addition > 490:
+            break
+        result.append(tag)
+        total += addition
+    return result
 
 
 # ─────────────────────────────────────────────────────────────────────────────

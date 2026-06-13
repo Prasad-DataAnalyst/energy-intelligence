@@ -982,7 +982,7 @@ def _stage_mux(silent_path: str, audio_path: str, final_path: str) -> str:
         "-shortest",
         final_path,
     ]
-    result = subprocess.run(cmd, capture_output=True, timeout=300)
+    result = subprocess.run(cmd, capture_output=True, timeout=1200)
     if result.returncode != 0:
         log.warning(f"Mux failed: {result.stderr.decode()[-500:]}")
         shutil.copy2(silent_path, final_path)
