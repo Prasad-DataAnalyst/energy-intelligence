@@ -56,13 +56,26 @@ HEARTBEAT_PATH = LOGS_DIR / "horoscope_daemon_heartbeat.json"
 LOCKS_DIR = LOGS_DIR / "locks"
 LOCKS_DIR.mkdir(exist_ok=True)
 
-# ── Schedule (HH:MM UTC strings) ──────────────────────────────────────────────
+# ── Schedule (HH:MM UTC) ───────────────────────────────────────────────────────
+# Pipeline takes ~30 minutes to generate + upload.
+# Start times are chosen so video is LIVE before US viewers wake up:
+#
+#  UTC 05:00 = 1:00 AM EDT = 10:00 PM PDT  →  live by 05:30 UTC
+#  US East Coast wakes 7 AM EDT = 11:00 UTC → video is 5.5 hrs old, has early views
+#  YouTube algorithm rewards fresh engagement in first hour from night-owl viewers.
+#
+# Type         Start UTC    Live UTC    US East live     Why
+# daily        05:00        05:30       1:30 AM EDT      Ready when US wakes up
+# weekly (Mon) 04:30        05:00       1:00 AM EDT      Monday morning commute
+# monthly (1st)04:00        04:30       12:30 AM EDT     1st-of-month searchers
+# yearly       03:00        03:30       11:30 PM EST     New Year's night viewers
+# special event05:00        05:30       1:30 AM EDT      Day-of event searches
 SCHEDULE: dict[str, str] = {
-    "daily":         "19:00",
-    "weekly":        "18:00",   # Mondays
-    "monthly":       "17:00",   # 1st of month
-    "yearly":        "12:00",   # January 1st
-    "special_event": "20:00",   # day-of-event
+    "daily":         "05:00",
+    "weekly":        "04:30",   # Mondays
+    "monthly":       "04:00",   # 1st of month
+    "yearly":        "03:00",   # January 1st
+    "special_event": "05:00",   # day-of astronomical event
 }
 
 # ── State ─────────────────────────────────────────────────────────────────────
@@ -277,12 +290,13 @@ def run_daemon() -> None:
     log.info(f"PID: {os.getpid()}")
     log.info(f"Log: {log_file}")
     log.info("=" * 60)
-    log.info("Schedule (all times UTC):")
-    log.info(f"  Daily:         every day at {SCHEDULE['daily']}")
-    log.info(f"  Weekly:        every Monday at {SCHEDULE['weekly']}")
-    log.info(f"  Monthly:       1st of month at {SCHEDULE['monthly']}")
-    log.info(f"  Yearly:        January 1st at {SCHEDULE['yearly']}")
-    log.info(f"  Special Event: day-of-event at {SCHEDULE['special_event']}")
+    log.info("Schedule (UTC → US Eastern):")
+    log.info(f"  Daily:         every day       {SCHEDULE['daily']} UTC = ~1:00 AM EDT")
+    log.info(f"  Weekly:        every Monday    {SCHEDULE['weekly']} UTC = ~12:30 AM EDT")
+    log.info(f"  Monthly:       1st of month    {SCHEDULE['monthly']} UTC = ~12:00 AM EDT")
+    log.info(f"  Yearly:        January 1st     {SCHEDULE['yearly']} UTC = ~11:00 PM EST")
+    log.info(f"  Special Event: day-of-event    {SCHEDULE['special_event']} UTC = ~1:00 AM EDT")
+    log.info("  Videos go LIVE ~30min after start — ready before US wakes up")
     log.info("=" * 60)
 
     _startup_tasks()
