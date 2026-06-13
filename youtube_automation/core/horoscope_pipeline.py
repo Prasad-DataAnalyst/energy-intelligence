@@ -644,15 +644,15 @@ def _stage_video(
 
 
 def _render_intro_frame(frame_path: str, video_type: str, date: datetime.date) -> None:
-    """Render a beautiful intro title card."""
+    """Render a 1280×720 intro title card."""
     try:
         from PIL import Image, ImageDraw
-        W, H = 1920, 1080
+        W, H = 1280, 720
         img = _make_cosmic_background(W, H, "cosmic", seed=0)
         draw = ImageDraw.Draw(img)
 
         type_labels = {
-            "daily": f"DAILY HOROSCOPE",
+            "daily": "DAILY HOROSCOPE",
             "weekly": "WEEKLY HOROSCOPE",
             "monthly": "MONTHLY HOROSCOPE",
             "yearly": "YEARLY HOROSCOPE",
@@ -666,24 +666,23 @@ def _render_intro_frame(frame_path: str, video_type: str, date: datetime.date) -
             "special_event": date.strftime("%B %d, %Y"),
         }
 
-        f_huge = _load_font(130, bold=True)
-        f_big = _load_font(80, bold=True)
-        f_med = _load_font(52)
-        f_sm = _load_font(36)
+        f_huge = _load_font(86, bold=True)
+        f_big = _load_font(52, bold=True)
+        f_med = _load_font(34)
+        f_sm = _load_font(24)
 
-        # Decorative top line
-        draw.rectangle([(0, 0), (W, 10)], fill=(140, 70, 240))
+        draw.rectangle([(0, 0), (W, 7)], fill=(140, 70, 240))
 
-        _draw_text_centered(draw, "✨", H // 2 - 260, _load_font(100), (255, 215, 80), W)
+        _draw_text_centered(draw, "✨", H // 2 - 175, _load_font(66), (255, 215, 80), W)
         _draw_text_centered(draw, type_labels.get(video_type, "HOROSCOPE"),
-                            H // 2 - 150, f_huge, (255, 215, 80), W)
+                            H // 2 - 100, f_huge, (255, 215, 80), W)
         _draw_text_centered(draw, subtitle_labels.get(video_type, ""),
-                            H // 2 + 20, f_big, (200, 150, 255), W)
+                            H // 2 + 13, f_big, (200, 150, 255), W)
         _draw_text_centered(draw, "All 12 Zodiac Signs — Complete Reading",
-                            H // 2 + 130, f_med, (160, 140, 220), W)
-        _draw_text_centered(draw, "GetMindFuelNow", H - 70, f_sm, (120, 100, 200), W)
+                            H // 2 + 87, f_med, (160, 140, 220), W)
+        _draw_text_centered(draw, "GetMindFuelNow", H - 47, f_sm, (120, 100, 200), W)
 
-        draw.rectangle([(0, H - 10), (W, H)], fill=(140, 70, 240))
+        draw.rectangle([(0, H - 7), (W, H)], fill=(140, 70, 240))
         img.save(frame_path, "PNG")
     except Exception as e:
         log.debug(f"Intro frame PIL error: {e}")
@@ -691,32 +690,32 @@ def _render_intro_frame(frame_path: str, video_type: str, date: datetime.date) -
 
 
 def _render_outro_frame(frame_path: str, date: datetime.date) -> None:
-    """Render outro / subscribe call-to-action card."""
+    """Render a 1280×720 outro / subscribe card."""
     try:
         from PIL import Image, ImageDraw
-        W, H = 1920, 1080
+        W, H = 1280, 720
         img = _make_cosmic_background(W, H, "cosmic", seed=99)
         draw = ImageDraw.Draw(img)
 
-        f_big = _load_font(100, bold=True)
-        f_med = _load_font(62, bold=True)
-        f_reg = _load_font(44)
-        f_sm = _load_font(34)
+        f_big = _load_font(66, bold=True)
+        f_med = _load_font(41, bold=True)
+        f_reg = _load_font(30)
+        f_sm = _load_font(22)
 
-        draw.rectangle([(0, 0), (W, 10)], fill=(140, 70, 240))
+        draw.rectangle([(0, 0), (W, 7)], fill=(140, 70, 240))
 
         _draw_text_centered(draw, "✨ GetMindFuelNow ✨",
-                            H // 2 - 220, f_big, (255, 215, 80), W)
+                            H // 2 - 147, f_big, (255, 215, 80), W)
         _draw_text_centered(draw, "Thank You for Watching",
-                            H // 2 - 90, f_med, (220, 180, 255), W)
-        _draw_text_centered(draw, "🔔  SUBSCRIBE for Daily Horoscopes  🔔",
-                            H // 2 + 50, f_reg, (255, 200, 80), W)
-        _draw_text_centered(draw, "Drop your zodiac sign in the comments below!",
-                            H // 2 + 140, f_sm, (170, 150, 230), W)
-        _draw_text_centered(draw, "New reading every day • Like • Subscribe • Share",
-                            H - 90, f_sm, (120, 100, 200), W)
+                            H // 2 - 60, f_med, (220, 180, 255), W)
+        _draw_text_centered(draw, "SUBSCRIBE for Daily Horoscopes",
+                            H // 2 + 33, f_reg, (255, 200, 80), W)
+        _draw_text_centered(draw, "Drop your zodiac sign in the comments!",
+                            H // 2 + 93, f_sm, (170, 150, 230), W)
+        _draw_text_centered(draw, "New reading every day  •  Like  •  Subscribe  •  Share",
+                            H - 60, f_sm, (120, 100, 200), W)
 
-        draw.rectangle([(0, H - 10), (W, H)], fill=(140, 70, 240))
+        draw.rectangle([(0, H - 7), (W, H)], fill=(140, 70, 240))
         img.save(frame_path, "PNG")
     except Exception as e:
         log.debug(f"Outro frame PIL error: {e}")
@@ -754,7 +753,7 @@ def _make_cosmic_background(W: int, H: int, element: str, seed: int = 0):
 
     # Glow orbs
     from PIL import Image as _Img, ImageDraw as _ID
-    for radius, alpha in [(500, 18), (300, 30), (180, 45)]:
+    for radius, alpha in [(320, 18), (200, 30), (120, 45)]:
         ov = _Img.new("RGBA", (W, H), (0, 0, 0, 0))
         ovd = _ID.Draw(ov)
         cx, cy = W // 2, H // 2
@@ -795,7 +794,7 @@ def _render_sign_frame(
     """
     try:
         from PIL import Image, ImageDraw
-        W, H = 1920, 1080
+        W, H = 1280, 720
 
         sign = reading.get("sign", "")
         symbol = reading.get("symbol", "★")
@@ -816,76 +815,76 @@ def _render_sign_frame(
         img = _make_cosmic_background(W, H, element, seed=hash(sign + str(date)) % 10000)
         draw = ImageDraw.Draw(img)
 
-        # ── Decorative lines ────────────────────────────────────────────────
-        draw.rectangle([(0, 0), (W, 8)], fill=(*glow_c,))
-        draw.rectangle([(0, H - 8), (W, H)], fill=(*glow_c,))
+        # ── Decorative accent lines ────────────────────────────────────────
+        draw.rectangle([(0, 0), (W, 6)], fill=(*glow_c,))
+        draw.rectangle([(0, H - 6), (W, H)], fill=(*glow_c,))
 
         # ── Header bar ──────────────────────────────────────────────────────
-        f_header = _load_font(34)
-        draw.text((50, 20), "GetMindFuelNow", font=f_header, fill=(130, 100, 220))
+        f_header = _load_font(22)
+        draw.text((35, 13), "GetMindFuelNow", font=f_header, fill=(130, 100, 220))
         date_str = date.strftime("%B %d, %Y")
         try:
             bbox = draw.textbbox((0, 0), date_str, font=f_header)
-            draw.text((W - bbox[2] - 50, 20), date_str, font=f_header, fill=(130, 100, 220))
+            draw.text((W - bbox[2] - 35, 13), date_str, font=f_header, fill=(130, 100, 220))
         except Exception:
-            draw.text((W - 300, 20), date_str, fill=(130, 100, 220))
+            draw.text((W - 200, 13), date_str, fill=(130, 100, 220))
 
         # ── Central symbol ──────────────────────────────────────────────────
-        f_symbol = _load_font(160, bold=True)
-        f_name = _load_font(110, bold=True)
-        f_sub = _load_font(44)
-        f_planet = _load_font(38)
+        f_symbol = _load_font(106, bold=True)
+        f_name = _load_font(72, bold=True)
+        f_sub = _load_font(29)
 
-        _draw_text_centered(draw, symbol, 80, f_symbol, accent, W)
-        _draw_text_centered(draw, sign.upper(), 265, f_name, (255, 255, 255), W)
+        _draw_text_centered(draw, symbol, 53, f_symbol, accent, W)
+        _draw_text_centered(draw, sign.upper(), 177, f_name, (255, 255, 255), W)
 
         # Dates + element line
         elem_line = f"{dates_str}  •  {element} Sign  •  {modality}"
         if ruling_planet:
             elem_line += f"  •  {ruling_planet}"
-        _draw_text_centered(draw, elem_line, 395, f_sub, (*accent,), W)
+        _draw_text_centered(draw, elem_line, 262, f_sub, (*accent,), W)
 
         # ── Reading text box ─────────────────────────────────────────────────
         # Extract best preview text from script (first 65 words for daily,
         # proportionally more for weekly/monthly)
         preview_words = {
-            "daily": 65, "weekly": 90, "monthly": 110,
-            "yearly": 120, "special_event": 75,
-        }.get(video_type, 65)
+            "daily": 55, "weekly": 75, "monthly": 90,
+            "yearly": 100, "special_event": 60,
+        }.get(video_type, 55)
         words = script_text.split()
         preview_text = " ".join(words[:preview_words])
         if len(words) > preview_words:
             preview_text += "..."
 
-        # Wrap text to ~56 chars per line
-        wrapped_lines = textwrap.wrap(preview_text, width=56)[:7]  # max 7 lines
+        wrapped_lines = textwrap.wrap(preview_text, width=54)[:6]  # max 6 lines
 
-        f_reading = _load_font(40)
+        f_reading = _load_font(27)
+        f_quote = _load_font(40)
 
         # Semi-transparent box behind text
-        box_y1 = 475
-        box_y2 = box_y1 + len(wrapped_lines) * 52 + 30
-        box_x1, box_x2 = 200, W - 200
+        box_y1 = 315
+        box_y2 = box_y1 + len(wrapped_lines) * 35 + 22
+        box_x1, box_x2 = 130, W - 130
 
         box_overlay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
         box_draw = ImageDraw.Draw(box_overlay)
         box_draw.rounded_rectangle(
             [(box_x1, box_y1), (box_x2, box_y2)],
-            radius=20,
-            fill=(10, 5, 40, 140),
+            radius=14,
+            fill=(10, 5, 40, 145),
             outline=(*glow_c, 160),
             width=2,
         )
         img = Image.alpha_composite(img.convert("RGBA"), box_overlay).convert("RGB")
         draw = ImageDraw.Draw(img)
 
-        # Opening quote mark
-        f_quote = _load_font(60)
+        # Quote marks + reading lines (resized for 720p)
+        f_quote = _load_font(40)
+        ly_offset = 35
         draw.text((box_x1 + 20, box_y1 + 5), "“", font=f_quote, fill=(*accent,))
 
         # Render wrapped lines
         for li, line in enumerate(wrapped_lines):
-            ly = box_y1 + 50 + li * 52
+            ly = box_y1 + 33 + li * ly_offset
             try:
                 bbox = draw.textbbox((0, 0), line, font=f_reading)
                 tw = bbox[2] - bbox[0]
@@ -898,8 +897,8 @@ def _render_sign_frame(
         draw.text((box_x2 - 60, box_y2 - 55), "”", font=f_quote, fill=(*accent,))
 
         # ── Lucky info bar ───────────────────────────────────────────────────
-        luck_y = H - 80
-        f_lucky = _load_font(36)
+        luck_y = H - 55
+        f_lucky = _load_font(24)
         lucky_nums = ", ".join(str(n) for n in lucky_numbers[:3]) if lucky_numbers else "—"
         lucky_line = f"✦  Lucky: {lucky_nums}  |  {lucky_color}  |  {lucky_day}  ✦"
         _draw_text_centered(draw, lucky_line, luck_y, f_lucky, (*accent,), W)
@@ -919,13 +918,13 @@ def _ffmpeg_solid_frame(frame_path: str, label: str) -> None:
     label_safe = label.replace("'", "").replace(":", "")
     cmd = [
         "ffmpeg", "-y", "-f", "lavfi",
-        "-i", "color=c=0x080520:s=1920x1080:r=1",
+        "-i", "color=c=0x080520:s=1280x720:r=1",
         "-frames:v", "1",
         "-vf", (
-            f"drawtext=text='{label_safe}':fontcolor=white:fontsize=96:"
+            f"drawtext=text='{label_safe}':fontcolor=white:fontsize=64:"
             f"x=(w-text_w)/2:y=(h-text_h)/2,"
-            f"drawtext=text='GetMindFuelNow':fontcolor=0xaaaaff:fontsize=40:"
-            f"x=(w-text_w)/2:y=h-80"
+            f"drawtext=text='GetMindFuelNow':fontcolor=0xaaaaff:fontsize=28:"
+            f"x=(w-text_w)/2:y=h-55"
         ),
         frame_path,
     ]
@@ -949,17 +948,17 @@ def _frame_to_animated_video(image_path: str, out_path: str, duration: int) -> N
         "-t", str(duration),
         "-pix_fmt", "yuv420p",
         "-vf", (
-            f"scale=1920:1080:force_original_aspect_ratio=decrease,"
-            f"pad=1920:1080:(ow-iw)/2:(oh-ih)/2,"
+            f"scale=1280:720:force_original_aspect_ratio=decrease,"
+            f"pad=1280:720:(ow-iw)/2:(oh-ih)/2,"
             f"fade=t=in:st=0:d={fade_dur},"
             f"fade=t=out:st={fade_out_start}:d={fade_dur}"
         ),
-        "-r", "24",
+        "-r", "15",
         "-preset", "ultrafast",
-        "-crf", "26",
+        "-crf", "28",
         out_path,
     ]
-    result = subprocess.run(cmd, capture_output=True, timeout=180)
+    result = subprocess.run(cmd, capture_output=True, timeout=600)
     if result.returncode != 0:
         err = result.stderr.decode()[-300:]
         raise RuntimeError(f"frame_to_animated_video failed for {image_path}:\n{err}")
