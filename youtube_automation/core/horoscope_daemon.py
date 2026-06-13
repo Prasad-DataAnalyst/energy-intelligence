@@ -266,6 +266,13 @@ def _startup_tasks() -> None:
     except Exception as e:
         log.warning(f"Retry queue processing failed: {e}")
 
+    # Update channel bio/keywords (runs at most once per week)
+    try:
+        from youtube_uploader import update_channel_branding
+        update_channel_branding()
+    except Exception as e:
+        log.debug(f"Channel branding update on startup skipped: {e}")
+
     # Clean up old locks (> 25 hours)
     cutoff = datetime.datetime.utcnow() - datetime.timedelta(hours=25)
     for lock_file in LOCKS_DIR.glob("*.lock"):

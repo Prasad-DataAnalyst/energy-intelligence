@@ -406,6 +406,142 @@ def _build_tags(content: dict, seo_package: dict) -> list:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Channel branding — auto-update bio, keywords, links
+# ─────────────────────────────────────────────────────────────────────────────
+
+CHANNEL_BIO = """🌙 Daily horoscopes for ALL 12 zodiac signs — Aries through Pisces.
+
+Fresh cosmic readings every morning:
+✨ Daily Horoscope — posted every day at 1 AM ET
+📅 Weekly Horoscope — every Monday
+🌟 Monthly Horoscope — first of each month
+🌕 Special Events — eclipses, retrogrades, full moons & more
+
+Subscribe & hit the 🔔 bell for your daily dose of cosmic guidance.
+Drop your zodiac sign in the comments — we love hearing from you!
+
+#horoscope #astrology #zodiac #dailyhoroscope #GetMindFuelNow"""
+
+CHANNEL_KEYWORDS = (
+    "horoscope, daily horoscope, astrology, zodiac, all 12 signs, "
+    "aries horoscope, taurus horoscope, gemini horoscope, cancer horoscope, "
+    "leo horoscope, virgo horoscope, libra horoscope, scorpio horoscope, "
+    "sagittarius horoscope, capricorn horoscope, aquarius horoscope, pisces horoscope, "
+    "weekly horoscope, monthly horoscope, yearly horoscope, "
+    "full moon horoscope, mercury retrograde, eclipse horoscope, "
+    "astrology reading, zodiac reading, cosmic energy, GetMindFuelNow"
+)
+
+# Track when we last updated channel branding so we don't spam the API
+_BRANDING_STAMP = Path("logs") / "channel_branding_updated.txt"
+
+
+def update_channel_branding(force: bool = False) -> bool:
+    """
+    Update the YouTube channel bio, keywords, and country.
+    Runs at most once per week to avoid unnecessary API calls.
+
+    Returns True if branding was updated or already up-to-date.
+
+    NOTE: Requires the 'youtube' OAuth scope.
+    If you get a 403 error, delete youtube_token.json and re-run
+    first_time_setup.py — the new token will include the full scope.
+    """
+    # Rate-limit: skip if updated within the last 7 days
+    if not force and _BRANDING_STAMP.exists():
+        try:
+            last = datetime.datetime.fromisoformat(_BRANDING_STAMP.read_text().strip())
+            if (datetime.datetime.utcnow() - last).days < 7:
+                log.info("Channel branding is up-to-date (updated within 7 days)")
+                return True
+        except Exception:
+            pass
+
+    channel_id = config.CHANNEL_ID
+    if not channel_id:
+        log.warning("YOUTUBE_CHANNEL_ID not set in .env — skipping channel branding update")
+        return False
+
+    try:
+        session, _ = _authed_session()
+
+        body = {
+            "id": channel_id,
+            "brandingSettings": {
+                "channel": {
+                    "description":       CHANNEL_BIO,
+                    "keywords":          CHANNEL_KEYWORDS,
+                    "country":           "US",
+                    "defaultLanguage":   "en",
+                    "unsubscribedTrailer": "",   # leave blank — set manually in Studio
+                }
+            }
+        }
+
+        resp = session.put(
+            "https://www.googleapis.com/youtube/v3/channels?part=brandingSettings",
+            headers={"Content-Type": "application/json"},
+            data=json.dumps(body),
+        )
+
+        if resp.status_code in (200, 204):
+            _BRANDING_STAMP.parent.mkdir(parents=True, exist_ok=True)
+            _BRANDING_STAMP.write_text(datetime.datetime.utcnow().isoformat())
+            log.info("Channel branding updated — bio, keywords, country set")
+            return True
+
+        if resp.status_code == 403:
+            log.warning(
+                "Channel branding: 403 Forbidden — token needs 'youtube' scope.\n"
+                "  Fix: delete youtube_token.json and run first_time_setup.py again.\n"
+                "  All video uploads continue to work normally."
+            )
+            return False
+
+        log.warning("Channel branding update returned %d: %s",
+                    resp.status_code, resp.text[:300])
+        return False
+
+    except Exception as exc:
+        log.warning("Channel branding update failed: %s", exc)
+        return False
+
+
+def set_video_tags_and_category(video_id: str, tags: list[str],
+                                 title: str, description: str,
+                                 category_id: str = "22") -> bool:
+    """
+    Update an existing video's snippet (title, description, tags, category).
+    Useful for refreshing SEO on older videos.
+    """
+    if not video_id:
+        return False
+    try:
+        session, _ = _authed_session()
+        body = {
+            "id": video_id,
+            "snippet": {
+                "title":       title[:100],
+                "description": description[:5000],
+                "tags":        tags[:500] if isinstance(tags, list) else [],
+                "categoryId":  category_id,
+            }
+        }
+        resp = session.put(
+            "https://www.googleapis.com/youtube/v3/videos?part=snippet",
+            headers={"Content-Type": "application/json"},
+            data=json.dumps(body),
+        )
+        if resp.status_code in (200, 204):
+            log.info("Video metadata updated: %s", video_id)
+            return True
+        log.warning("Video update returned %d: %s", resp.status_code, resp.text[:200])
+    except Exception as exc:
+        log.warning("Video update failed: %s", exc)
+    return False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Upload log
 # ─────────────────────────────────────────────────────────────────────────────
 

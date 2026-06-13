@@ -1023,9 +1023,21 @@ def _stage_upload(
         return {"ok": True, "skipped": True, "metadata": metadata}
 
     try:
-        from youtube_uploader import upload_video
+        from youtube_uploader import upload_video, upload_thumbnail, update_channel_branding
         video_url = upload_video(final_path, metadata)
         log.info(f"Uploaded: {video_url} ({_elapsed(t0)})")
+
+        # Upload thumbnail separately if present
+        if thumbnail_path and os.path.exists(thumbnail_path):
+            video_id = video_url.split("/")[-1] if "/" in str(video_url) else str(video_url)
+            upload_thumbnail(video_id, thumbnail_path)
+
+        # Keep channel bio + keywords fresh (runs at most once per week)
+        try:
+            update_channel_branding()
+        except Exception as be:
+            log.debug(f"Channel branding update skipped: {be}")
+
         return {"ok": True, "url": video_url, "elapsed": _elapsed(t0)}
     except Exception as e:
         log.error(f"Upload failed: {e}\n{traceback.format_exc()}")

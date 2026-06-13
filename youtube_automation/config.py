@@ -16,7 +16,10 @@ LOGS_DIR   = "logs"
 
 # YouTube
 CLIENT_SECRETS_FILE = os.getenv("YOUTUBE_CLIENT_SECRETS_FILE", "client_secrets.json")
-YOUTUBE_SCOPES      = ["https://www.googleapis.com/auth/youtube.upload"]
+YOUTUBE_SCOPES      = [
+    "https://www.googleapis.com/auth/youtube.upload",
+    "https://www.googleapis.com/auth/youtube",          # needed for channel branding update
+]
 CHANNEL_ID          = os.getenv("YOUTUBE_CHANNEL_ID", "")
 # 27 = Education (highest CPM tier), 26 = How-to & Style, 22 = People & Blogs
 CATEGORY_ID         = os.getenv("YOUTUBE_CATEGORY_ID", "27")
