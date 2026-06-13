@@ -1,6 +1,8 @@
 #!/bin/bash
 # ============================================================
-# start_scheduler.sh — persistent watchdog for the pipeline
+# start_scheduler.sh — persistent watchdog for the horoscope daemon
+# GetMindFuelNow — All 12 Zodiac Signs, Daily/Weekly/Monthly/Yearly
+#
 # Usage: bash start_scheduler.sh          (runs in foreground)
 #        nohup bash start_scheduler.sh &  (runs in background)
 # ============================================================
@@ -22,7 +24,7 @@ fi
 mkdir -p logs
 
 echo "============================================================" >> "$LOG_FILE"
-echo "Watchdog started at $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> "$LOG_FILE"
+echo "GetMindFuelNow Horoscope Watchdog started at $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> "$LOG_FILE"
 echo "PID: $$" >> "$LOG_FILE"
 echo "$$" > "$PID_FILE"
 
@@ -38,9 +40,9 @@ BACKOFF=5
 MAX_BACKOFF=300
 
 while true; do
-    echo "[$(date -u '+%Y-%m-%d %H:%M:%S UTC')] Starting automation daemon..." >> "$LOG_FILE"
+    echo "[$(date -u '+%Y-%m-%d %H:%M:%S UTC')] Starting horoscope daemon..." >> "$LOG_FILE"
 
-    $PYTHON core/automation_daemon.py >> "$LOG_FILE" 2>&1
+    $PYTHON core/horoscope_daemon.py >> "$LOG_FILE" 2>&1
     EXIT_CODE=$?
 
     echo "[$(date -u '+%Y-%m-%d %H:%M:%S UTC')] Daemon exited (code=$EXIT_CODE). Restarting in ${BACKOFF}s..." >> "$LOG_FILE"

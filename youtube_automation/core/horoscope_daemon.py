@@ -1,0 +1,350 @@
+"""
+core/horoscope_daemon.py
+GetMindFuelNow — 24/7 Horoscope Automation Daemon
+
+Schedule:
+  Daily      — every day at 19:00 UTC
+  Weekly     — every Monday at 18:00 UTC
+  Monthly    — 1st of each month at 17:00 UTC
+  Yearly     — January 1st at 12:00 UTC
+  Special    — checked daily; events run at 20:00 UTC day-of
+
+Features:
+  - Writes heartbeat every 60 seconds to logs/horoscope_daemon_heartbeat.json
+  - Handles SIGTERM / SIGINT cleanly (finishes current run before exit)
+  - Processes upload retry queue on startup
+  - Prevents duplicate runs on the same date+type via run-lock files
+
+Usage:
+  python core/horoscope_daemon.py
+  python core/horoscope_daemon.py --schedule   (same, kept for symmetry)
+  nohup python core/horoscope_daemon.py >> logs/daemon.log 2>&1 &
+"""
+
+from __future__ import annotations
+
+import datetime
+import json
+import logging
+import os
+import signal
+import sys
+import time
+import traceback
+from pathlib import Path
+
+HERE = Path(__file__).parent.parent
+sys.path.insert(0, str(HERE))
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+LOGS_DIR = HERE / "logs"
+LOGS_DIR.mkdir(parents=True, exist_ok=True)
+
+log_file = LOGS_DIR / f"horoscope_daemon_{datetime.date.today().isoformat()}.log"
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
+    handlers=[
+        logging.FileHandler(log_file),
+        logging.StreamHandler(sys.stdout),
+    ],
+)
+log = logging.getLogger("horoscope_daemon")
+
+# ── Paths ──────────────────────────────────────────────────────────────────────
+HEARTBEAT_PATH = LOGS_DIR / "horoscope_daemon_heartbeat.json"
+LOCKS_DIR = LOGS_DIR / "locks"
+LOCKS_DIR.mkdir(exist_ok=True)
+
+# ── Schedule (HH:MM UTC strings) ──────────────────────────────────────────────
+SCHEDULE: dict[str, str] = {
+    "daily":         "19:00",
+    "weekly":        "18:00",   # Mondays
+    "monthly":       "17:00",   # 1st of month
+    "yearly":        "12:00",   # January 1st
+    "special_event": "20:00",   # day-of-event
+}
+
+# ── State ─────────────────────────────────────────────────────────────────────
+_SHUTDOWN_REQUESTED = False
+_CURRENT_RUN_TYPE: str | None = None
+
+
+def _handle_signal(signum: int, frame: object) -> None:
+    """Handle SIGTERM / SIGINT — request clean shutdown after current run."""
+    global _SHUTDOWN_REQUESTED
+    sig_name = signal.Signals(signum).name
+    log.info(f"Signal received: {sig_name} — requesting shutdown after current run")
+    _SHUTDOWN_REQUESTED = True
+
+
+signal.signal(signal.SIGTERM, _handle_signal)
+signal.signal(signal.SIGINT, _handle_signal)
+
+
+# ---------------------------------------------------------------------------
+# Heartbeat
+# ---------------------------------------------------------------------------
+
+def _write_heartbeat(extra: dict | None = None) -> None:
+    """Write daemon status to heartbeat file."""
+    try:
+        payload = {
+            "status": "running" if not _SHUTDOWN_REQUESTED else "shutdown_requested",
+            "timestamp": datetime.datetime.utcnow().isoformat(),
+            "pid": os.getpid(),
+            "current_run": _CURRENT_RUN_TYPE,
+        }
+        if extra:
+            payload.update(extra)
+        HEARTBEAT_PATH.write_text(json.dumps(payload, indent=2))
+    except Exception as e:
+        log.debug(f"Heartbeat write failed: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Run-lock helpers (prevent duplicate runs)
+# ---------------------------------------------------------------------------
+
+def _lock_path(video_type: str, date: datetime.date) -> Path:
+    return LOCKS_DIR / f"{video_type}_{date.isoformat()}.lock"
+
+
+def _is_locked(video_type: str, date: datetime.date) -> bool:
+    return _lock_path(video_type, date).exists()
+
+
+def _acquire_lock(video_type: str, date: datetime.date) -> None:
+    lp = _lock_path(video_type, date)
+    lp.write_text(json.dumps({
+        "video_type": video_type,
+        "date": date.isoformat(),
+        "started_at": datetime.datetime.utcnow().isoformat(),
+        "pid": os.getpid(),
+    }))
+
+
+def _release_lock(video_type: str, date: datetime.date) -> None:
+    lp = _lock_path(video_type, date)
+    try:
+        lp.unlink()
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Schedule checking
+# ---------------------------------------------------------------------------
+
+def _time_matches(target_hhmm: str, now: datetime.datetime, tolerance_minutes: int = 2) -> bool:
+    """
+    Return True if now is within ±tolerance_minutes of target_hhmm (HH:MM UTC).
+    This allows the 60-second polling loop to catch scheduled times reliably.
+    """
+    h, m = map(int, target_hhmm.split(":"))
+    target = now.replace(hour=h, minute=m, second=0, microsecond=0)
+    diff = abs((now - target).total_seconds())
+    return diff <= tolerance_minutes * 60
+
+
+def _should_run(video_type: str, now: datetime.datetime) -> bool:
+    """
+    Determine if a specific video type should run right now.
+
+    Rules:
+      daily:         every day at 19:00 UTC
+      weekly:        every Monday at 18:00 UTC
+      monthly:       1st of month at 17:00 UTC
+      yearly:        January 1st at 12:00 UTC
+      special_event: any day in SPECIAL_EVENTS_2026 at 20:00 UTC
+    """
+    today = now.date()
+    upload_time = SCHEDULE[video_type]
+
+    if not _time_matches(upload_time, now):
+        return False
+
+    if _is_locked(video_type, today):
+        return False  # Already ran today
+
+    if video_type == "daily":
+        return True
+
+    if video_type == "weekly":
+        return today.weekday() == 0  # Monday
+
+    if video_type == "monthly":
+        return today.day == 1
+
+    if video_type == "yearly":
+        return today.month == 1 and today.day == 1
+
+    if video_type == "special_event":
+        from modules.horoscope.video_types import is_special_event_day
+        return is_special_event_day(today)
+
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Single-type runner (called from main loop)
+# ---------------------------------------------------------------------------
+
+def _safe_run(video_type: str, date: datetime.date, event_name: str = "",
+               event_type: str = "") -> bool:
+    """
+    Execute one horoscope pipeline run safely.
+    Returns True on success.
+    """
+    global _CURRENT_RUN_TYPE
+    _CURRENT_RUN_TYPE = video_type
+
+    if _is_locked(video_type, date):
+        log.info(f"Already ran {video_type} for {date} — skipping")
+        _CURRENT_RUN_TYPE = None
+        return True
+
+    _acquire_lock(video_type, date)
+    log.info(f"Starting {video_type.upper()} run for {date}")
+
+    try:
+        from core.horoscope_pipeline import run_horoscope_pipeline
+        report = run_horoscope_pipeline(
+            video_type=video_type,
+            date=date,
+            upload=True,
+            event_name=event_name,
+            event_type=event_type,
+        )
+        if report.get("success"):
+            log.info(f"{video_type.upper()} run completed successfully")
+            return True
+        else:
+            errors = report.get("errors", [])
+            log.warning(f"{video_type.upper()} run completed with errors: {errors}")
+            return len(errors) == 0
+
+    except Exception as e:
+        log.error(f"{video_type.upper()} run crashed: {e}\n{traceback.format_exc()}")
+        return False
+
+    finally:
+        _CURRENT_RUN_TYPE = None
+        # Keep lock to prevent double-runs (lock expires on restart / next day)
+
+
+# ---------------------------------------------------------------------------
+# Startup: process retry queue
+# ---------------------------------------------------------------------------
+
+def _startup_tasks() -> None:
+    """Tasks to run once when the daemon starts."""
+    log.info("Daemon starting up — processing upload retry queue")
+    try:
+        from core.horoscope_pipeline import process_retry_queue
+        n = process_retry_queue()
+        log.info(f"Retry queue: processed {n} item(s)")
+    except Exception as e:
+        log.warning(f"Retry queue processing failed: {e}")
+
+    # Clean up old locks (> 25 hours)
+    cutoff = datetime.datetime.utcnow() - datetime.timedelta(hours=25)
+    for lock_file in LOCKS_DIR.glob("*.lock"):
+        try:
+            data = json.loads(lock_file.read_text())
+            started = datetime.datetime.fromisoformat(data.get("started_at", "2000-01-01"))
+            if started < cutoff:
+                lock_file.unlink()
+                log.debug(f"Removed stale lock: {lock_file.name}")
+        except Exception:
+            pass
+
+
+# ---------------------------------------------------------------------------
+# Main daemon loop
+# ---------------------------------------------------------------------------
+
+def run_daemon() -> None:
+    """Main 24/7 scheduling loop."""
+    log.info("=" * 60)
+    log.info("GetMindFuelNow Horoscope Daemon starting")
+    log.info(f"PID: {os.getpid()}")
+    log.info(f"Log: {log_file}")
+    log.info("=" * 60)
+    log.info("Schedule (all times UTC):")
+    log.info(f"  Daily:         every day at {SCHEDULE['daily']}")
+    log.info(f"  Weekly:        every Monday at {SCHEDULE['weekly']}")
+    log.info(f"  Monthly:       1st of month at {SCHEDULE['monthly']}")
+    log.info(f"  Yearly:        January 1st at {SCHEDULE['yearly']}")
+    log.info(f"  Special Event: day-of-event at {SCHEDULE['special_event']}")
+    log.info("=" * 60)
+
+    _startup_tasks()
+    _write_heartbeat({"event": "startup"})
+
+    last_heartbeat = time.time()
+    HEARTBEAT_INTERVAL = 60  # seconds
+
+    while not _SHUTDOWN_REQUESTED:
+        now_utc = datetime.datetime.utcnow()
+        today = now_utc.date()
+
+        # Check all video types
+        for vtype in ["yearly", "monthly", "weekly", "special_event", "daily"]:
+            if _SHUTDOWN_REQUESTED:
+                break
+
+            if _should_run(vtype, now_utc):
+                ev_name = ev_type = ""
+                if vtype == "special_event":
+                    try:
+                        from modules.horoscope.video_types import get_event_for_date
+                        ev = get_event_for_date(today)
+                        if ev:
+                            ev_name = ev["name"]
+                            ev_type = ev["type"]
+                    except Exception:
+                        pass
+
+                log.info(f"Triggering {vtype} run")
+                success = _safe_run(vtype, today, ev_name, ev_type)
+                _write_heartbeat({
+                    "last_run_type": vtype,
+                    "last_run_success": success,
+                    "last_run_at": now_utc.isoformat(),
+                })
+
+        # Write heartbeat every 60 seconds
+        if time.time() - last_heartbeat >= HEARTBEAT_INTERVAL:
+            _write_heartbeat()
+            last_heartbeat = time.time()
+
+        # Sleep 30 seconds between schedule checks
+        time.sleep(30)
+
+    log.info("Shutdown requested — daemon exiting cleanly")
+    _write_heartbeat({"event": "shutdown"})
+    sys.exit(0)
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="GetMindFuelNow Horoscope Daemon")
+    parser.add_argument("--schedule", action="store_true", help="Alias for running the daemon (default behavior)")
+    parser.add_argument("--once",     action="store_true", help="Run once immediately and exit")
+    parser.add_argument("--type",     type=str, default="daily",
+                        choices=["daily", "weekly", "monthly", "yearly", "special_event"],
+                        help="Which type to run with --once")
+    args = parser.parse_args()
+
+    if args.once:
+        # One-shot run for testing
+        log.info(f"One-shot run: {args.type}")
+        _startup_tasks()
+        _safe_run(args.type, datetime.date.today())
+    else:
+        run_daemon()
