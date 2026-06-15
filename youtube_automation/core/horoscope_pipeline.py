@@ -1229,8 +1229,37 @@ def run_horoscope_pipeline(
         final_path, thumb_path, title, description, tags, primary_type, upload
     )
     report["stages"]["upload"] = upload_result
+    parent_url = ""
     if upload_result.get("url"):
         report["output_files"]["youtube_url"] = upload_result["url"]
+        parent_url = upload_result["url"]
+
+    # Stage 7: Shorts — generate one vertical Short per zodiac sign
+    # Only runs for daily videos; enabled via SHORTS_ENABLED in .env
+    try:
+        import config as _cfg
+        if _cfg.SHORTS_ENABLED and primary_type == "daily":
+            _div("STAGE 7 — YOUTUBE SHORTS")
+            from core.shorts_renderer import generate_all_shorts
+            shorts_results = generate_all_shorts(
+                readings=readings,
+                date=date,
+                out_dir=out_base,
+                upload=upload,
+                parent_url=parent_url,
+                max_uploads=_cfg.MAX_SHORTS_PER_DAY,
+            )
+            report["stages"]["shorts"] = {
+                "ok": True,
+                "generated": sum(1 for r in shorts_results if r.get("ok")),
+                "uploaded":  sum(1 for r in shorts_results if r.get("url")),
+                "results":   shorts_results,
+            }
+        else:
+            log.info("Shorts skipped (disabled or non-daily type)")
+    except Exception as e:
+        log.warning(f"Shorts stage failed (non-fatal): {e}")
+        report["stages"]["shorts"] = {"ok": False, "error": str(e)}
 
     report["success"] = len(report["errors"]) == 0
     report["total_elapsed"] = _elapsed(pipeline_start)

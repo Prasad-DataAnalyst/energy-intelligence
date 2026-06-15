@@ -171,6 +171,14 @@ VIDEO_HEIGHT=720
 VIDEO_FPS=15
 VIDEO_DURATION_SECONDS=92
 
+# YouTube Shorts — one 45-58s vertical clip per sign after each daily video
+# Each upload costs ~1600 quota units; free daily quota = 10,000 units.
+# Default MAX_SHORTS_PER_DAY=4 keeps total under the limit.
+# Set to 12 after requesting a free quota increase:
+#   https://support.google.com/youtube/contact/yt_api_form
+SHORTS_ENABLED=true
+MAX_SHORTS_PER_DAY=4
+
 # Email alerts — get app password from: myaccount.google.com → Security → App passwords
 # GMAIL_APP_PASSWORD=xxxx xxxx xxxx xxxx
 # Set to "true" to also get success emails (failures always sent when password is set)
