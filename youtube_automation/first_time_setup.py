@@ -162,7 +162,7 @@ def write_env(channel_id: str):
 
 YOUTUBE_CLIENT_SECRETS_FILE=client_secrets.json
 YOUTUBE_CHANNEL_ID={channel_id}
-YOUTUBE_CATEGORY_ID=27
+YOUTUBE_CATEGORY_ID=22
 YOUTUBE_PRIVACY_STATUS=public
 
 OUTPUT_DIR=output
@@ -171,8 +171,10 @@ VIDEO_HEIGHT=720
 VIDEO_FPS=15
 VIDEO_DURATION_SECONDS=92
 
-# Upload at 3 PM daily — peak US EST browsing
-UPLOAD_TIME=15:00
+# Email alerts — get app password from: myaccount.google.com → Security → App passwords
+# GMAIL_APP_PASSWORD=xxxx xxxx xxxx xxxx
+# Set to "true" to also get success emails (failures always sent when password is set)
+SEND_SUCCESS_EMAIL=false
 """
     ENV.write_text(env_content)
     print(f"  ✓  .env written")

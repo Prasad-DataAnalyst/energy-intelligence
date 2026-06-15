@@ -213,6 +213,7 @@ def _safe_run(video_type: str, date: datetime.date, event_name: str = "",
                event_type: str = "") -> bool:
     """
     Execute one horoscope pipeline run safely.
+    Runs pre-flight checks first; sends email alerts on failure.
     Returns True on success.
     """
     global _CURRENT_RUN_TYPE
@@ -222,6 +223,17 @@ def _safe_run(video_type: str, date: datetime.date, event_name: str = "",
         log.info(f"Already ran {video_type} for {date} — skipping")
         _CURRENT_RUN_TYPE = None
         return True
+
+    # ── Pre-flight checks ────────────────────────────────────────────────────
+    try:
+        from core.preflight import run_preflight
+        can_run, check_results = run_preflight(video_type)
+        if not can_run:
+            log.error(f"Pre-flight BLOCKED {video_type} — see email for details")
+            _CURRENT_RUN_TYPE = None
+            return False
+    except Exception as pf_err:
+        log.warning(f"Pre-flight check error (proceeding anyway): {pf_err}")
 
     _acquire_lock(video_type, date)
     log.info(f"Starting {video_type.upper()} run for {date}")
@@ -237,19 +249,42 @@ def _safe_run(video_type: str, date: datetime.date, event_name: str = "",
         )
         if report.get("success"):
             log.info(f"{video_type.upper()} run completed successfully")
+            # Send success email if SEND_SUCCESS_EMAIL=true
+            try:
+                from core.preflight import send_success_summary_email
+                url = report.get("output_files", {}).get("youtube_url", "")
+                elapsed_str = report.get("total_elapsed", "0min")
+                elapsed_min = float(elapsed_str.replace("min","").replace("s","")) / (1 if "min" in elapsed_str else 60)
+                send_success_summary_email(video_type, date, url, elapsed_min)
+            except Exception:
+                pass
             return True
         else:
             errors = report.get("errors", [])
             log.warning(f"{video_type.upper()} run completed with errors: {errors}")
+            # Email on pipeline stage failure
+            if errors:
+                try:
+                    from core.preflight import send_pipeline_failure_email
+                    failed_stage = errors[0].split(":")[0] if errors else "unknown"
+                    send_pipeline_failure_email(video_type, failed_stage,
+                                               "\n".join(errors), date)
+                except Exception:
+                    pass
             return len(errors) == 0
 
     except Exception as e:
         log.error(f"{video_type.upper()} run crashed: {e}\n{traceback.format_exc()}")
+        try:
+            from core.preflight import send_pipeline_failure_email
+            send_pipeline_failure_email(video_type, "pipeline_crash", str(e), date)
+        except Exception:
+            pass
         return False
 
     finally:
         _CURRENT_RUN_TYPE = None
-        # Keep lock to prevent double-runs (lock expires on restart / next day)
+        # Keep lock to prevent double-runs on same day
 
 
 # ---------------------------------------------------------------------------
