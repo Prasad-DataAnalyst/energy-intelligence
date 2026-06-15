@@ -312,62 +312,162 @@ def _get_audio_duration(path: str) -> int:
         return 60
 
 
-def _stage_audio(full_script: str, audio_dir: Path, date_tag: str,
-                 word_count: int) -> tuple[str, int]:
+def _tts_padded(text: str, out_wav: str, target_s: int) -> bool:
     """
-    Generate voice + background music. Returns (mixed_audio_path, duration_seconds).
+    Generate TTS for text, then pad or trim to exactly target_s seconds.
+    Writes a WAV file.  Returns True on success.
+    Audio longer than target_s is trimmed; shorter audio is silence-padded.
+    This guarantees that every segment is exactly target_s long so that
+    when segments are concatenated, video and audio stay in sync.
+    """
+    raw_mp3 = out_wav.replace(".wav", "_raw.mp3")
+    ok = _edge_tts_voiceover(text, raw_mp3)
+    if not ok or not os.path.exists(raw_mp3):
+        _generate_silent_wav(out_wav, target_s)
+        return False
 
-    Priority:
-      1. edge-tts (Microsoft Neural TTS — best quality, free)
-      2. espeak-ng (robot fallback)
-      3. Silent audio (last resort so video still generates)
+    # apad=whole_dur pads silence to reach target_s; -t trims if longer
+    cmd = [
+        "ffmpeg", "-y", "-i", raw_mp3,
+        "-af", f"apad=whole_dur={target_s}",
+        "-t", str(target_s),
+        "-ar", "44100", "-ac", "2", "-acodec", "pcm_s16le",
+        out_wav,
+    ]
+    r = subprocess.run(cmd, capture_output=True, timeout=120)
+    if r.returncode == 0 and os.path.exists(out_wav):
+        return True
+    log.warning(f"TTS pad failed ({r.stderr.decode()[-80:]}), using silence")
+    _generate_silent_wav(out_wav, target_s)
+    return False
+
+
+def _concat_audio_files(paths: list[str], out_path: str) -> str:
+    """Concatenate WAV files into one using ffmpeg concat demuxer."""
+    txt = out_path + "_list.txt"
+    with open(txt, "w") as f:
+        for p in paths:
+            f.write(f"file '{p}'\n")
+    cmd = [
+        "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+        "-i", txt, "-c", "copy", out_path,
+    ]
+    r = subprocess.run(cmd, capture_output=True, timeout=300)
+    if r.returncode == 0 and os.path.exists(out_path):
+        return out_path
+    log.warning(f"Audio concat failed: {r.stderr.decode()[-200:]}")
+    return paths[0] if paths else out_path
+
+
+def _stage_audio(
+    readings: list[dict],
+    full_script: str,
+    audio_dir: Path,
+    date_tag: str,
+    video_type: str,
+    date: datetime.date,
+    word_count: int,
+) -> tuple[str, int]:
+    """
+    Generate voice + background music.  Returns (mixed_audio_path, total_seconds).
+
+    For daily videos: per-sign TTS, each padded to exactly 28 s.
+      Intro (12 s) + 12 signs × 28 s + Outro (12 s) = 360 s = exactly 6 min.
+      Sync is guaranteed because video segments are also 28 s each.
+
+    For weekly/monthly/yearly: single full-script TTS (longer reads need
+      continuous narration; sign_dur is calculated from actual audio length).
     """
     _div("STAGE 2 — AUDIO")
     t0 = time.time()
 
-    voice_mp3 = str(audio_dir / f"voice_{date_tag}.mp3")
-    voice_wav = str(audio_dir / f"voice_{date_tag}.wav")
+    from modules.horoscope.video_types import get_intro_duration, get_duration_per_sign, get_outro_duration
+
     music_wav = str(audio_dir / f"music_{date_tag}.wav")
     mixed_wav = str(audio_dir / f"mixed_{date_tag}.wav")
 
-    # ── Generate voice ────────────────────────────────────────────────────────
-    voice_ok = _edge_tts_voiceover(full_script, voice_mp3)
+    if video_type == "daily":
+        # ── Per-sign approach: each segment padded to exact duration ─────────
+        intro_s = get_intro_duration(video_type)     # 12 s
+        sign_s  = get_duration_per_sign(video_type)  # 28 s
+        outro_s = get_outro_duration(video_type)     # 12 s
+        total_s = intro_s + sign_s * len(readings) + outro_s
 
-    if voice_ok:
-        # Convert mp3 → wav for ffmpeg pipeline compatibility
-        conv = subprocess.run(
-            ["ffmpeg", "-y", "-i", voice_mp3, "-ar", "44100", "-ac", "2",
-             "-acodec", "pcm_s16le", voice_wav],
-            capture_output=True, timeout=60,
+        seg_paths: list[str] = []
+
+        # Intro
+        intro_wav = str(audio_dir / f"seg_intro_{date_tag}.wav")
+        intro_text = (
+            f"Daily horoscope for all 12 zodiac signs. "
+            f"{date.strftime('%B %d, %Y')}. "
+            "Let's see what the cosmos has in store for you today."
         )
-        if conv.returncode != 0 or not os.path.exists(voice_wav):
-            # Keep mp3 if conversion failed
-            voice_wav = voice_mp3
+        _tts_padded(intro_text, intro_wav, intro_s)
+        seg_paths.append(intro_wav)
 
-    if not voice_ok or not os.path.exists(voice_wav):
-        log.warning("edge-tts failed — trying espeak-ng fallback")
-        voice_ok = _espeak_voiceover(full_script, voice_wav)
+        # One TTS clip per sign — first 40 words of reading ≈ 20 s speech + 8 s silence
+        for reading in readings:
+            sign  = reading.get("sign", "")
+            symb  = reading.get("symbol", "")
+            words = reading.get("script_text", "").split()
+            clip_text = f"{sign} {symb}. {' '.join(words[:40])}."
+            seg_wav   = str(audio_dir / f"seg_{sign.lower()}_{date_tag}.wav")
+            _tts_padded(clip_text, seg_wav, sign_s)
+            seg_paths.append(seg_wav)
+            log.info(f"  Audio [{sign}]: {sign_s}s slot")
 
-    if not voice_ok or not os.path.exists(voice_wav):
-        log.warning("All TTS failed — using silence")
-        estimated_s = max(60, word_count * 60 // 140)  # 140 wpm
-        _generate_silent_wav(voice_wav, duration_s=estimated_s)
+        # Outro
+        outro_wav  = str(audio_dir / f"seg_outro_{date_tag}.wav")
+        outro_text = (
+            "Thank you for watching GetMindFuelNow. "
+            "Subscribe for your daily cosmic guidance. "
+            "Drop your zodiac sign in the comments!"
+        )
+        _tts_padded(outro_text, outro_wav, outro_s)
+        seg_paths.append(outro_wav)
 
-    # Get actual voice duration
-    voice_duration = _get_audio_duration(voice_wav)
-    log.info(f"Voice duration: {voice_duration}s")
+        # Concatenate all segments into one master WAV
+        voice_wav = str(audio_dir / f"voice_{date_tag}.wav")
+        voice_wav = _concat_audio_files(seg_paths, voice_wav)
+        voice_duration = _get_audio_duration(voice_wav)
+        log.info(f"Per-sign audio: {len(seg_paths)} segments → {voice_duration}s")
 
-    # ── Generate ambient music ────────────────────────────────────────────────
+    else:
+        # ── Single full-script TTS (weekly / monthly / yearly) ───────────────
+        voice_mp3 = str(audio_dir / f"voice_{date_tag}.mp3")
+        voice_wav = str(audio_dir / f"voice_{date_tag}.wav")
+
+        voice_ok = _edge_tts_voiceover(full_script, voice_mp3)
+        if voice_ok:
+            conv = subprocess.run(
+                ["ffmpeg", "-y", "-i", voice_mp3,
+                 "-ar", "44100", "-ac", "2", "-acodec", "pcm_s16le", voice_wav],
+                capture_output=True, timeout=60,
+            )
+            if conv.returncode != 0 or not os.path.exists(voice_wav):
+                voice_wav = voice_mp3
+
+        if not voice_ok or not os.path.exists(voice_wav):
+            log.warning("edge-tts failed — trying espeak-ng fallback")
+            voice_ok = _espeak_voiceover(full_script, voice_wav)
+
+        if not voice_ok or not os.path.exists(voice_wav):
+            log.warning("All TTS failed — using silence")
+            estimated_s = max(60, word_count * 60 // 140)
+            _generate_silent_wav(voice_wav, duration_s=estimated_s)
+
+        voice_duration = _get_audio_duration(voice_wav)
+        log.info(f"Voice duration: {voice_duration}s")
+
+    # ── Ambient music + mix (same for all types) ──────────────────────────────
     music_ok = _generate_ambient_music(voice_duration + 5, music_wav)
-
-    # ── Mix voice + music ─────────────────────────────────────────────────────
     if music_ok and os.path.exists(music_wav):
         final_audio = _mix_voice_and_music(voice_wav, music_wav, mixed_wav, voice_duration)
     else:
         log.info("Skipping music mix — voice only")
         final_audio = voice_wav
 
-    log.info(f"Audio stage: {_elapsed(t0)}, output: {final_audio}")
+    log.info(f"Audio stage: {_elapsed(t0)}, output: {final_audio}, duration: {voice_duration}s")
     return final_audio, voice_duration
 
 
@@ -1174,7 +1274,8 @@ def run_horoscope_pipeline(
     word_count = len(full_script.split())
     try:
         mixed_audio, audio_duration = _stage_audio(
-            full_script, audio_dir, date_tag, word_count
+            readings, full_script, audio_dir, date_tag,
+            primary_type, date, word_count,
         )
         report["stages"]["audio"] = {"ok": True, "path": mixed_audio,
                                       "duration_s": audio_duration}

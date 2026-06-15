@@ -24,9 +24,9 @@ VIDEO_TYPES: dict[str, dict[str, Any]] = {
     "daily": {
         "schedule": "every_day",
         "title_format": "Daily Horoscope {month} {day}, {year} — All 12 Signs ✨",
-        "duration_per_sign": 60,       # seconds of video per sign
-        "intro_duration": 30,          # seconds for opening segment
-        "outro_duration": 30,          # seconds for closing segment
+        "duration_per_sign": 28,       # seconds of video per sign  (12×28=336)
+        "intro_duration": 12,          # seconds for opening segment
+        "outro_duration": 12,          # seconds for closing segment  total=360s=6min
         "upload_time": "19:00",        # UTC
         "privacy_status": "public",
         "category_id": "22",           # People & Blogs
@@ -48,7 +48,7 @@ VIDEO_TYPES: dict[str, dict[str, Any]] = {
             "astrology today", "daily cosmic guidance",
             "GetMindFuelNow", "horoscope", "astrology", "zodiac",
         ],
-        "target_total_duration": 30 + 60 * 12 + 30,  # intro + 12×60s + outro = 780s
+        "target_total_duration": 12 + 28 * 12 + 12,  # intro + 12×28s + outro = 360s = 6 min
     },
 
     "weekly": {
