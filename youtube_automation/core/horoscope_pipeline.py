@@ -1234,27 +1234,23 @@ def run_horoscope_pipeline(
         report["output_files"]["youtube_url"] = upload_result["url"]
         parent_url = upload_result["url"]
 
-    # Stage 7: Shorts — generate one vertical Short per zodiac sign
+    # Stage 7: Combined Short — one vertical video, all 12 signs, ≤ 2 minutes
     # Only runs for daily videos; enabled via SHORTS_ENABLED in .env
     try:
         import config as _cfg
         if _cfg.SHORTS_ENABLED and primary_type == "daily":
-            _div("STAGE 7 — YOUTUBE SHORTS")
-            from core.shorts_renderer import generate_all_shorts
-            shorts_results = generate_all_shorts(
+            _div("STAGE 7 — COMBINED SHORT (ALL 12 SIGNS)")
+            from core.shorts_renderer import generate_combined_short
+            short_result = generate_combined_short(
                 readings=readings,
                 date=date,
                 out_dir=out_base,
                 upload=upload,
                 parent_url=parent_url,
-                max_uploads=_cfg.MAX_SHORTS_PER_DAY,
             )
-            report["stages"]["shorts"] = {
-                "ok": True,
-                "generated": sum(1 for r in shorts_results if r.get("ok")),
-                "uploaded":  sum(1 for r in shorts_results if r.get("url")),
-                "results":   shorts_results,
-            }
+            report["stages"]["shorts"] = short_result
+            if short_result.get("url"):
+                report["output_files"]["shorts_url"] = short_result["url"]
         else:
             log.info("Shorts skipped (disabled or non-daily type)")
     except Exception as e:

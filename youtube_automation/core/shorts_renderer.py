@@ -1,20 +1,18 @@
 """
 core/shorts_renderer.py
-Generate and upload 12 per-sign YouTube Shorts from a daily horoscope run.
+One YouTube Short covering all 12 zodiac signs — under 2 minutes.
 
-Each Short:
-  - 1080×1920 vertical format (9:16)
-  - 45–58 seconds  (YouTube Shorts ≤ 60 s)
-  - One zodiac sign's reading (first ~90 words + CTA)
-  - AI-generated vertical background via Pollinations.ai (free, no key)
-  - Title: ♈ Aries Daily Horoscope — June 15, 2026 #Shorts
+Structure:
+  Intro  (3-4 s)  "All 12 Signs Daily Horoscope — {date}"
+  × 12 signs      sign glyph + name + first 15 words (~7-8 s each)
+  Outro  (4-5 s)  Subscribe CTA
 
-Quota note:
-  Each YouTube upload costs ~1600 quota units.  The free daily quota is
-  10,000 units.  With the main video (~1600) that leaves room for
-  MAX_SHORTS_PER_DAY (default 4) before the limit.  To upload all 12,
-  request a quota increase at:
-  https://support.google.com/youtube/contact/yt_api_form
+Total: ~100-115 seconds  (YouTube Shorts supports up to 3 minutes)
+Format: 1080×1920 vertical (9:16)
+Cost: 1 upload  = ~1600 quota units  (vs 12 uploads for per-sign approach)
+
+AI background downloaded ONCE from Pollinations.ai (free, no key needed)
+and reused across all segments — each sign gets element-coloured accents.
 """
 
 from __future__ import annotations
@@ -34,6 +32,8 @@ HERE = Path(__file__).parent.parent
 sys.path.insert(0, str(HERE))
 
 log = logging.getLogger(__name__)
+
+W, H = 1080, 1920  # portrait Short dimensions
 
 ZODIAC_GLYPHS = {
     "Aries": "♈", "Taurus": "♉", "Gemini": "♊", "Cancer": "♋",
@@ -92,7 +92,7 @@ def _load_font(size: int, bold: bool = False):
     return ImageFont.load_default()
 
 
-def _draw_centered(draw, text: str, y: int, font, color: tuple, W: int) -> None:
+def _draw_centered(draw, text: str, y: int, font, color: tuple) -> None:
     try:
         bbox = draw.textbbox((0, 0), text, font=font)
         tw = bbox[2] - bbox[0]
@@ -102,11 +102,11 @@ def _draw_centered(draw, text: str, y: int, font, color: tuple, W: int) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Background generation
+# Background — downloaded once, shared across all frames
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _make_vertical_gradient(W: int, H: int, element: str, seed: int = 0):
-    """1080×1920 cosmic gradient + starfield fallback background."""
+def _make_gradient_bg(element: str = "cosmic", seed: int = 0):
+    """Fallback 1080×1920 gradient + starfield."""
     from PIL import Image, ImageDraw
     import random as _rnd
 
@@ -116,7 +116,6 @@ def _make_vertical_gradient(W: int, H: int, element: str, seed: int = 0):
 
     img = Image.new("RGB", (W, H))
     draw = ImageDraw.Draw(img)
-
     for y in range(H):
         ratio = y / H
         r = int(top_c[0] + ratio * (bot_c[0] - top_c[0]))
@@ -127,10 +126,10 @@ def _make_vertical_gradient(W: int, H: int, element: str, seed: int = 0):
     from PIL import Image as _I, ImageDraw as _ID
     for radius, alpha in [(480, 14), (290, 24), (170, 38)]:
         ov = _I.new("RGBA", (W, H), (0, 0, 0, 0))
-        ovd = _ID.Draw(ov)
-        cx, cy = W // 2, H // 3
-        ovd.ellipse([(cx - radius, cy - radius), (cx + radius, cy + radius)],
-                    fill=(*glow_c, alpha))
+        _ID.Draw(ov).ellipse(
+            [(W // 2 - radius, H // 3 - radius), (W // 2 + radius, H // 3 + radius)],
+            fill=(*glow_c, alpha),
+        )
         img = _I.alpha_composite(img.convert("RGBA"), ov).convert("RGB")
 
     draw = ImageDraw.Draw(img)
@@ -144,162 +143,180 @@ def _make_vertical_gradient(W: int, H: int, element: str, seed: int = 0):
     return img
 
 
-def _download_ai_vertical_bg(prompt: str, out_path: str, seed: int) -> bool:
-    """Download 1080×1920 portrait AI background from Pollinations.ai (free)."""
+def _get_shared_bg(shorts_dir: Path, date: datetime.date):
+    """
+    Download ONE 1080×1920 AI background (or use gradient fallback).
+    Returns a PIL Image ready to be .copy()'d for each frame.
+    """
+    from PIL import Image
     import urllib.request, urllib.parse
+
+    prompt = _AI_PROMPTS[date.toordinal() % len(_AI_PROMPTS)]
+    seed   = (date.toordinal() * 7) % 99999
+    ai_path = str(shorts_dir / "shared_bg.jpg")
+
     try:
         encoded = urllib.parse.quote(prompt)
         url = (
             f"https://image.pollinations.ai/prompt/{encoded}"
             f"?width=1080&height=1920&nologo=true&seed={seed}&model=flux"
         )
-        log.info(f"AI portrait bg (seed={seed}): {prompt[:55]}...")
+        log.info(f"Downloading shared AI background (seed={seed})…")
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=90) as resp:
-            with open(out_path, "wb") as f:
+            with open(ai_path, "wb") as f:
                 f.write(resp.read())
-        ok = os.path.exists(out_path) and os.path.getsize(out_path) > 5_000
-        if ok:
-            log.info(f"AI bg: {os.path.getsize(out_path) // 1024}KB")
-        return ok
+        if os.path.exists(ai_path) and os.path.getsize(ai_path) > 5_000:
+            log.info(f"AI bg: {os.path.getsize(ai_path) // 1024}KB")
+            return Image.open(ai_path).convert("RGB").resize((W, H), Image.LANCZOS)
     except Exception as e:
-        log.warning(f"AI portrait bg failed: {e}")
-        return False
+        log.warning(f"AI bg download failed ({e}), using gradient fallback")
+
+    return _make_gradient_bg(seed=seed % 10000)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Frame renderer
+# Frame renderers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _render_short_frame(reading: dict, out_path: str,
-                        date: datetime.date, seed: int) -> None:
-    """
-    Render a stunning 1080×1920 portrait frame for one sign's Short.
-
-    Layout (top → bottom):
-      28   — channel name
-      85   — date
-      220  — large zodiac glyph  (260px font)
-      530  — sign name  (110px bold)
-      658  — "DAILY HOROSCOPE • #Shorts"
-      718  — sign date range
-      790+ — reading preview box  (first 80 words, max 7 lines)
-      below box — lucky info bar
-      H-210 — Subscribe CTA
-    """
+def _apply_dark_overlay(img, strength: int = 140):
+    """Add uniform dark overlay for text contrast."""
     from PIL import Image, ImageDraw
-    W, H = 1080, 1920
+    ov = Image.new("RGBA", (W, H), (4, 2, 18, strength))
+    return Image.alpha_composite(img.convert("RGBA"), ov).convert("RGB")
 
-    sign          = reading.get("sign", "")
-    symbol        = reading.get("symbol", "★")
-    element       = reading.get("element", "cosmic")
-    dates_str     = reading.get("dates", "")
-    lucky_numbers = reading.get("lucky_numbers", [])
+
+def _render_intro_frame(out_path: str, date: datetime.date, bg) -> None:
+    from PIL import Image, ImageDraw
+    img  = _apply_dark_overlay(bg.copy(), 160)
+    draw = ImageDraw.Draw(img)
+
+    draw.rectangle([(0, 0),    (W, 8)], fill=(140, 60, 255))
+    draw.rectangle([(0, H - 8),(W, H)], fill=(140, 60, 255))
+
+    _draw_centered(draw, "GetMindFuelNow",          60,  _load_font(46),         (160, 130, 220))
+    _draw_centered(draw, "✨",                       240, _load_font(200),        (255, 215, 60))
+    _draw_centered(draw, "DAILY HOROSCOPE",          520, _load_font(100, True),  (255, 215, 55))
+    _draw_centered(draw, "ALL 12 ZODIAC SIGNS",      650, _load_font(68, True),   (215, 175, 255))
+    _draw_centered(draw, date.strftime("%B %d, %Y"), 745, _load_font(52),         (190, 155, 255))
+    _draw_centered(draw, "♈ ♉ ♊ ♋ ♌ ♍ ♎ ♏ ♐ ♑ ♒ ♓",
+                   880, _load_font(54), (200, 170, 255))
+
+    # CTA box
+    from PIL import Image as _I, ImageDraw as _ID
+    box_ov = _I.new("RGBA", (W, H), (0, 0, 0, 0))
+    _ID.Draw(box_ov).rounded_rectangle(
+        [(80, 1050), (W - 80, 1170)], radius=22,
+        fill=(35, 5, 80, 200), outline=(160, 80, 255, 210), width=3,
+    )
+    img = _I.alpha_composite(img.convert("RGBA"), box_ov).convert("RGB")
+    draw = ImageDraw.Draw(img)
+    _draw_centered(draw, "🔔 Subscribe for Daily Readings", 1070, _load_font(52, True), (255, 215, 55))
+
+    img.save(out_path, "PNG")
+
+
+def _render_sign_frame(reading: dict, out_path: str,
+                       date: datetime.date, bg) -> None:
+    from PIL import Image, ImageDraw
+
+    sign      = reading.get("sign", "")
+    symbol    = reading.get("symbol", "★")
+    element   = reading.get("element", "cosmic")
+    dates_str = reading.get("dates", "")
     lucky_color   = reading.get("lucky_color", "")
     lucky_day     = reading.get("lucky_day", "")
     script_text   = reading.get("script_text", "")
 
     colors = ELEMENT_COLORS.get(element, ELEMENT_COLORS["cosmic"])
     glow_c = colors["glow"]
-    accent = tuple(min(255, c + 80) for c in glow_c)
+    accent = tuple(min(255, c + 90) for c in glow_c)
 
-    # Background: AI portrait or cosmic gradient fallback
-    prompt  = _AI_PROMPTS[date.toordinal() % len(_AI_PROMPTS)]
-    ai_path = out_path.replace(".png", "_ai.jpg")
-    ai_ok   = _download_ai_vertical_bg(prompt, ai_path, seed)
-
-    if ai_ok:
-        try:
-            img = Image.open(ai_path).convert("RGB").resize((W, H), Image.LANCZOS)
-        except Exception:
-            ai_ok = False
-
-    if not ai_ok:
-        img = _make_vertical_gradient(W, H, element, seed=seed % 10000)
-
-    # Dark overlays for text readability
-    overlay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    ov = ImageDraw.Draw(overlay)
-    for y in range(230):                         # top fade
-        alpha = int(215 * (1 - y / 230))
-        ov.rectangle([(0, y), (W, y + 1)], fill=(4, 2, 18, alpha))
-    for y in range(360, 1480):                   # content area semi-dark
-        ov.rectangle([(0, y), (W, y + 1)], fill=(4, 2, 18, 140))
-    for y in range(1480, H):                     # bottom fade
-        alpha = int(210 * ((y - 1480) / (H - 1480)))
-        ov.rectangle([(0, y), (W, y + 1)], fill=(4, 2, 18, alpha))
-    img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
+    # Tint background with element glow
+    from PIL import Image as _I, ImageDraw as _ID
+    tint_ov = _I.new("RGBA", (W, H), (0, 0, 0, 0))
+    _ID.Draw(tint_ov).rectangle([(0, 0), (W, H)], fill=(*glow_c, 25))
+    img = _I.alpha_composite(bg.copy().convert("RGBA"), tint_ov)
+    img = _apply_dark_overlay(img, 130)
     draw = ImageDraw.Draw(img)
 
-    # Accent stripes
-    draw.rectangle([(0, 0), (W, 7)], fill=(140, 60, 255))
-    draw.rectangle([(0, H - 7), (W, H)], fill=(140, 60, 255))
+    # Element-coloured accent stripes
+    draw.rectangle([(0, 0),    (W, 10)], fill=(*glow_c,))
+    draw.rectangle([(0, H - 10),(W, H)], fill=(*glow_c,))
 
-    # ── Header ───────────────────────────────────────────────────────────────
-    f_sm   = _load_font(44)
-    f_date = _load_font(40, bold=True)
-    _draw_centered(draw, "GetMindFuelNow", 28,  f_sm,   (160, 130, 220), W)
-    _draw_centered(draw, date.strftime("%B %d, %Y"), 85, f_date, (215, 175, 255), W)
+    # Header
+    _draw_centered(draw, "GetMindFuelNow",          22,  _load_font(40),         (160, 130, 220))
+    _draw_centered(draw, date.strftime("%B %d, %Y"),75,  _load_font(36, True),   (215, 175, 255))
 
-    # ── Zodiac glyph + sign name ─────────────────────────────────────────────
-    f_glyph = _load_font(260, bold=True)
-    f_sign  = _load_font(110, bold=True)
-    f_sub   = _load_font(44)
-    f_dates = _load_font(38)
+    # Giant zodiac glyph
+    _draw_centered(draw, symbol,      200, _load_font(290, True), accent)
 
-    _draw_centered(draw, symbol, 220, f_glyph, accent,          W)
-    _draw_centered(draw, sign.upper(), 530, f_sign, (255, 255, 255), W)
-    _draw_centered(draw, "DAILY HOROSCOPE  •  #Shorts", 658, f_sub, (215, 175, 255), W)
-    _draw_centered(draw, dates_str, 718, f_dates, (*accent,),   W)
+    # Sign name + metadata
+    _draw_centered(draw, sign.upper(), 560, _load_font(118, True), (255, 255, 255))
+    _draw_centered(draw, dates_str,    690, _load_font(40),         (*accent,))
 
-    # ── Reading preview box ───────────────────────────────────────────────────
+    # Reading preview (first 20 words → ~3 lines)
     words   = script_text.split()
-    preview = " ".join(words[:80]) + ("..." if len(words) > 80 else "")
-    wrapped = textwrap.wrap(preview, width=32)[:7]  # max 7 lines
+    preview = " ".join(words[:20]) + ("..." if len(words) > 20 else "")
+    wrapped = textwrap.wrap(preview, width=26)[:3]
 
-    f_reading = _load_font(44)
-    f_quote   = _load_font(65)
+    f_read = _load_font(52)
+    box_y1 = 780
+    line_h = 66
+    box_y2 = box_y1 + len(wrapped) * line_h + 28
+    bx1, bx2 = 55, W - 55
 
-    box_y1 = 790
-    line_h = 58
-    box_y2 = box_y1 + len(wrapped) * line_h + 30
-    bx1, bx2 = 50, W - 50
-
-    box_ov = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    bov = ImageDraw.Draw(box_ov)
-    bov.rounded_rectangle(
-        [(bx1, box_y1), (bx2, box_y2)],
-        radius=22, fill=(10, 5, 40, 160), outline=(*glow_c, 190), width=3,
+    box_ov = _I.new("RGBA", (W, H), (0, 0, 0, 0))
+    _ID.Draw(box_ov).rounded_rectangle(
+        [(bx1, box_y1), (bx2, box_y2)], radius=22,
+        fill=(10, 5, 40, 165), outline=(*glow_c, 195), width=3,
     )
-    img = Image.alpha_composite(img.convert("RGBA"), box_ov).convert("RGB")
+    img = _I.alpha_composite(img.convert("RGBA"), box_ov).convert("RGB")
     draw = ImageDraw.Draw(img)
-
-    draw.text((bx1 + 28, box_y1 + 5),   "“", font=f_quote, fill=(*accent,))
-    draw.text((bx2 - 72, box_y2 - 62),  "”", font=f_quote, fill=(*accent,))
 
     for li, line in enumerate(wrapped):
         try:
-            bbox = draw.textbbox((0, 0), line, font=f_reading)
+            bbox = draw.textbbox((0, 0), line, font=f_read)
             lx = (W - (bbox[2] - bbox[0])) // 2
         except Exception:
             lx = bx1 + 40
-        draw.text((lx, box_y1 + 52 + li * line_h), line,
-                  font=f_reading, fill=(230, 220, 255))
+        draw.text((lx, box_y1 + 18 + li * line_h), line,
+                  font=f_read, fill=(230, 220, 255))
 
-    # ── Lucky info ────────────────────────────────────────────────────────────
-    lucky_nums = ", ".join(str(n) for n in lucky_numbers[:3]) if lucky_numbers else "—"
-    lucky_line = f"✦ Lucky: {lucky_nums}  •  {lucky_color}  •  {lucky_day} ✦"
-    _draw_centered(draw, lucky_line, box_y2 + 38, _load_font(38), (*accent,), W)
+    # Lucky line
+    lucky_line = f"✦ {lucky_color}  •  {lucky_day} ✦"
+    _draw_centered(draw, lucky_line, box_y2 + 36, _load_font(40), (*accent,))
 
-    # ── Subscribe CTA ─────────────────────────────────────────────────────────
-    cta_y = H - 215
+    # CTA (bottom)
+    cta_y = H - 205
     _draw_centered(draw, "🔔 Subscribe for Daily Readings",
-                   cta_y,      _load_font(52, bold=True), (255, 215, 55), W)
-    _draw_centered(draw, "Drop your zodiac sign in the comments!",
-                   cta_y + 70, _load_font(40),            (190, 155, 255), W)
+                   cta_y,      _load_font(50, True), (255, 215, 55))
+    _draw_centered(draw, "GetMindFuelNow",
+                   cta_y + 68, _load_font(42),       (190, 155, 255))
 
     img.save(out_path, "PNG")
-    log.info(f"Short frame: {out_path}")
+
+
+def _render_outro_frame(out_path: str, bg) -> None:
+    from PIL import Image, ImageDraw
+    img  = _apply_dark_overlay(bg.copy(), 165)
+    draw = ImageDraw.Draw(img)
+
+    draw.rectangle([(0, 0),    (W, 8)], fill=(140, 60, 255))
+    draw.rectangle([(0, H - 8),(W, H)], fill=(140, 60, 255))
+
+    _draw_centered(draw, "✨",                              220, _load_font(160),        (255, 215, 60))
+    _draw_centered(draw, "GetMindFuelNow",                  470, _load_font(90, True),   (255, 215, 55))
+    _draw_centered(draw, "SUBSCRIBE",                       590, _load_font(110, True),  (220, 180, 255))
+    _draw_centered(draw, "for Daily Horoscopes",            720, _load_font(58),         (190, 155, 255))
+    _draw_centered(draw, "New reading every day  •  All 12 signs",
+                   820, _load_font(44),         (160, 130, 210))
+    _draw_centered(draw, "Drop your sign in the comments!",
+                   900, _load_font(46),         (200, 170, 240))
+    _draw_centered(draw, "♈ ♉ ♊ ♋ ♌ ♍ ♎ ♏ ♐ ♑ ♒ ♓",
+                   1000, _load_font(60),        (200, 170, 255))
+
+    img.save(out_path, "PNG")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -312,43 +329,34 @@ async def _async_tts(text: str, out_path: str) -> None:
     await comm.save(out_path)
 
 
-def _tts_for_sign(script_text: str, out_path: str, sign: str) -> tuple[str, int]:
-    """
-    Generate TTS for one sign's Short (~45–55 s).
-    First 90 words + brief CTA.  Returns (audio_path, duration_s).
-    """
-    words = script_text.split()
-    preview = " ".join(words[:90])
-    full_text = (
-        f"Here is your {sign} daily horoscope. {preview} "
-        "Subscribe to GetMindFuelNow for your daily cosmic guidance."
-    )
+def _tts(text: str, out_path: str) -> int:
+    """Generate TTS, return duration in seconds. Falls back to silence."""
     try:
-        asyncio.run(_async_tts(full_text, out_path))
-        if os.path.exists(out_path) and os.path.getsize(out_path) > 1000:
-            return out_path, _get_audio_duration(out_path)
+        asyncio.run(_async_tts(text, out_path))
+        if os.path.exists(out_path) and os.path.getsize(out_path) > 500:
+            return _audio_duration(out_path)
     except Exception as e:
-        log.warning(f"edge-tts Short failed ({sign}): {e}")
+        log.warning(f"TTS failed: {e}")
+    # Fallback: estimate ~2 words/sec
+    words = len(text.split())
+    dur   = max(3, words // 2)
+    _silent_wav(out_path.replace(".mp3", "_sil.wav"), dur)
+    return dur
 
-    # Fallback: 50-second silence so video still generates
-    silent = out_path.replace(".mp3", "_silent.wav")
-    _generate_silent_wav(silent, 50)
-    return silent, 50
 
-
-def _get_audio_duration(path: str) -> int:
+def _audio_duration(path: str) -> int:
     try:
-        result = subprocess.run(
+        r = subprocess.run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", path],
             capture_output=True, text=True, timeout=30,
         )
-        return max(10, int(float(result.stdout.strip())))
+        return max(2, int(float(r.stdout.strip())))
     except Exception:
-        return 50
+        return 5
 
 
-def _generate_silent_wav(path: str, duration_s: int = 50) -> None:
+def _silent_wav(path: str, duration_s: int) -> None:
     subprocess.run([
         "ffmpeg", "-y", "-f", "lavfi",
         "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
@@ -357,74 +365,90 @@ def _generate_silent_wav(path: str, duration_s: int = 50) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Video builder
+# Video segment builder + concatenator
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _build_short_video(frame_path: str, audio_path: str,
-                       out_path: str, duration: int) -> bool:
-    """Combine portrait frame + audio into a vertical mp4 Short (≤59 s)."""
-    fade = 0.4
-    fade_out_start = max(0.5, duration - fade)
-    max_dur = min(duration + 1, 59)          # Shorts hard cap
-
+def _build_segment(frame_path: str, audio_path: str,
+                   out_path: str, duration: int) -> bool:
+    """One frame + one audio clip → one mp4 segment."""
+    fade = 0.3
     cmd = [
         "ffmpeg", "-y",
         "-loop", "1", "-i", frame_path,
         "-i", audio_path,
-        "-c:v", "libx264",
-        "-c:a", "aac", "-b:a", "128k",
-        "-t", str(max_dur),
+        "-c:v", "libx264", "-c:a", "aac", "-b:a", "128k",
+        "-t", str(duration + 0.3),
         "-pix_fmt", "yuv420p",
         "-vf", (
-            f"scale=1080:1920:force_original_aspect_ratio=decrease,"
-            f"pad=1080:1920:(ow-iw)/2:(oh-ih)/2,"
-            f"fade=t=in:st=0:d={fade},"
-            f"fade=t=out:st={fade_out_start}:d={fade}"
+            f"scale={W}:{H}:force_original_aspect_ratio=decrease,"
+            f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2,"
+            f"fade=t=in:st=0:d={fade}"
         ),
-        "-r", "30",                          # Shorts work best at 30 fps
+        "-r", "30",
         "-preset", "ultrafast",
         "-crf", "26",
         "-shortest",
         out_path,
     ]
-    result = subprocess.run(cmd, capture_output=True, timeout=300)
-    if result.returncode == 0 and os.path.exists(out_path):
-        log.info(f"Short mp4: {out_path} ({os.path.getsize(out_path) // 1024}KB)")
-        return True
-    log.warning(f"Short build failed: {result.stderr.decode()[-300:]}")
-    return False
+    r = subprocess.run(cmd, capture_output=True, timeout=120)
+    ok = r.returncode == 0 and os.path.exists(out_path)
+    if not ok:
+        log.warning(f"Segment build failed: {r.stderr.decode()[-200:]}")
+    return ok
+
+
+def _concat_segments(segment_paths: list[str], out_path: str) -> bool:
+    """Concatenate mp4 segments using ffmpeg concat demuxer."""
+    txt = out_path.replace(".mp4", "_concat.txt")
+    with open(txt, "w") as f:
+        for seg in segment_paths:
+            f.write(f"file '{seg}'\n")
+    cmd = [
+        "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+        "-i", txt, "-c", "copy", out_path,
+    ]
+    r = subprocess.run(cmd, capture_output=True, timeout=300)
+    ok = r.returncode == 0 and os.path.exists(out_path)
+    if ok:
+        size_mb = os.path.getsize(out_path) / 1_048_576
+        log.info(f"Combined Short: {out_path} ({size_mb:.1f} MB)")
+    else:
+        log.warning(f"Concat failed: {r.stderr.decode()[-300:]}")
+    return ok
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Uploader
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _upload_short(video_path: str, reading: dict,
-                  date: datetime.date, parent_url: str = "") -> str:
-    """Upload one Short to YouTube. Returns video URL or ''."""
-    sign   = reading.get("sign", "")
-    symbol = reading.get("symbol", ZODIAC_GLYPHS.get(sign, "★"))
-    glyph  = ZODIAC_GLYPHS.get(sign, symbol)
-
-    title = f"{glyph} {sign} Daily Horoscope — {date.strftime('%B %d, %Y')} #Shorts"[:100]
+def _upload_combined_short(video_path: str, date: datetime.date,
+                           parent_url: str = "") -> str:
+    """Upload the combined Short. Returns YouTube URL or ''."""
+    title = (
+        f"Daily Horoscope ALL 12 Signs — {date.strftime('%B %d, %Y')} #Shorts"
+    )[:100]
 
     desc_parts = [
-        f"Your complete {sign} horoscope for {date.strftime('%B %d, %Y')}.",
+        f"All 12 zodiac sign readings for {date.strftime('%B %d, %Y')} in under 2 minutes!",
         "",
-        "🌙 GetMindFuelNow — Daily cosmic guidance for all 12 zodiac signs.",
+        "♈ Aries  ♉ Taurus  ♊ Gemini  ♋ Cancer",
+        "♌ Leo  ♍ Virgo  ♎ Libra  ♏ Scorpio",
+        "♐ Sagittarius  ♑ Capricorn  ♒ Aquarius  ♓ Pisces",
+        "",
+        "🌙 GetMindFuelNow — Full daily readings for every sign, every day.",
     ]
     if parent_url:
-        desc_parts += ["", f"Full reading for ALL 12 signs: {parent_url}"]
+        desc_parts += ["", f"Full extended reading: {parent_url}"]
     desc_parts += [
         "",
         "✨ Subscribe: https://www.youtube.com/@GetMindFuelNow",
-        "🔔 Hit the bell so you never miss a reading!",
+        "🔔 Hit the bell so you never miss a daily reading!",
         "",
-        f"#{sign} #horoscope #dailyhoroscope #astrology #zodiac #Shorts #GetMindFuelNow",
+        "#Shorts #horoscope #dailyhoroscope #astrology #zodiac #allsigns #GetMindFuelNow",
     ]
 
-    raw_tags = [sign, "horoscope", "daily horoscope", "astrology",
-                "zodiac", "Shorts", "GetMindFuelNow", "cosmic"]
+    raw_tags = ["horoscope", "daily horoscope", "all 12 signs", "astrology",
+                "zodiac", "Shorts", "GetMindFuelNow", "zodiac signs", "cosmic"]
     tags, total = [], 0
     for tag in raw_tags:
         tag = re.sub(r"[^\w\s\-]", "", tag, flags=re.UNICODE).strip()
@@ -449,10 +473,10 @@ def _upload_short(video_path: str, reading: dict,
     try:
         from youtube_uploader import upload_video
         url = upload_video(video_path, metadata)
-        log.info(f"Short uploaded: {sign} → {url}")
+        log.info(f"Combined Short uploaded → {url}")
         return str(url)
     except Exception as e:
-        log.warning(f"Short upload failed ({sign}): {e}")
+        log.warning(f"Combined Short upload failed: {e}")
         return ""
 
 
@@ -460,89 +484,129 @@ def _upload_short(video_path: str, reading: dict,
 # Main entry point
 # ─────────────────────────────────────────────────────────────────────────────
 
-def generate_all_shorts(
+def generate_combined_short(
     readings: list[dict],
     date: datetime.date,
     out_dir: Path,
     upload: bool = True,
     parent_url: str = "",
-    max_uploads: int = 4,
-) -> list[dict]:
+) -> dict:
     """
-    Generate (and optionally upload) one Short per zodiac sign.
+    Generate ONE YouTube Short covering all 12 zodiac signs (≤ 2 minutes).
 
-    Args:
-        readings:    list of reading dicts from content_engine (all 12 signs)
-        date:        video date
-        out_dir:     base output dir (e.g. output/horoscope_2026-06-15_daily/)
-        upload:      whether to push to YouTube
-        parent_url:  YouTube URL of the main full-length video (linked in description)
-        max_uploads: how many Shorts to actually upload per run (quota guard)
+    Steps:
+      1. Download AI portrait background once  (shared across all frames)
+      2. Render intro frame + 12 sign frames + outro frame
+      3. Generate TTS audio for intro + each sign + outro
+      4. Build 14 video segments then concatenate into one mp4
+      5. Upload as a single Short
 
-    Returns:
-        list of {sign, video_path, url, ok, elapsed} dicts
+    Returns: {ok, video_path, url, duration_s, elapsed}
     """
+    t_start  = time.time()
     shorts_dir = out_dir / "shorts"
     shorts_dir.mkdir(parents=True, exist_ok=True)
 
-    results       = []
-    uploads_done  = 0
+    log.info("Combined Short: starting…")
 
-    log.info(f"Shorts: generating {len(readings)} signs (upload={upload}, max={max_uploads})")
+    # ── 1. Shared AI background ───────────────────────────────────────────────
+    bg = _get_shared_bg(shorts_dir, date)
 
-    for reading in readings:
-        sign = reading.get("sign", "unknown")
-        t0   = time.time()
-        log.info(f"Short [{sign}] starting…")
+    segments: list[str] = []
 
-        frame_path = str(shorts_dir / f"frame_{sign.lower()}.png")
-        audio_path = str(shorts_dir / f"audio_{sign.lower()}.mp3")
-        video_path = str(shorts_dir / f"short_{sign.lower()}_{date.isoformat()}.mp4")
-        seed       = (date.toordinal() * 13 + abs(hash(sign))) % 99999
+    # ── 2. Intro ──────────────────────────────────────────────────────────────
+    intro_frame = str(shorts_dir / "comb_intro.png")
+    intro_audio = str(shorts_dir / "comb_intro.mp3")
+    intro_video = str(shorts_dir / "comb_intro.mp4")
 
-        # 1. Vertical frame
+    try:
+        _render_intro_frame(intro_frame, date, bg)
+    except Exception as e:
+        log.warning(f"Intro frame error: {e}")
+
+    intro_text = (
+        f"Daily horoscope for all 12 zodiac signs. "
+        f"{date.strftime('%B %d, %Y')}. "
+        "Let's see what the stars have for each sign."
+    )
+    intro_dur = _tts(intro_text, intro_audio)
+
+    if os.path.exists(intro_frame) and _build_segment(intro_frame, intro_audio, intro_video, intro_dur):
+        segments.append(intro_video)
+    log.info(f"Intro: {intro_dur}s")
+
+    # ── 3. One segment per sign ───────────────────────────────────────────────
+    for i, reading in enumerate(readings):
+        sign    = reading.get("sign", f"sign{i}")
+        words   = reading.get("script_text", "").split()
+        preview = " ".join(words[:20])                 # ~8-10 s of speech
+
+        frame_path = str(shorts_dir / f"comb_frame_{sign.lower()}.png")
+        audio_path = str(shorts_dir / f"comb_audio_{sign.lower()}.mp3")
+        video_path = str(shorts_dir / f"comb_seg_{sign.lower()}.mp4")
+
+        # Frame
         try:
-            _render_short_frame(reading, frame_path, date, seed)
+            _render_sign_frame(reading, frame_path, date, bg)
         except Exception as e:
-            log.warning(f"Short frame failed ({sign}): {e}")
-            results.append({"sign": sign, "ok": False, "error": str(e)})
+            log.warning(f"Sign frame error ({sign}): {e}")
             continue
 
-        # 2. TTS audio (sign-specific excerpt)
-        audio_path, duration = _tts_for_sign(
-            reading.get("script_text", ""), audio_path, sign
-        )
+        # Audio: "{Sign}. {first 20 words}"
+        tts_text = f"{sign}. {preview}."
+        seg_dur  = _tts(tts_text, audio_path)
 
-        # 3. Combine into vertical mp4
-        if not _build_short_video(frame_path, audio_path, video_path, duration):
-            results.append({"sign": sign, "ok": False, "error": "video build failed"})
-            continue
+        if _build_segment(frame_path, audio_path, video_path, seg_dur):
+            segments.append(video_path)
+            log.info(f"  [{i+1:02d}/12] {sign} — {seg_dur}s")
+        else:
+            log.warning(f"  [{i+1:02d}/12] {sign} — segment failed")
 
-        # 4. Upload (quota-gated)
-        url = ""
-        if upload:
-            if uploads_done < max_uploads:
-                url = _upload_short(video_path, reading, date, parent_url)
-                if url:
-                    uploads_done += 1
-                    time.sleep(5)          # brief pause between uploads
-            else:
-                log.info(f"Short [{sign}]: quota cap reached ({max_uploads}), not uploaded")
+    # ── 4. Outro ──────────────────────────────────────────────────────────────
+    outro_frame = str(shorts_dir / "comb_outro.png")
+    outro_audio = str(shorts_dir / "comb_outro.mp3")
+    outro_video = str(shorts_dir / "comb_outro.mp4")
 
-        elapsed = f"{time.time() - t0:.1f}s"
-        results.append({
-            "sign":       sign,
-            "video_path": video_path,
-            "url":        url,
-            "ok":         True,
-            "elapsed":    elapsed,
-        })
-        log.info(
-            f"Short [{sign}] done in {elapsed}"
-            + (f" → {url}" if url else " (local only)")
-        )
+    try:
+        _render_outro_frame(outro_frame, bg)
+    except Exception as e:
+        log.warning(f"Outro frame error: {e}")
 
-    uploaded = sum(1 for r in results if r.get("url"))
-    generated = sum(1 for r in results if r.get("ok"))
-    log.info(f"Shorts complete: {generated}/{len(readings)} generated, {uploaded} uploaded")
-    return results
+    outro_text = (
+        "Subscribe to GetMindFuelNow for your complete daily reading. "
+        "Drop your zodiac sign in the comments!"
+    )
+    outro_dur = _tts(outro_text, outro_audio)
+
+    if os.path.exists(outro_frame) and _build_segment(outro_frame, outro_audio, outro_video, outro_dur):
+        segments.append(outro_video)
+    log.info(f"Outro: {outro_dur}s")
+
+    # ── 5. Concatenate ────────────────────────────────────────────────────────
+    if not segments:
+        log.error("No segments to concatenate — Combined Short failed")
+        return {"ok": False, "error": "no segments"}
+
+    final_path = str(shorts_dir / f"combined_short_{date.isoformat()}.mp4")
+    ok = _concat_segments(segments, final_path)
+
+    if not ok:
+        return {"ok": False, "error": "concat failed"}
+
+    total_dur = _audio_duration(final_path)
+    elapsed   = f"{time.time() - t_start:.1f}s"
+    log.info(f"Combined Short ready: {total_dur}s total, built in {elapsed}")
+
+    # ── 6. Upload ─────────────────────────────────────────────────────────────
+    url = ""
+    if upload:
+        url = _upload_combined_short(final_path, date, parent_url)
+
+    return {
+        "ok":         True,
+        "video_path": final_path,
+        "url":        url,
+        "duration_s": total_dur,
+        "segments":   len(segments),
+        "elapsed":    elapsed,
+    }

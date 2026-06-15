@@ -33,10 +33,6 @@ EIA_BASE_URL = "https://api.eia.gov/v2"
 # Upload schedule — target US EST peak hours (3 PM EST = good initial velocity)
 UPLOAD_TIME = os.getenv("UPLOAD_TIME", "15:00")
 
-# YouTube Shorts — one 45-58s vertical clip per zodiac sign after each daily run
-# Each upload costs ~1600 quota units; free daily quota = 10,000 units.
-# Default max_uploads=4 keeps total (main + 4 shorts) under the limit.
-# Request a free quota increase to upload all 12:
-#   https://support.google.com/youtube/contact/yt_api_form
-SHORTS_ENABLED      = os.getenv("SHORTS_ENABLED", "true").lower() == "true"
-MAX_SHORTS_PER_DAY  = int(os.getenv("MAX_SHORTS_PER_DAY", "4"))
+# YouTube Shorts — one combined Short per day (all 12 signs, ≤ 2 minutes)
+# Costs 1 upload = ~1600 quota units, leaving plenty of daily quota headroom.
+SHORTS_ENABLED = os.getenv("SHORTS_ENABLED", "true").lower() == "true"
