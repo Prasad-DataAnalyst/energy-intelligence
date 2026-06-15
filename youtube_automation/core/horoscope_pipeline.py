@@ -590,8 +590,14 @@ def _stage_video(
     )
 
     intro_dur = get_intro_duration(video_type)
-    sign_dur = get_duration_per_sign(video_type)
     outro_dur = get_outro_duration(video_type)
+    # Calculate sign duration from actual audio so video and audio stay in sync.
+    # Fixed sign_dur ignores how long TTS actually runs, causing audio/video mismatch.
+    if audio_duration > 0 and len(readings) > 0:
+        available = audio_duration - intro_dur - outro_dur
+        sign_dur = max(20, available // len(readings))
+    else:
+        sign_dur = get_duration_per_sign(video_type)
 
     frames_dir = out_dir / "frames"
     frames_dir.mkdir(exist_ok=True)
