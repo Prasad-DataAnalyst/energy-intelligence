@@ -385,14 +385,15 @@ def _generate_silent_wav(path: str, duration_s: int = 60, sample_rate: int = 441
 # ---------------------------------------------------------------------------
 
 def _stage_thumbnail(readings: list[dict], out_dir: Path, video_type: str,
-                     date: datetime.date) -> str:
+                     date: datetime.date, event_name: str = "",
+                     event_type: str = "") -> str:
     _div("STAGE 3 — THUMBNAIL")
     t0 = time.time()
     thumb_path = str(out_dir / f"thumbnail_{date.isoformat()}.png")
 
     try:
         from PIL import Image, ImageDraw, ImageFont
-        _make_thumbnail(readings, thumb_path, video_type, date)
+        _make_thumbnail(readings, thumb_path, video_type, date, event_name, event_type)
         log.info(f"Thumbnail: {thumb_path} ({_elapsed(t0)})")
     except Exception as e:
         log.warning(f"PIL thumbnail failed ({e}) — using ffmpeg fallback")
@@ -436,111 +437,164 @@ def _draw_text_centered(draw, text: str, y: int, font, color: tuple, W: int) -> 
         draw.text((W // 2 - 100, y), text, fill=color)
 
 
+# ---------------------------------------------------------------------------
+# AI thumbnail background prompts — rotated by date for visual variety
+# ---------------------------------------------------------------------------
+
+_AI_BG_PROMPTS = [
+    "stunning purple cosmic nebula stars galaxy glowing mystical spiritual, cinematic 4k, no text no words",
+    "golden celestial light rays cosmos stars divine ethereal background, epic cinematic, no text no words",
+    "deep blue cosmos moon phases planets night sky magical, cinematic 4k, no text no words",
+    "violet mystical energy galaxy stars ethereal spiritual cosmic, 4k photorealistic, no text no words",
+    "cosmic dawn purple gold stars rising divine light ethereal, cinematic, no text no words",
+    "deep space nebula galaxy glowing stars ethereal blue purple, 4k cinematic, no text no words",
+    "emerald cosmic energy stars planets divine light mystical, 4k photorealistic, no text no words",
+    "silver moonlight cosmic stars night sky serene peaceful, cinematic, no text no words",
+    "royal purple cosmic stars divine energy spiritual nebula, 4k, no text no words",
+    "rose gold cosmic stars galaxy mystical ethereal spiritual, cinematic 4k, no text no words",
+    "teal cosmic energy universe stars glowing mystical divine, 4k photorealistic, no text no words",
+    "indigo starfield cosmic rays spiritual energy universe, cinematic, no text no words",
+    "amber cosmic light stars galaxy divine ethereal warm, 4k, no text no words",
+    "crimson cosmic energy stars night mystical dark universe, cinematic, no text no words",
+]
+
+_EVENT_BG_PROMPTS = {
+    "eclipse":    "dramatic solar eclipse golden corona cosmic sky, cinematic 4k, no text no words",
+    "full_moon":  "full moon glowing silver night sky stars mystical purple, cinematic, no text no words",
+    "new_moon":   "dark new moon cosmic sky stars glowing mystical, cinematic 4k, no text no words",
+    "retrograde": "swirling cosmic energy purple stars planetary retrograde, 4k, no text no words",
+    "solstice":   "summer solstice golden light rays cosmic stars spiritual, cinematic, no text no words",
+    "equinox":    "equinox balanced cosmic light stars purple golden ethereal, cinematic, no text no words",
+}
+
+
+def _download_ai_background(prompt: str, out_path: str, seed: int) -> bool:
+    """Download AI-generated background from Pollinations.ai (free, no API key needed)."""
+    import urllib.request
+    import urllib.parse
+    try:
+        encoded = urllib.parse.quote(prompt)
+        url = (
+            f"https://image.pollinations.ai/prompt/{encoded}"
+            f"?width=1280&height=720&nologo=true&seed={seed}&model=flux"
+        )
+        log.info(f"Generating AI thumbnail (seed={seed}, prompt[:60]={prompt[:60]}...)")
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=90) as resp:
+            with open(out_path, "wb") as f:
+                f.write(resp.read())
+        ok = os.path.exists(out_path) and os.path.getsize(out_path) > 5_000
+        if ok:
+            log.info(f"AI background: {os.path.getsize(out_path)//1024}KB")
+        return ok
+    except Exception as e:
+        log.warning(f"AI background download failed: {e}")
+        return False
+
+
 def _make_thumbnail(readings: list[dict], out_path: str, video_type: str,
-                    date: datetime.date) -> None:
-    """Build a 1280×720 zodiac wheel thumbnail."""
+                    date: datetime.date, event_name: str = "",
+                    event_type: str = "") -> None:
+    """
+    Generate a stunning AI-powered 1280×720 thumbnail.
+
+    Background: Pollinations.ai (FLUX model, free, no key) — different image every day.
+    Overlay: professional text layout with dark gradient bands for readability.
+    Falls back to high-quality PIL background if AI download fails.
+    """
     from PIL import Image, ImageDraw
 
     W, H = 1280, 720
-    img = Image.new("RGB", (W, H))
+    ai_bg_path = out_path.replace(".png", "_ai_bg.jpg")
+
+    # Pick prompt: event-specific or date-rotating theme
+    if video_type == "special_event" and event_type in _EVENT_BG_PROMPTS:
+        base_prompt = _EVENT_BG_PROMPTS[event_type]
+    else:
+        base_prompt = _AI_BG_PROMPTS[date.toordinal() % len(_AI_BG_PROMPTS)]
+
+    seed = (date.toordinal() * 7 + abs(hash(video_type))) % 99999
+
+    # Attempt AI background download
+    ai_ok = _download_ai_background(base_prompt, ai_bg_path, seed)
+
+    if ai_ok:
+        try:
+            img = Image.open(ai_bg_path).convert("RGB").resize((W, H), Image.LANCZOS)
+        except Exception:
+            ai_ok = False
+
+    if not ai_ok:
+        img = _make_cosmic_background(W, H, "cosmic", seed=seed % 10000)
+
+    # ── Dark gradient bands top + bottom for text contrast ──────────────────
+    overlay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    ov = ImageDraw.Draw(overlay)
+    for y in range(155):                          # top fade
+        alpha = int(230 * (1 - y / 155))
+        ov.rectangle([(0, y), (W, y + 1)], fill=(4, 2, 18, alpha))
+    for y in range(H - 195, H):                  # bottom fade
+        alpha = int(230 * ((y - (H - 195)) / 195))
+        ov.rectangle([(0, y), (W, y + 1)], fill=(4, 2, 18, alpha))
+    for y in range(150, H - 190):                # center vignette (subtle)
+        alpha = 55
+        ov.rectangle([(0, y), (W, y + 1)], fill=(4, 2, 18, alpha))
+    img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
     draw = ImageDraw.Draw(img)
 
-    # Dark purple → deep navy gradient
-    for y in range(H):
-        r = int(y / H * 15)
-        g = int(y / H * 5)
-        b = int(20 + y / H * 40)
-        draw.rectangle([(0, y), (W, y + 1)], fill=(r, g, b))
+    # ── Top accent stripe ────────────────────────────────────────────────────
+    draw.rectangle([(0, 0), (W, 5)], fill=(140, 60, 255))
 
-    # Nebula glows
-    import random as _rnd
-    from PIL import Image as _Img
-    overlay = _Img.new("RGBA", (W, H), (0, 0, 0, 0))
-    from PIL import ImageDraw as _ID
-    ov = _ID.Draw(overlay)
-    for cx, cy, r, color in [
-        (W // 2, H // 2, 320, (80, 0, 180, 45)),
-        (160, 140, 180, (0, 80, 180, 30)),
-        (1100, 580, 160, (160, 40, 0, 25)),
-    ]:
-        ov.ellipse([(cx - r, cy - r), (cx + r, cy + r)], fill=color)
-    img = _Img.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
-    draw = ImageDraw.Draw(img)
-
-    # Stars
-    star_rng = _rnd.Random(42)
-    for _ in range(200):
-        sx, sy = star_rng.randint(0, W), star_rng.randint(0, H)
-        sz = star_rng.randint(1, 2)
-        br = star_rng.randint(80, 220)
-        draw.ellipse([(sx, sy), (sx + sz, sy + sz)], fill=(br, br, br))
-
-    # Zodiac wheel (right side)
-    wheel_cx, wheel_cy = int(W * 0.72), H // 2
-    wheel_r = 260
-    ELEM_COLORS = {"Fire": (255, 80, 30), "Earth": (60, 180, 60),
-                   "Air": (80, 180, 255), "Water": (60, 80, 220)}
-    f_sym = _load_font(26)
-    f_sign = _load_font(13)
-
-    for i, r in enumerate(readings):
-        angle_deg = -90 + i * 30
-        angle_rad = math.radians(angle_deg)
-        sym_r = wheel_r - 28
-        elem_col = ELEM_COLORS.get(r.get("element", "Fire"), (200, 160, 255))
-
-        # Spoke
-        ex = int(wheel_cx + (wheel_r - 8) * math.cos(angle_rad))
-        ey = int(wheel_cy + (wheel_r - 8) * math.sin(angle_rad))
-        draw.line([(wheel_cx, wheel_cy), (ex, ey)], fill=(*elem_col, 60), width=1)
-
-        # Symbol dot
-        dx = int(wheel_cx + (sym_r - 24) * math.cos(angle_rad))
-        dy = int(wheel_cy + (sym_r - 24) * math.sin(angle_rad))
-        draw.ellipse([(dx - 20, dy - 20), (dx + 20, dy + 20)],
-                     fill=(18, 8, 55), outline=elem_col, width=2)
-        sx = int(wheel_cx + sym_r * math.cos(angle_rad))
-        sy_y = int(wheel_cy + sym_r * math.sin(angle_rad))
-        try:
-            draw.text((sx - 9, sy_y - 12), r["symbol"], font=f_sym, fill=elem_col)
-        except Exception:
-            draw.text((sx - 8, sy_y - 10), r["symbol"], fill=elem_col)
-
-        # Sign name outside wheel
-        nr = wheel_r + 18
-        nx = int(wheel_cx + nr * math.cos(angle_rad))
-        ny = int(wheel_cy + nr * math.sin(angle_rad))
-        try:
-            draw.text((nx - 18, ny - 6), r["sign"], font=f_sign, fill=(190, 170, 255))
-        except Exception:
-            draw.text((nx - 15, ny - 6), r["sign"], fill=(190, 170, 255))
-
-    # Center
-    draw.ellipse(
-        [(wheel_cx - 50, wheel_cy - 50), (wheel_cx + 50, wheel_cy + 50)],
-        fill=(25, 8, 75), outline=(150, 90, 255), width=3,
-    )
-
-    # Left side: titles
-    f_big = _load_font(72, bold=True)
-    f_med = _load_font(44, bold=True)
-    f_sm = _load_font(28)
-
+    # ── Type + date (top band) ───────────────────────────────────────────────
     type_labels = {
-        "daily": f"DAILY • {date.strftime('%b %d').upper()}",
-        "weekly": f"WEEKLY • {date.strftime('%b %d').upper()}",
-        "monthly": f"MONTHLY • {date.strftime('%B %Y').upper()}",
-        "yearly": f"YEARLY • {date.year}",
-        "special_event": "SPECIAL EVENT",
+        "daily":         "DAILY HOROSCOPE",
+        "weekly":        "WEEKLY HOROSCOPE",
+        "monthly":       "MONTHLY HOROSCOPE",
+        "yearly":        "YEARLY HOROSCOPE",
+        "special_event": (event_name.upper() if event_name else "SPECIAL HOROSCOPE"),
+    }
+    date_labels = {
+        "daily":         date.strftime("%B %d, %Y"),
+        "weekly":        f"Week of {date.strftime('%B %d')}",
+        "monthly":       date.strftime("%B %Y"),
+        "yearly":        str(date.year),
+        "special_event": date.strftime("%B %d, %Y"),
     }
 
-    _draw_text_centered(draw, "✨ HOROSCOPE ✨", 80, f_big, (255, 215, 80), W // 2)
-    _draw_text_centered(draw, type_labels.get(video_type, "HOROSCOPE"), 175, f_med, (200, 140, 255), W // 2)
-    _draw_text_centered(draw, "ALL 12 SIGNS  •  GetMindFuelNow", 245, f_sm, (160, 140, 220), W // 2)
+    f_type = _load_font(74, bold=True)
+    f_date = _load_font(38, bold=True)
+    f_med  = _load_font(30)
+    f_sm   = _load_font(22)
+    f_star = _load_font(90)
 
-    # Accent line
-    draw.rectangle([(0, 0), (W, 6)], fill=(120, 60, 220))
-    draw.rectangle([(0, H - 6), (W, H)], fill=(120, 60, 220))
+    _draw_text_centered(draw, type_labels.get(video_type, "HOROSCOPE"), 12, f_type, (255, 215, 55), W)
+    _draw_text_centered(draw, date_labels.get(video_type, ""), 97, f_date, (215, 175, 255), W)
+
+    # ── Central star/moon (visible through center vignette) ─────────────────
+    _draw_text_centered(draw, "✨", H // 2 - 50, f_star, (255, 225, 60), W)
+
+    # ── Bottom banner with "ALL 12 ZODIAC SIGNS" ────────────────────────────
+    banner_y = H - 190
+    box_overlay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    bov = ImageDraw.Draw(box_overlay)
+    bov.rounded_rectangle(
+        [(50, banner_y), (W - 50, banner_y + 125)],
+        radius=14,
+        fill=(35, 5, 80, 210),
+        outline=(160, 80, 255, 230),
+        width=3,
+    )
+    img = Image.alpha_composite(img.convert("RGBA"), box_overlay).convert("RGB")
+    draw = ImageDraw.Draw(img)
+
+    _draw_text_centered(draw, "ALL 12 ZODIAC SIGNS", banner_y + 8,  f_date, (255, 215, 55), W)
+    _draw_text_centered(draw, "♈ ♉ ♊ ♋ ♌ ♍ ♎ ♏ ♐ ♑ ♒ ♓",
+                        banner_y + 52, _load_font(26),           (190, 155, 255), W)
+    _draw_text_centered(draw, "GetMindFuelNow  •  Subscribe for Daily Readings",
+                        banner_y + 90, f_sm,                     (160, 130, 220), W)
+
+    # ── Bottom accent stripe ─────────────────────────────────────────────────
+    draw.rectangle([(0, H - 5), (W, H)], fill=(140, 60, 255))
 
     img.save(out_path, "PNG")
 
@@ -1133,7 +1187,8 @@ def run_horoscope_pipeline(
 
     # Stage 3: Thumbnail
     try:
-        thumb_path = _stage_thumbnail(readings, thumb_dir, primary_type, date)
+        thumb_path = _stage_thumbnail(readings, thumb_dir, primary_type, date,
+                                      event_name, event_type)
         report["stages"]["thumbnail"] = {"ok": True, "path": thumb_path}
     except Exception as e:
         log.warning(f"Thumbnail failed: {e}")

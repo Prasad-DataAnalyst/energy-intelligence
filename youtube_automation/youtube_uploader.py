@@ -93,15 +93,16 @@ def upload_video(video_path: str, content: dict, seo_package: dict = None) -> st
 
     metadata = {
         "snippet": {
-            "title":           title[:100],
-            "description":     description[:5000],
-            "tags":            tags,           # already character-limited by _build_tags
-            "categoryId":      category_id,
-            "defaultLanguage": "en",
+            "title":       title[:100],
+            "description": description[:5000],
+            "tags":        tags,           # already character-limited by _build_tags
+            "categoryId":  category_id,
+            # NOTE: defaultLanguage is a channel property, NOT a video property.
+            # Sending it here causes YouTube to return 400 Bad Request.
         },
         "status": {
-            "privacyStatus":           privacy_status,
-            "selfDeclaredMadeForKids": content.get("made_for_kids", False),
+            "privacyStatus": privacy_status,
+            "madeForKids":   content.get("made_for_kids", False),
         },
     }
 
@@ -120,6 +121,8 @@ def upload_video(video_path: str, content: dict, seo_package: dict = None) -> st
         raise RuntimeError(
             "YouTube quota exceeded — video queued for retry at next UTC midnight."
         )
+    if not init_resp.ok:
+        log.error("YouTube upload init failed %d: %s", init_resp.status_code, init_resp.text[:500])
     init_resp.raise_for_status()
     upload_url = init_resp.headers["Location"]
 
