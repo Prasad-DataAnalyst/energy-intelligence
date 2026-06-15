@@ -6,6 +6,7 @@ handle quota errors with a next-day retry queue.
 
 import json
 import os
+import re
 import time
 import datetime
 import logging
@@ -410,21 +411,31 @@ def _build_tags(content: dict, seo_package: dict) -> list:
         if isinstance(raw, str):
             tags = [t.strip() for t in raw.split(",") if t.strip()]
         elif isinstance(raw, list):
-            tags = raw
+            tags = [str(t) for t in raw]
         else:
             tags = []
     else:
         tags = content.get("tags", [])
 
-    # YouTube enforces a 500-character TOTAL limit across all tags
-    result, total = [], 0
+    # Sanitize: keep only alphanumerics, spaces, and hyphens (no apostrophes or special chars)
+    cleaned = []
     for tag in tags:
-        tag = str(tag).strip()
-        addition = len(tag) + (1 if result else 0)   # +1 for comma separator
-        if total + addition > 490:
+        tag = re.sub(r"[^\w\s\-]", "", str(tag), flags=re.UNICODE).strip()
+        if tag:
+            cleaned.append(tag)
+
+    # Hard caps: ≤10 tags and ≤400 total characters across all tags
+    result, total = [], 0
+    for tag in cleaned:
+        if len(result) >= 10:
+            break
+        addition = len(tag) + (1 if result else 0)
+        if total + addition > 400:
             break
         result.append(tag)
         total += addition
+
+    log.info("Upload tags (%d, %d chars): %s", len(result), total, result)
     return result
 
 
