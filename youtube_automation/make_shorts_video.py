@@ -26,10 +26,14 @@ WIDTH, HEIGHT = 1080, 1920
 FPS = 24
 CHANNEL_TAG = "GetMindFuelNow"
 
-# Soft, warm voice for horoscope content
-VOICE       = "en-US-JennyNeural"
-VOICE_RATE  = "-12%"
-VOICE_PITCH = "-4Hz"
+# Voice priority list — ethereal Irish first, then British, then US fallbacks
+VOICE_PREFERENCES = [
+    ("en-IE-EmilyNeural",    "-10%", "-3Hz"),
+    ("en-GB-SoniaNeural",    "-10%", "-3Hz"),
+    ("en-US-MichelleNeural", "-10%", "-3Hz"),
+    ("en-US-JennyNeural",    "-12%", "-4Hz"),  # last resort
+]
+_active_voice: list = []   # populated on first TTS call
 
 # ── Gold accent (used for all signs — premium, mystical look) ─────────────────
 GOLD   = (255, 215,   0)   # #FFD700
@@ -111,7 +115,6 @@ def _ensure_cinzel() -> None:
 def get_font(size: int, bold: bool = True) -> ImageFont.FreeTypeFont:
     key = (size, bold)
     if key not in _font_cache:
-        # Prefer Cinzel (elegant serif), fallback to system fonts
         candidates = ([str(_CINZEL_B)] + _FALLBACK_BOLD if bold
                       else [str(_CINZEL_R)] + _FALLBACK_REG)
         for p in candidates:
@@ -140,7 +143,6 @@ def make_star_field(n: int = 320, seed: int = 0) -> tuple:
     ys     = rng.randint(0, HEIGHT, n)
     phases = rng.uniform(0, 1, n)
     sizes  = rng.choice([1, 1, 1, 2, 2, 3], size=n)
-    # Some stars are gold-tinted
     gold_mask = rng.rand(n) < 0.08
     return xs, ys, phases, sizes, gold_mask
 
@@ -152,11 +154,55 @@ def draw_stars(frame: np.ndarray, stars: tuple, t: float) -> np.ndarray:
     for i in range(len(xs)):
         x, y, b, r = int(xs[i]), int(ys[i]), int(brightness[i]), int(sizes[i])
         if gold_mask[i]:
-            col = (min(255, b), min(255, int(b * 0.84)), 0)  # gold tint
+            col = (min(255, b), min(255, int(b * 0.84)), 0)
         else:
             col = (b, b, b)
         out[max(0, y-r):y+r+1, max(0, x-r):x+r+1] = col
     return out
+
+
+# ── Floating particles ─────────────────────────────────────────────────────────
+def make_particles(n: int = 60, seed: int = 42) -> tuple:
+    """Pre-compute particle positions for slow upward drift."""
+    rng      = np.random.RandomState(seed)
+    px       = rng.randint(0, WIDTH, n).astype(float)
+    py_start = rng.randint(0, HEIGHT, n).astype(float)
+    speeds   = rng.uniform(8, 22, n)          # pixels per second
+    sizes    = rng.choice([1, 1, 2, 2, 3], size=n)
+    alphas   = rng.uniform(30, 100, n)        # 0-255 brightness contribution
+    return px, py_start, speeds, sizes, alphas
+
+
+def draw_particles(frame: np.ndarray, particles: tuple, t: float) -> np.ndarray:
+    px, py_start, speeds, sizes, alphas = particles
+    out = frame.copy()
+    for i in range(len(px)):
+        x  = int(px[i])
+        y  = int((py_start[i] - speeds[i] * t) % HEIGHT)
+        r  = int(sizes[i])
+        a  = alphas[i] / 255.0
+        y1, y2 = max(0, y - r), min(HEIGHT, y + r + 1)
+        x1, x2 = max(0, x - r), min(WIDTH,  x + r + 1)
+        if y1 >= y2 or x1 >= x2:
+            continue
+        region = out[y1:y2, x1:x2].astype(np.float32)
+        out[y1:y2, x1:x2] = np.clip(
+            region * (1 - a) + 255 * a, 0, 255
+        ).astype(np.uint8)
+    return out
+
+
+# ── Vignette ───────────────────────────────────────────────────────────────────
+def make_vignette() -> np.ndarray:
+    """Dark elliptical vignette — darkens screen edges for cinematic look."""
+    xs = np.linspace(-1, 1, WIDTH)
+    ys = np.linspace(-1, 1, HEIGHT)
+    xx, yy = np.meshgrid(xs, ys)
+    dist = np.sqrt(xx**2 + yy**2) / np.sqrt(2)   # 0 centre, 1 corner
+    alpha = np.clip((dist - 0.35) / 0.65, 0, 1) ** 1.8 * 200
+    vig = np.zeros((HEIGHT, WIDTH, 4), dtype=np.uint8)
+    vig[:, :, 3] = alpha.astype(np.uint8)          # pure black with alpha
+    return vig
 
 
 # ── RGBA blend ────────────────────────────────────────────────────────────────
@@ -191,6 +237,18 @@ def text_width(text: str, font: ImageFont.FreeTypeFont) -> int:
 
 
 # ── Overlays ───────────────────────────────────────────────────────────────────
+def build_aura_overlay(sign: str) -> np.ndarray:
+    """Soft sign-coloured glow behind the header strip — warmth + identity."""
+    neon = SIGN_NEON.get(sign, WHITE)
+    img  = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
+    # Draw a wide ellipse on a strip, then blur heavily
+    glow = Image.new("RGBA", (WIDTH, 340), (0, 0, 0, 0))
+    ImageDraw.Draw(glow).ellipse([-120, -80, WIDTH + 120, 300], fill=(*neon, 70))
+    glow = glow.filter(ImageFilter.GaussianBlur(radius=60))
+    img.paste(glow, (0, 0), glow)
+    return np.array(img)
+
+
 def build_hook_overlay(hook_text: str) -> np.ndarray:
     """
     Dramatic full-centre hook: large GOLD Cinzel text + dark vignette strip.
@@ -206,11 +264,9 @@ def build_hook_overlay(hook_text: str) -> np.ndarray:
     cy    = HEIGHT // 2 - 80
     y     = cy - total // 2
 
-    # Dark vignette behind hook text
     pad = 40
     draw.rectangle([0, y - pad, WIDTH, y + total + pad], fill=(0, 0, 0, 175))
 
-    # Gold text with subtle black shadow
     for line in lines:
         x = (WIDTH - text_width(line, font)) // 2
         draw.text((x + 4, y + 4), line, font=font, fill=(0, 0, 0, 220))
@@ -227,20 +283,15 @@ def build_base_overlay(sign: str) -> np.ndarray:
     img   = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
     draw  = ImageDraw.Draw(img)
 
-    # Header strip
     draw.rectangle([0, 0, WIDTH, 240], fill=(0, 0, 0, 160))
-
-    # Thin gold top border line
     draw.rectangle([0, 0, WIDTH, 6], fill=(*GOLD, 255))
 
-    # Sign name in Gold Cinzel
     font  = get_font(88, bold=True)
     label = f"{emoji}  {sign.title()}  {emoji}"
     x     = (WIDTH - text_width(label, font)) // 2
     draw.text((x + 3, 72 + 3), label, font=font, fill=(0, 0, 0, 200))
     draw.text((x, 72), label, font=font, fill=(*GOLD, 255))
 
-    # Footer strip
     draw.rectangle([0, HEIGHT - 120, WIDTH, HEIGHT], fill=(0, 0, 0, 150))
     draw.rectangle([0, HEIGHT - 6, WIDTH, HEIGHT], fill=(*GOLD, 200))
 
@@ -266,7 +317,6 @@ def build_caption_overlay(text: str, sign: str) -> np.ndarray:
     total  = len(lines) * lh + 20
     cap_y  = HEIGHT - 200 - total
 
-    # Dark rounded background pill
     draw.rectangle([50, cap_y - 18, WIDTH - 50, cap_y + total + 10],
                    fill=(0, 0, 0, 175))
 
@@ -281,7 +331,7 @@ def build_caption_overlay(text: str, sign: str) -> np.ndarray:
 
 
 # ── Caption timing ─────────────────────────────────────────────────────────────
-def make_caption_chunks(script: str, duration: float, words_per_chunk: int = 9) -> list:
+def make_caption_chunks(script: str, duration: float, words_per_chunk: int = 4) -> list:
     words = script.split()
     total = len(words)
     raw   = [" ".join(words[i:i + words_per_chunk])
@@ -298,11 +348,62 @@ def make_caption_chunks(script: str, duration: float, words_per_chunk: int = 9) 
 # ── TTS ────────────────────────────────────────────────────────────────────────
 async def _tts(script: str, path: str) -> None:
     import edge_tts
-    await edge_tts.Communicate(script, VOICE, rate=VOICE_RATE, pitch=VOICE_PITCH).save(path)
+    global _active_voice
+    if not _active_voice:
+        try:
+            available = {v["Name"] for v in await edge_tts.list_voices()}
+        except Exception:
+            available = set()
+        for name, rate, pitch in VOICE_PREFERENCES:
+            if not available or name in available:
+                _active_voice = [name, rate, pitch]
+                print(f"[TTS] Voice selected: {name}")
+                break
+        if not _active_voice:
+            _active_voice = list(VOICE_PREFERENCES[-1])
+            print(f"[TTS] Fallback voice: {_active_voice[0]}")
+    name, rate, pitch = _active_voice
+    await edge_tts.Communicate(script, name, rate=rate, pitch=pitch).save(path)
 
 
 def generate_audio(script: str, out_path: str) -> None:
     asyncio.run(_tts(script, out_path))
+
+
+# ── SRT subtitle writer ────────────────────────────────────────────────────────
+def write_srt(chunks: list, out_path: str) -> None:
+    def fmt_time(s: float) -> str:
+        h   = int(s // 3600)
+        m   = int((s % 3600) // 60)
+        sec = int(s % 60)
+        ms  = int(round((s - int(s)) * 1000))
+        return f"{h:02d}:{m:02d}:{sec:02d},{ms:03d}"
+
+    lines = []
+    for i, (start, end, text) in enumerate(chunks, 1):
+        lines.append(str(i))
+        lines.append(f"{fmt_time(start)} --> {fmt_time(end)}")
+        lines.append(text)
+        lines.append("")
+    Path(out_path).write_text("\n".join(lines), encoding="utf-8")
+    print(f"[INFO] SRT → {out_path}")
+
+
+# ── Output folder management ───────────────────────────────────────────────────
+def make_output_folder(sign: str, date_tag: str) -> Path:
+    folder = Path("outputs") / date_tag / sign.title()
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
+def write_metadata_files(folder: Path, data: dict, sign: str, date_tag: str) -> None:
+    for key in ["title", "description", "hashtags", "tags", "pinned_comment", "script"]:
+        if key in data:
+            (folder / f"{key}.txt").write_text(str(data[key]), encoding="utf-8")
+    (folder / f"{sign}_{date_tag}_assets.json").write_text(
+        json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    print(f"[INFO] Metadata → {folder}/")
 
 
 # ── Thumbnail ──────────────────────────────────────────────────────────────────
@@ -312,7 +413,6 @@ def make_thumbnail(sign: str, thumb_text: str, out_path: str) -> None:
     neon  = SIGN_NEON.get(sign, WHITE)
     emoji = SIGN_EMOJIS.get(sign, "⭐")
 
-    # Dark gradient background
     bg = np.zeros((TH, TW, 3), dtype=np.float32)
     ys = np.linspace(0, 1, TH)[:, None]
     for c in range(3):
@@ -320,11 +420,9 @@ def make_thumbnail(sign: str, thumb_text: str, out_path: str) -> None:
     img  = Image.fromarray(bg.astype(np.uint8))
     draw = ImageDraw.Draw(img)
 
-    # Gold top/bottom border
     draw.rectangle([0, 0, TW, 8], fill=(*GOLD, 255))
     draw.rectangle([0, TH - 8, TW, TH], fill=(*GOLD, 255))
 
-    # Stars (some gold-tinted)
     rng = np.random.RandomState(hash(sign) % 2**31)
     for _ in range(180):
         x, y = rng.randint(0, TW), rng.randint(0, TH)
@@ -333,15 +431,12 @@ def make_thumbnail(sign: str, thumb_text: str, out_path: str) -> None:
         col = (b, int(b * 0.84), 0) if gold else (b, b, b)
         draw.ellipse([x-2, y-2, x+2, y+2], fill=col)
 
-    # Left: large emoji
     em_font = get_font(280, bold=True)
     draw.text((20, TH // 2 - 185), emoji, font=em_font, fill=GOLD)
 
-    # Top-left: sign name in gold
     name_font = get_font(110, bold=True)
     draw.text((22, 18), sign.upper(), font=name_font, fill=GOLD)
 
-    # Right: thumbnail text (2-3 words, neon colour)
     msg_font = get_font(105, bold=True)
     right_x  = TW // 2 + 40
     max_w    = TW - right_x - 30
@@ -349,12 +444,10 @@ def make_thumbnail(sign: str, thumb_text: str, out_path: str) -> None:
     y = TH // 2 - len(lines) * 65
     for line in lines:
         lw = text_width(line, msg_font)
-        # Dark shadow
         draw.text((right_x + 4, y + 4), line, font=msg_font, fill=(0, 0, 0))
         draw.text((right_x, y), line, font=msg_font, fill=neon)
         y += 128
 
-    # Bottom: channel tag
     tag_font = get_font(40, bold=False)
     draw.text((22, TH - 55), CHANNEL_TAG, font=tag_font, fill=SILVER)
 
@@ -377,38 +470,48 @@ def process(json_path: str) -> None:
     parts    = path.stem.split("_")
     sign     = parts[0].lower()
     date_tag = parts[-1]
-    base     = f"{sign}_short_{date_tag}"
 
-    audio_path = f"{base}.mp3"
-    video_path = f"{base}.mp4"
-    thumb_path = f"{base}_thumbnail.jpg"
+    # Output folder: outputs/YYYYMMDD/SignName/
+    out_dir    = make_output_folder(sign, date_tag)
+    base       = f"{sign}_short_{date_tag}"
+    audio_path = str(out_dir / f"{base}.mp3")
+    video_path = str(out_dir / f"{base}.mp4")
+    thumb_path = str(out_dir / f"{base}_thumbnail.jpg")
+    srt_path   = str(out_dir / f"{base}.srt")
 
     print(f"\n{'='*55}")
-    print(f"  {sign.upper()} {SIGN_EMOJIS.get(sign, '')}  →  {video_path}")
+    print(f"  {sign.upper()} {SIGN_EMOJIS.get(sign, '')}  →  {out_dir}/")
     print(f"{'='*55}")
 
     # ── 1. TTS ────────────────────────────────────────────────────────────────
-    print(f"[1/3] Voiceover  voice={VOICE}  rate={VOICE_RATE}  pitch={VOICE_PITCH}")
+    print(f"[1/4] Voiceover...")
     generate_audio(script, audio_path)
     audio_clip = AudioFileClip(audio_path)
     duration   = audio_clip.duration
     print(f"      {duration:.1f}s  |  {len(script.split())} words")
 
-    # ── 2. Video ──────────────────────────────────────────────────────────────
-    print(f"[2/3] Rendering {WIDTH}x{HEIGHT} @ {FPS}fps...")
+    # ── 2. Pre-render all overlays ────────────────────────────────────────────
+    print(f"[2/4] Rendering {WIDTH}x{HEIGHT} @ {FPS}fps...")
 
-    bg      = make_gradient(sign)
-    stars   = make_star_field(320, seed=hash(sign) % 2**31)
-    hook_ov = build_hook_overlay(hook_text)
-    base_ov = build_base_overlay(sign)
-    chunks  = make_caption_chunks(script, duration)
+    bg        = make_gradient(sign)
+    stars     = make_star_field(320, seed=hash(sign) % 2**31)
+    particles = make_particles(60, seed=hash(sign + "p") % 2**31)
+    vignette  = make_vignette()
+    aura_ov   = build_aura_overlay(sign)
+    hook_ov   = build_hook_overlay(hook_text)
+    base_ov   = build_base_overlay(sign)
+    chunks    = make_caption_chunks(script, duration)
     cap_cache = {txt: build_caption_overlay(txt, sign) for _, _, txt in chunks}
 
     hook_end = 3.5
     fade_dur = 0.4
+    fade_in  = 0.8   # global video fade-in duration
 
     def make_frame(t: float) -> np.ndarray:
         frame = draw_stars(bg, stars, t)
+        frame = draw_particles(frame, particles, t)
+        blend_rgba(frame, aura_ov, 1.0)
+        blend_rgba(frame, vignette, 1.0)
         blend_rgba(frame, base_ov, 1.0)
         if t < hook_end:
             a = min(1.0, t / fade_dur) * min(1.0, (hook_end - t) / fade_dur)
@@ -418,6 +521,9 @@ def process(json_path: str) -> None:
                 if start <= t < end:
                     blend_rgba(frame, cap_cache[txt], 1.0)
                     break
+        # Global 0.8s fade-in from black
+        if t < fade_in:
+            frame = (frame.astype(np.float32) * (t / fade_in)).astype(np.uint8)
         return frame
 
     clip = VideoClip(make_frame, duration=duration).with_fps(FPS)
@@ -429,12 +535,20 @@ def process(json_path: str) -> None:
     audio_clip.close()
     clip.close()
 
-    # ── 3. Thumbnail ──────────────────────────────────────────────────────────
-    print(f"[3/3] Thumbnail...")
+    # ── 3. SRT subtitles ──────────────────────────────────────────────────────
+    print(f"[3/4] Writing SRT...")
+    write_srt(chunks, srt_path)
+
+    # ── 4. Thumbnail + metadata ───────────────────────────────────────────────
+    print(f"[4/4] Thumbnail + metadata...")
     make_thumbnail(sign, thumb_text, thumb_path)
+    write_metadata_files(out_dir, data, sign, date_tag)
 
     size_mb = os.path.getsize(video_path) / 1_048_576
-    print(f"\n[OK] {sign.title()} → {video_path} ({size_mb:.1f} MB) + {thumb_path}")
+    print(f"\n[OK] {sign.title()} → {out_dir}/")
+    print(f"     Video:     {video_path}  ({size_mb:.1f} MB)")
+    print(f"     Thumbnail: {thumb_path}")
+    print(f"     SRT:       {srt_path}")
 
 
 def main() -> None:
