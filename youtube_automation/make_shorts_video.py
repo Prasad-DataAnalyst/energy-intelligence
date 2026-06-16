@@ -14,10 +14,11 @@ import glob
 import json
 import os
 import sys
+import urllib.request
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from moviepy import AudioFileClip, VideoClip
 
 # ── Video constants ────────────────────────────────────────────────────────────
@@ -25,40 +26,46 @@ WIDTH, HEIGHT = 1080, 1920
 FPS = 24
 CHANNEL_TAG = "GetMindFuelNow"
 
-# Soft, warm voice — sounds natural for horoscope content
+# Soft, warm voice for horoscope content
 VOICE       = "en-US-JennyNeural"
-VOICE_RATE  = "-12%"    # slightly slower = more mystical
-VOICE_PITCH = "-4Hz"    # slightly lower = warmer, less robotic
+VOICE_RATE  = "-12%"
+VOICE_PITCH = "-4Hz"
 
-# ── Per-sign deep-space gradient (top RGB, bottom RGB) ────────────────────────
+# ── Gold accent (used for all signs — premium, mystical look) ─────────────────
+GOLD   = (255, 215,   0)   # #FFD700
+WHITE  = (255, 255, 255)
+SILVER = (200, 200, 220)
+
+# ── Per-sign: charcoal-black → deep sign colour (dark, premium) ───────────────
 SIGN_GRADIENTS = {
-    "aries":       ((30,  0,  0), (110, 20, 20)),
-    "taurus":      ((0,  22,  0), ( 20, 70, 20)),
-    "gemini":      ((22, 18,  0), ( 90, 75,  0)),
-    "cancer":      ((10, 10, 28), ( 45, 45, 90)),
-    "leo":         ((28, 12,  0), (110, 60,  0)),
-    "virgo":       ((0,  22,  8), ( 30, 85, 45)),
-    "libra":       ((16,  0, 28), ( 72, 32,105)),
-    "scorpio":     ((22,  0,  0), ( 55,  0,  8)),
-    "sagittarius": ((0,   9, 28), (  0, 38, 95)),
-    "capricorn":   ((9,  11,  9), ( 32, 48, 32)),
-    "aquarius":    ((0,  20, 20), (  0, 38, 80)),
-    "pisces":      ((12,  0, 24), ( 48, 20, 85)),
+    "aries":       ((8,  2,  2),  (28,  6,  6)),
+    "taurus":      ((2,  8,  2),  ( 6, 28,  6)),
+    "gemini":      ((8,  7,  1),  (24, 22,  3)),
+    "cancer":      ((3,  3, 10),  ( 8,  8, 32)),
+    "leo":         ((10, 5,  0),  (30, 14,  0)),
+    "virgo":       ((2,  8,  3),  ( 6, 28, 10)),
+    "libra":       ((6,  2, 10),  (18,  5, 32)),
+    "scorpio":     ((8,  0,  1),  (24,  0,  4)),
+    "sagittarius": ((0,  3, 10),  ( 0,  9, 32)),
+    "capricorn":   ((3,  4,  3),  ( 9, 12,  9)),
+    "aquarius":    ((0,  6,  8),  ( 0, 16, 28)),
+    "pisces":      ((4,  0,  9),  (12,  0, 28)),
 }
 
-SIGN_ACCENT = {
-    "aries":       (255,  80,  80),
-    "taurus":      ( 80, 210,  80),
-    "gemini":      (255, 225,   0),
-    "cancer":      (180, 180, 255),
-    "leo":         (255, 165,   0),
-    "virgo":       (120, 210, 120),
-    "libra":       (210, 130, 255),
-    "scorpio":     (255,  60,  60),
-    "sagittarius": ( 80, 145, 255),
-    "capricorn":   (145, 185, 145),
-    "aquarius":    (  0, 225, 225),
-    "pisces":      (165, 125, 255),
+# Neon per-sign secondary (used sparingly for variety)
+SIGN_NEON = {
+    "aries":       (255,  60,  60),
+    "taurus":      ( 60, 220,  60),
+    "gemini":      (255, 230,  30),
+    "cancer":      (160, 160, 255),
+    "leo":         (255, 160,   0),
+    "virgo":       (100, 220, 100),
+    "libra":       (200, 100, 255),
+    "scorpio":     (255,  30,  50),
+    "sagittarius": ( 60, 130, 255),
+    "capricorn":   (130, 180, 130),
+    "aquarius":    (  0, 210, 230),
+    "pisces":      (150, 100, 255),
 }
 
 SIGN_EMOJIS = {
@@ -67,35 +74,58 @@ SIGN_EMOJIS = {
     "sagittarius": "♐", "capricorn": "♑", "aquarius": "♒", "pisces": "♓",
 }
 
-# ── Font cache ─────────────────────────────────────────────────────────────────
-_FONT_BOLD = [
+# ── Font management ────────────────────────────────────────────────────────────
+_FONT_DIR  = Path.home() / ".local" / "share" / "fonts"
+_CINZEL_B  = _FONT_DIR / "Cinzel-Bold.ttf"
+_CINZEL_R  = _FONT_DIR / "Cinzel-Regular.ttf"
+
+_FALLBACK_BOLD = [
+    "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-    "/usr/share/fonts/truetype/ubuntu/Ubuntu-B.ttf",
 ]
-_FONT_REG = [
+_FALLBACK_REG = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-    "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf",
 ]
+
 _font_cache: dict = {}
+
+
+def _ensure_cinzel() -> None:
+    """Download Cinzel (elegant serif) from Google Fonts if not present."""
+    if _CINZEL_B.exists() and _CINZEL_R.exists():
+        return
+    _FONT_DIR.mkdir(parents=True, exist_ok=True)
+    base = "https://github.com/google/fonts/raw/main/ofl/cinzel/static/"
+    for fname, dest in [("Cinzel-Bold.ttf", _CINZEL_B),
+                        ("Cinzel-Regular.ttf", _CINZEL_R)]:
+        if not dest.exists():
+            print(f"[FONT] Downloading {fname}...")
+            try:
+                urllib.request.urlretrieve(base + fname, dest)
+            except Exception as e:
+                print(f"[FONT] Download failed ({e}) — using fallback font")
 
 
 def get_font(size: int, bold: bool = True) -> ImageFont.FreeTypeFont:
     key = (size, bold)
     if key not in _font_cache:
-        for path in (_FONT_BOLD if bold else _FONT_REG):
-            if os.path.exists(path):
-                _font_cache[key] = ImageFont.truetype(path, size)
+        # Prefer Cinzel (elegant serif), fallback to system fonts
+        candidates = ([str(_CINZEL_B)] + _FALLBACK_BOLD if bold
+                      else [str(_CINZEL_R)] + _FALLBACK_REG)
+        for p in candidates:
+            if Path(p).exists():
+                _font_cache[key] = ImageFont.truetype(p, size)
                 break
         else:
             _font_cache[key] = ImageFont.load_default()
     return _font_cache[key]
 
 
-# ── Background gradient ────────────────────────────────────────────────────────
+# ── Background ─────────────────────────────────────────────────────────────────
 def make_gradient(sign: str) -> np.ndarray:
-    top, bot = SIGN_GRADIENTS.get(sign, ((10, 10, 25), (25, 25, 60)))
+    top, bot = SIGN_GRADIENTS.get(sign, ((4, 4, 12), (10, 10, 28)))
     bg = np.zeros((HEIGHT, WIDTH, 3), dtype=np.float32)
     ys = np.linspace(0, 1, HEIGHT)[:, None]
     for c in range(3):
@@ -104,21 +134,28 @@ def make_gradient(sign: str) -> np.ndarray:
 
 
 # ── Star field ─────────────────────────────────────────────────────────────────
-def make_star_field(n: int = 260, seed: int = 0) -> tuple:
+def make_star_field(n: int = 320, seed: int = 0) -> tuple:
     rng = np.random.RandomState(seed)
-    xs    = rng.randint(0, WIDTH, n)
-    ys    = rng.randint(0, HEIGHT, n)
+    xs     = rng.randint(0, WIDTH, n)
+    ys     = rng.randint(0, HEIGHT, n)
     phases = rng.uniform(0, 1, n)
-    sizes  = rng.uniform(0.6, 2.8, n).astype(int).clip(1, 3)
-    return xs, ys, phases, sizes
+    sizes  = rng.choice([1, 1, 1, 2, 2, 3], size=n)
+    # Some stars are gold-tinted
+    gold_mask = rng.rand(n) < 0.08
+    return xs, ys, phases, sizes, gold_mask
 
 
-def draw_stars(frame: np.ndarray, xs, ys, phases, sizes, t: float) -> np.ndarray:
-    brightness = (140 + 115 * np.abs(np.sin(np.pi * (t * 0.35 + phases)))).astype(np.uint8)
+def draw_stars(frame: np.ndarray, stars: tuple, t: float) -> np.ndarray:
+    xs, ys, phases, sizes, gold_mask = stars
+    brightness = (130 + 125 * np.abs(np.sin(np.pi * (t * 0.3 + phases)))).astype(np.uint8)
     out = frame.copy()
     for i in range(len(xs)):
-        x, y, b, r = int(xs[i]), int(ys[i]), brightness[i], int(sizes[i])
-        out[max(0, y-r):y+r+1, max(0, x-r):x+r+1] = b
+        x, y, b, r = int(xs[i]), int(ys[i]), int(brightness[i]), int(sizes[i])
+        if gold_mask[i]:
+            col = (min(255, b), min(255, int(b * 0.84)), 0)  # gold tint
+        else:
+            col = (b, b, b)
+        out[max(0, y-r):y+r+1, max(0, x-r):x+r+1] = col
     return out
 
 
@@ -147,97 +184,111 @@ def wrap_text(text: str, font: ImageFont.FreeTypeFont, max_px: int) -> list:
     return lines
 
 
-# ── Pre-render overlays ────────────────────────────────────────────────────────
-def build_hook_overlay(hook_text: str, sign: str) -> np.ndarray:
-    """Large centred hook text — shows first 3.5 seconds."""
-    accent = SIGN_ACCENT.get(sign, (255, 255, 255))
-    font = get_font(108, bold=True)
-    img = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
+def text_width(text: str, font: ImageFont.FreeTypeFont) -> int:
     dummy = ImageDraw.Draw(Image.new("RGB", (1, 1)))
-    lines = wrap_text(hook_text, font, WIDTH - 100)
-    line_h = int(font.size * 1.25)
-    y = HEIGHT // 2 - (len(lines) * line_h) // 2 - 100
+    bbox = dummy.textbbox((0, 0), text, font=font)
+    return bbox[2] - bbox[0]
+
+
+# ── Overlays ───────────────────────────────────────────────────────────────────
+def build_hook_overlay(hook_text: str) -> np.ndarray:
+    """
+    Dramatic full-centre hook: large GOLD Cinzel text + dark vignette strip.
+    Shown during first 3.5 seconds with fade in/out.
+    """
+    img  = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    font  = get_font(118, bold=True)
+    lines = wrap_text(hook_text, font, WIDTH - 80)
+    lh    = int(font.size * 1.3)
+    total = len(lines) * lh
+    cy    = HEIGHT // 2 - 80
+    y     = cy - total // 2
+
+    # Dark vignette behind hook text
+    pad = 40
+    draw.rectangle([0, y - pad, WIDTH, y + total + pad], fill=(0, 0, 0, 175))
+
+    # Gold text with subtle black shadow
     for line in lines:
-        bbox = dummy.textbbox((0, 0), line, font=font)
-        x = (WIDTH - (bbox[2] - bbox[0])) // 2
-        draw.text((x + 4, y + 4), line, font=font, fill=(0, 0, 0, 210))
-        draw.text((x, y), line, font=font, fill=(*accent, 255))
-        y += line_h
+        x = (WIDTH - text_width(line, font)) // 2
+        draw.text((x + 4, y + 4), line, font=font, fill=(0, 0, 0, 220))
+        draw.text((x, y), line, font=font, fill=(*GOLD, 255))
+        y += lh
+
     return np.array(img)
 
 
 def build_base_overlay(sign: str) -> np.ndarray:
-    """Sign name header + channel footer — always visible."""
-    accent = SIGN_ACCENT.get(sign, (255, 255, 255))
-    emoji  = SIGN_EMOJIS.get(sign, "⭐")
-    img    = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
-    draw   = ImageDraw.Draw(img)
-    dummy  = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+    """Sign name header (gold Cinzel) + channel tag footer — always visible."""
+    neon  = SIGN_NEON.get(sign, WHITE)
+    emoji = SIGN_EMOJIS.get(sign, "⭐")
+    img   = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
+    draw  = ImageDraw.Draw(img)
 
-    # Header background strip
-    draw.rectangle([0, 0, WIDTH, 230], fill=(0, 0, 0, 140))
+    # Header strip
+    draw.rectangle([0, 0, WIDTH, 240], fill=(0, 0, 0, 160))
 
-    # Sign name + emoji
-    font = get_font(90, bold=True)
+    # Thin gold top border line
+    draw.rectangle([0, 0, WIDTH, 6], fill=(*GOLD, 255))
+
+    # Sign name in Gold Cinzel
+    font  = get_font(88, bold=True)
     label = f"{emoji}  {sign.title()}  {emoji}"
-    bbox = dummy.textbbox((0, 0), label, font=font)
-    sx = (WIDTH - (bbox[2] - bbox[0])) // 2
-    draw.text((sx + 3, 68 + 3), label, font=font, fill=(0, 0, 0, 180))
-    draw.text((sx, 68), label, font=font, fill=(*accent, 255))
+    x     = (WIDTH - text_width(label, font)) // 2
+    draw.text((x + 3, 72 + 3), label, font=font, fill=(0, 0, 0, 200))
+    draw.text((x, 72), label, font=font, fill=(*GOLD, 255))
 
-    # Footer
-    tag_font = get_font(44, bold=False)
-    bbox = dummy.textbbox((0, 0), CHANNEL_TAG, font=tag_font)
-    tx = (WIDTH - (bbox[2] - bbox[0])) // 2
-    draw.rectangle([0, HEIGHT - 110, WIDTH, HEIGHT], fill=(0, 0, 0, 130))
-    draw.text((tx, HEIGHT - 90), CHANNEL_TAG, font=tag_font, fill=(200, 200, 200, 220))
+    # Footer strip
+    draw.rectangle([0, HEIGHT - 120, WIDTH, HEIGHT], fill=(0, 0, 0, 150))
+    draw.rectangle([0, HEIGHT - 6, WIDTH, HEIGHT], fill=(*GOLD, 200))
+
+    tag_font = get_font(46, bold=False)
+    tw = text_width(CHANNEL_TAG, tag_font)
+    draw.text(((WIDTH - tw) // 2, HEIGHT - 95), CHANNEL_TAG,
+              font=tag_font, fill=(*SILVER, 230))
 
     return np.array(img)
 
 
-def build_caption_overlay(text: str) -> np.ndarray:
-    """Timed caption line shown at bottom-centre during voiceover."""
-    font = get_font(60, bold=True)
-    img  = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-    dummy = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+def build_caption_overlay(text: str, sign: str) -> np.ndarray:
+    """
+    Caption strip: white Cinzel text, dark pill background.
+    Positioned in lower-middle to not clash with footer.
+    """
+    font  = get_font(58, bold=False)
+    img   = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
+    draw  = ImageDraw.Draw(img)
 
-    lines  = wrap_text(text, font, WIDTH - 100)
-    line_h = 76
-    total_h = len(lines) * line_h + 30
-    cap_top = HEIGHT - 180 - total_h
+    lines  = wrap_text(text, font, WIDTH - 120)
+    lh     = 74
+    total  = len(lines) * lh + 20
+    cap_y  = HEIGHT - 200 - total
 
-    # Dark pill background
-    draw.rectangle([40, cap_top - 16, WIDTH - 40, cap_top + total_h + 4],
-                   fill=(0, 0, 0, 170))
+    # Dark rounded background pill
+    draw.rectangle([50, cap_y - 18, WIDTH - 50, cap_y + total + 10],
+                   fill=(0, 0, 0, 175))
 
-    y = cap_top
+    y = cap_y
     for line in lines:
-        bbox = dummy.textbbox((0, 0), line, font=font)
-        x = (WIDTH - (bbox[2] - bbox[0])) // 2
+        x = (WIDTH - text_width(line, font)) // 2
         draw.text((x + 2, y + 2), line, font=font, fill=(0, 0, 0, 200))
-        draw.text((x, y), line, font=font, fill=(255, 255, 255, 255))
-        y += line_h
+        draw.text((x, y), line, font=font, fill=(*WHITE, 255))
+        y += lh
 
     return np.array(img)
 
 
 # ── Caption timing ─────────────────────────────────────────────────────────────
-def make_caption_chunks(script: str, audio_duration: float,
-                        words_per_chunk: int = 9) -> list:
-    """Split script into (start_t, end_t, text) chunks proportional to word count."""
+def make_caption_chunks(script: str, duration: float, words_per_chunk: int = 9) -> list:
     words = script.split()
     total = len(words)
-    chunks = []
-    i = 0
-    while i < total:
-        chunks.append(" ".join(words[i:i + words_per_chunk]))
-        i += words_per_chunk
-
-    wps = total / audio_duration          # words per second
+    raw   = [" ".join(words[i:i + words_per_chunk])
+             for i in range(0, total, words_per_chunk)]
+    wps   = total / duration
     result, t = [], 0.0
-    for chunk in chunks:
+    for chunk in raw:
         dur = len(chunk.split()) / wps
         result.append((t, t + dur, chunk))
         t += dur
@@ -247,8 +298,7 @@ def make_caption_chunks(script: str, audio_duration: float,
 # ── TTS ────────────────────────────────────────────────────────────────────────
 async def _tts(script: str, path: str) -> None:
     import edge_tts
-    comm = edge_tts.Communicate(script, VOICE, rate=VOICE_RATE, pitch=VOICE_PITCH)
-    await comm.save(path)
+    await edge_tts.Communicate(script, VOICE, rate=VOICE_RATE, pitch=VOICE_PITCH).save(path)
 
 
 def generate_audio(script: str, out_path: str) -> None:
@@ -258,10 +308,11 @@ def generate_audio(script: str, out_path: str) -> None:
 # ── Thumbnail ──────────────────────────────────────────────────────────────────
 def make_thumbnail(sign: str, thumb_text: str, out_path: str) -> None:
     TW, TH = 1280, 720
-    top, bot = SIGN_GRADIENTS.get(sign, ((10, 10, 25), (25, 25, 60)))
-    accent = SIGN_ACCENT.get(sign, (255, 255, 255))
-    emoji  = SIGN_EMOJIS.get(sign, "⭐")
+    top, bot = SIGN_GRADIENTS.get(sign, ((4, 4, 12), (10, 10, 28)))
+    neon  = SIGN_NEON.get(sign, WHITE)
+    emoji = SIGN_EMOJIS.get(sign, "⭐")
 
+    # Dark gradient background
     bg = np.zeros((TH, TW, 3), dtype=np.float32)
     ys = np.linspace(0, 1, TH)[:, None]
     for c in range(3):
@@ -269,37 +320,43 @@ def make_thumbnail(sign: str, thumb_text: str, out_path: str) -> None:
     img  = Image.fromarray(bg.astype(np.uint8))
     draw = ImageDraw.Draw(img)
 
-    rng = np.random.RandomState(hash(sign) % 2**31)
-    for _ in range(150):
-        x, y = rng.randint(0, TW), rng.randint(0, TH)
-        b = rng.randint(140, 255)
-        draw.ellipse([x-2, y-2, x+2, y+2], fill=(b, b, b))
+    # Gold top/bottom border
+    draw.rectangle([0, 0, TW, 8], fill=(*GOLD, 255))
+    draw.rectangle([0, TH - 8, TW, TH], fill=(*GOLD, 255))
 
-    dummy = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+    # Stars (some gold-tinted)
+    rng = np.random.RandomState(hash(sign) % 2**31)
+    for _ in range(180):
+        x, y = rng.randint(0, TW), rng.randint(0, TH)
+        b = rng.randint(120, 220)
+        gold = rng.rand() < 0.1
+        col = (b, int(b * 0.84), 0) if gold else (b, b, b)
+        draw.ellipse([x-2, y-2, x+2, y+2], fill=col)
 
     # Left: large emoji
-    em_font = get_font(260, bold=True)
-    draw.text((30, TH // 2 - 175), emoji, font=em_font, fill=accent)
+    em_font = get_font(280, bold=True)
+    draw.text((20, TH // 2 - 185), emoji, font=em_font, fill=GOLD)
 
-    # Top-left: sign name
-    name_font = get_font(105, bold=True)
-    draw.text((30, 20), sign.upper(), font=name_font, fill=(255, 255, 255))
+    # Top-left: sign name in gold
+    name_font = get_font(110, bold=True)
+    draw.text((22, 18), sign.upper(), font=name_font, fill=GOLD)
 
-    # Right: thumbnail graphic text
-    msg_font = get_font(85, bold=True)
-    right_x  = TW // 2 + 60
-    max_w    = TW - right_x - 40
+    # Right: thumbnail text (2-3 words, neon colour)
+    msg_font = get_font(105, bold=True)
+    right_x  = TW // 2 + 40
+    max_w    = TW - right_x - 30
     lines    = wrap_text(thumb_text.upper(), msg_font, max_w)
-    y = TH // 2 - len(lines) * 58
+    y = TH // 2 - len(lines) * 65
     for line in lines:
-        bbox = dummy.textbbox((0, 0), line, font=msg_font)
-        draw.text((right_x + 3, y + 3), line, font=msg_font, fill=(0, 0, 0))
-        draw.text((right_x, y), line, font=msg_font, fill=accent)
-        y += 115
+        lw = text_width(line, msg_font)
+        # Dark shadow
+        draw.text((right_x + 4, y + 4), line, font=msg_font, fill=(0, 0, 0))
+        draw.text((right_x, y), line, font=msg_font, fill=neon)
+        y += 128
 
-    # Footer
+    # Bottom: channel tag
     tag_font = get_font(40, bold=False)
-    draw.text((30, TH - 56), CHANNEL_TAG, font=tag_font, fill=(200, 200, 200))
+    draw.text((22, TH - 55), CHANNEL_TAG, font=tag_font, fill=SILVER)
 
     img.save(out_path, "JPEG", quality=95)
     print(f"[INFO] Thumbnail → {out_path}")
@@ -331,65 +388,53 @@ def process(json_path: str) -> None:
     print(f"{'='*55}")
 
     # ── 1. TTS ────────────────────────────────────────────────────────────────
-    print(f"[1/3] Generating voiceover  voice={VOICE}  rate={VOICE_RATE}  pitch={VOICE_PITCH}")
+    print(f"[1/3] Voiceover  voice={VOICE}  rate={VOICE_RATE}  pitch={VOICE_PITCH}")
     generate_audio(script, audio_path)
     audio_clip = AudioFileClip(audio_path)
     duration   = audio_clip.duration
     print(f"      {duration:.1f}s  |  {len(script.split())} words")
 
     # ── 2. Video ──────────────────────────────────────────────────────────────
-    print(f"[2/3] Rendering {WIDTH}x{HEIGHT} @ {FPS}fps  (~3-6 min)...")
+    print(f"[2/3] Rendering {WIDTH}x{HEIGHT} @ {FPS}fps...")
 
-    bg             = make_gradient(sign)
-    sx, sy, sp, sz = make_star_field(260, seed=hash(sign) % 2**31)
-    hook_rgba      = build_hook_overlay(hook_text, sign)
-    base_rgba      = build_base_overlay(sign)
-    caption_chunks = make_caption_chunks(script, duration)
+    bg      = make_gradient(sign)
+    stars   = make_star_field(320, seed=hash(sign) % 2**31)
+    hook_ov = build_hook_overlay(hook_text)
+    base_ov = build_base_overlay(sign)
+    chunks  = make_caption_chunks(script, duration)
+    cap_cache = {txt: build_caption_overlay(txt, sign) for _, _, txt in chunks}
 
-    # Pre-render all caption overlays (avoids per-frame PIL work)
-    cap_cache = {text: build_caption_overlay(text) for _, _, text in caption_chunks}
-
-    hook_end  = 3.5
-    fade_dur  = 0.4
+    hook_end = 3.5
+    fade_dur = 0.4
 
     def make_frame(t: float) -> np.ndarray:
-        frame = draw_stars(bg, sx, sy, sp, sz, t)
-        blend_rgba(frame, base_rgba, 1.0)
-
-        # Hook text — centre screen, fade in/out first 3.5 s
+        frame = draw_stars(bg, stars, t)
+        blend_rgba(frame, base_ov, 1.0)
         if t < hook_end:
             a = min(1.0, t / fade_dur) * min(1.0, (hook_end - t) / fade_dur)
-            blend_rgba(frame, hook_rgba, a)
-
-        # Caption — timed to voiceover, starts after 0.5 s
+            blend_rgba(frame, hook_ov, a)
         if t >= 0.5:
-            for start, end, text in caption_chunks:
+            for start, end, txt in chunks:
                 if start <= t < end:
-                    blend_rgba(frame, cap_cache[text], 1.0)
+                    blend_rgba(frame, cap_cache[txt], 1.0)
                     break
-
         return frame
 
-    video_clip = VideoClip(make_frame, duration=duration).with_fps(FPS)
-    video_clip = video_clip.with_audio(audio_clip)
-    video_clip.write_videofile(
-        video_path,
-        fps=FPS,
-        codec="libx264",
-        audio_codec="aac",
-        preset="fast",
-        ffmpeg_params=["-crf", "22"],
-        logger=None,
+    clip = VideoClip(make_frame, duration=duration).with_fps(FPS)
+    clip = clip.with_audio(audio_clip)
+    clip.write_videofile(
+        video_path, fps=FPS, codec="libx264", audio_codec="aac",
+        preset="fast", ffmpeg_params=["-crf", "22"], logger=None,
     )
     audio_clip.close()
-    video_clip.close()
+    clip.close()
 
     # ── 3. Thumbnail ──────────────────────────────────────────────────────────
-    print(f"[3/3] Generating thumbnail...")
+    print(f"[3/3] Thumbnail...")
     make_thumbnail(sign, thumb_text, thumb_path)
 
     size_mb = os.path.getsize(video_path) / 1_048_576
-    print(f"\n[OK] {sign.title()} done  →  {video_path} ({size_mb:.1f} MB)  +  {thumb_path}")
+    print(f"\n[OK] {sign.title()} → {video_path} ({size_mb:.1f} MB) + {thumb_path}")
 
 
 def main() -> None:
@@ -401,12 +446,13 @@ def main() -> None:
                         help="Process all 12 signs for a given date")
     args = parser.parse_args()
 
+    _ensure_cinzel()
+
     if args.all:
         files = sorted(glob.glob(f"*_short_{args.all}.json"))
         if not files:
             print(f"[ERROR] No *_short_{args.all}.json files found", file=sys.stderr)
             sys.exit(1)
-        print(f"[INFO] Processing {len(files)} sign(s) for {args.all}")
         for f in files:
             process(f)
         print(f"\n[DONE] All {len(files)} videos generated.")

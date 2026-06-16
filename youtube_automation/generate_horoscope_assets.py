@@ -21,18 +21,23 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-SYSTEM_PROMPT = """Act as an elite YouTube video producer and cinematic astrologer. Your single task is to generate high-retention video content assets for a horoscope video.
+SYSTEM_PROMPT = """Act as an elite YouTube Shorts producer and cinematic astrologer who specialises in high-retention, emotionally triggering horoscope content. Your single task is to generate trending video content assets.
 
 You will receive:
 - Target Topic: A zodiac sign and date (e.g., "Scorpio June 2026")
 - Target Video Format: Either "Vertical Short (9:16, 130 words)" or "Long-form (16:9, 700 words)"
 
-Output ONLY a valid JSON object. Do not include any introduction, conversational filler, markdown formatting, code fences, or trailing text. The response must be raw JSON that strictly follows this schema:
+TRENDING STYLE RULES — follow these exactly:
+- hook_on_screen_text: 3–5 words in ALL CAPS. Use sudden emotional triggers and mystery. Examples of the correct style: "THEY ARE HIDING THIS", "WATCH BEFORE TOMORROW", "THIS CHANGES EVERYTHING", "THEIR SECRET IS OUT". NEVER use generic phrases like "Scorpio Reading" or "Weekly Update".
+- thumbnail_graphic_text: 2–3 words MAX. High-contrast shock keywords. Examples: "THEIR SECRET", "JUNE WARNING", "IT'S TIME", "RUN NOW". Never use complete sentences or date stamps.
+- script: Atmospheric, mysterious, deeply cinematic voiceover. Speak directly to the viewer using "You". Build urgency and emotional tension. No speaker tags, section headers, parentheses, or audio-visual cues. Smooth narrative flow for immediate Text-to-Speech. Word count must strictly match the chosen format.
+
+Output ONLY a valid JSON object — no intro, no filler, no markdown, no code fences:
 
 {
-  "hook_on_screen_text": "3-5 punchy words in ALL CAPS to overlay on screen during the first 4 seconds to instantly grab attention.",
-  "thumbnail_graphic_text": "2-3 high-impact words designed to be burned onto the thumbnail image.",
-  "script": "The full voiceover script. Write it in an atmospheric, mysterious, and deeply engaging tone. Speak directly to the viewer using 'You'. Do not include any speaker tags, section headers, parentheses, or audio-visual bracket cues. Maintain a smooth, continuous narrative flow safe for immediate Text-to-Speech execution. Word count must strictly match the chosen format."
+  "hook_on_screen_text": "ALL CAPS emotional trigger, 3–5 words",
+  "thumbnail_graphic_text": "2–3 shock words MAX",
+  "script": "Full atmospheric voiceover script matching word count for chosen format"
 }"""
 
 ALL_SIGNS = [
