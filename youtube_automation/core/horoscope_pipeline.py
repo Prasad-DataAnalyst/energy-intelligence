@@ -387,50 +387,58 @@ def _stage_audio(
     mixed_wav = str(audio_dir / f"mixed_{date_tag}.wav")
 
     if video_type == "daily":
-        # ── Per-sign approach: each segment padded to exact duration ─────────
-        intro_s = get_intro_duration(video_type)     # 12 s
-        sign_s  = get_duration_per_sign(video_type)  # 28 s
-        outro_s = get_outro_duration(video_type)     # 12 s
-        total_s = intro_s + sign_s * len(readings) + outro_s
+        # ── Balanced single TTS — all signs get equal word count ─────────────
+        # 14 separate TTS calls (per-sign approach) overwhelmed the e2-micro VM
+        # causing ffmpeg to time out in Stage 4.  One balanced TTS call is much
+        # lighter.  Equal word count per sign → equal TTS time per sign →
+        # sign_dur = (total_audio - intro - outro) / 12 stays accurate.
+        voice_mp3 = str(audio_dir / f"voice_{date_tag}.mp3")
+        voice_wav = str(audio_dir / f"voice_{date_tag}.wav")
 
-        seg_paths: list[str] = []
-
-        # Intro
-        intro_wav = str(audio_dir / f"seg_intro_{date_tag}.wav")
         intro_text = (
             f"Daily horoscope for all 12 zodiac signs. "
             f"{date.strftime('%B %d, %Y')}. "
-            "Let's see what the cosmos has in store for you today."
+            "Let's see what the cosmos has in store for each sign today."
         )
-        _tts_padded(intro_text, intro_wav, intro_s)
-        seg_paths.append(intro_wav)
-
-        # One TTS clip per sign — first 40 words of reading ≈ 20 s speech + 8 s silence
-        for reading in readings:
-            sign  = reading.get("sign", "")
-            symb  = reading.get("symbol", "")
-            words = reading.get("script_text", "").split()
-            clip_text = f"{sign} {symb}. {' '.join(words[:40])}."
-            seg_wav   = str(audio_dir / f"seg_{sign.lower()}_{date_tag}.wav")
-            _tts_padded(clip_text, seg_wav, sign_s)
-            seg_paths.append(seg_wav)
-            log.info(f"  Audio [{sign}]: {sign_s}s slot")
-
-        # Outro
-        outro_wav  = str(audio_dir / f"seg_outro_{date_tag}.wav")
+        sign_sections = []
+        for r in readings:
+            sign  = r.get("sign", "")
+            symb  = r.get("symbol", "")
+            words = r.get("script_text", "").split()
+            # 55 words → ~28-30 s of TTS at edge-tts -15% rate
+            sign_sections.append(f"{sign} {symb}. {' '.join(words[:55])}.")
         outro_text = (
             "Thank you for watching GetMindFuelNow. "
             "Subscribe for your daily cosmic guidance. "
-            "Drop your zodiac sign in the comments!"
+            "Drop your zodiac sign in the comments below!"
         )
-        _tts_padded(outro_text, outro_wav, outro_s)
-        seg_paths.append(outro_wav)
 
-        # Concatenate all segments into one master WAV
-        voice_wav = str(audio_dir / f"voice_{date_tag}.wav")
-        voice_wav = _concat_audio_files(seg_paths, voice_wav)
+        balanced_script = (
+            intro_text + "\n\n" +
+            "\n\n".join(sign_sections) + "\n\n" +
+            outro_text
+        )
+
+        voice_ok = _edge_tts_voiceover(balanced_script, voice_mp3)
+        if voice_ok:
+            conv = subprocess.run(
+                ["ffmpeg", "-y", "-i", voice_mp3,
+                 "-ar", "44100", "-ac", "2", "-acodec", "pcm_s16le", voice_wav],
+                capture_output=True, timeout=120,
+            )
+            if conv.returncode != 0 or not os.path.exists(voice_wav):
+                voice_wav = voice_mp3
+
+        if not voice_ok or not os.path.exists(voice_wav):
+            log.warning("edge-tts failed — trying espeak-ng fallback")
+            voice_ok = _espeak_voiceover(balanced_script, voice_wav)
+
+        if not voice_ok or not os.path.exists(voice_wav):
+            log.warning("All TTS failed — using silence")
+            _generate_silent_wav(voice_wav, len(sign_sections) * 30 + 24)
+
         voice_duration = _get_audio_duration(voice_wav)
-        log.info(f"Per-sign audio: {len(seg_paths)} segments → {voice_duration}s")
+        log.info(f"Daily balanced TTS: {voice_duration}s (1 API call, {len(sign_sections)} signs × 55 words)")
 
     else:
         # ── Single full-script TTS (weekly / monthly / yearly) ───────────────
@@ -1118,7 +1126,7 @@ def _frame_to_animated_video(image_path: str, out_path: str, duration: int) -> N
         "-crf", "28",
         out_path,
     ]
-    result = subprocess.run(cmd, capture_output=True, timeout=600)
+    result = subprocess.run(cmd, capture_output=True, timeout=1200)
     if result.returncode != 0:
         err = result.stderr.decode()[-300:]
         raise RuntimeError(f"frame_to_animated_video failed for {image_path}:\n{err}")
