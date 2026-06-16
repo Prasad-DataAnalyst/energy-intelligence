@@ -101,15 +101,37 @@ def _ensure_cinzel() -> None:
     if _CINZEL_B.exists() and _CINZEL_R.exists():
         return
     _FONT_DIR.mkdir(parents=True, exist_ok=True)
-    base = "https://github.com/google/fonts/raw/main/ofl/cinzel/static/"
-    for fname, dest in [("Cinzel-Bold.ttf", _CINZEL_B),
-                        ("Cinzel-Regular.ttf", _CINZEL_R)]:
-        if not dest.exists():
-            print(f"[FONT] Downloading {fname}...")
-            try:
-                urllib.request.urlretrieve(base + fname, dest)
-            except Exception as e:
-                print(f"[FONT] Download failed ({e}) — using fallback font")
+    # Google Fonts moved static files; try static path, then variable font as fallback
+    _CINZEL_URLS = [
+        # static directory (old path, may 404)
+        ("https://github.com/google/fonts/raw/main/ofl/cinzel/static/Cinzel-Bold.ttf",
+         "https://github.com/google/fonts/raw/main/ofl/cinzel/static/Cinzel-Regular.ttf"),
+        # variable font (single file covers all weights — use for both bold & regular)
+        ("https://github.com/google/fonts/raw/main/ofl/cinzel/Cinzel%5Bwght%5D.ttf",
+         "https://github.com/google/fonts/raw/main/ofl/cinzel/Cinzel%5Bwght%5D.ttf"),
+    ]
+    for bold_url, reg_url in _CINZEL_URLS:
+        try:
+            if not _CINZEL_B.exists():
+                print(f"[FONT] Downloading Cinzel-Bold from {bold_url.split('/')[-1]}...")
+                urllib.request.urlretrieve(bold_url, _CINZEL_B)
+            if not _CINZEL_R.exists():
+                # reuse the already-downloaded bold file for regular if same URL
+                if bold_url == reg_url and _CINZEL_B.exists():
+                    import shutil
+                    shutil.copy(_CINZEL_B, _CINZEL_R)
+                else:
+                    print(f"[FONT] Downloading Cinzel-Regular...")
+                    urllib.request.urlretrieve(reg_url, _CINZEL_R)
+            if _CINZEL_B.exists() and _CINZEL_R.exists():
+                print("[FONT] Cinzel downloaded OK")
+                return
+        except Exception as e:
+            # clean up any partial download before trying next URL set
+            for f in [_CINZEL_B, _CINZEL_R]:
+                if f.exists():
+                    f.unlink()
+    print("[FONT] All Cinzel download URLs failed — using fallback font")
 
 
 def get_font(size: int, bold: bool = True) -> ImageFont.FreeTypeFont:
@@ -351,7 +373,8 @@ async def _tts(script: str, path: str) -> None:
     global _active_voice
     if not _active_voice:
         try:
-            available = {v["Name"] for v in await edge_tts.list_voices()}
+            # ShortName is "en-IE-EmilyNeural"; Name is the long display string
+            available = {v["ShortName"] for v in await edge_tts.list_voices()}
         except Exception:
             available = set()
         for name, rate, pitch in VOICE_PREFERENCES:
