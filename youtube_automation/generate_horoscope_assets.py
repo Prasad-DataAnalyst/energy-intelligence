@@ -84,14 +84,14 @@ def build_topic(parts: list) -> tuple:
 
 
 def call_claude(topic: str, video_format: str, fmt_key: str) -> dict:
-    """Call claude-opus-4-6 and return parsed JSON dict."""
+    """Call claude-sonnet-4-6 and return parsed JSON dict."""
     client = anthropic.Anthropic()
     user_message = f"Target Topic: {topic}\nTarget Video Format: {video_format}"
     max_tokens = MAX_TOKENS_MAP[fmt_key]
 
     try:
         response = client.messages.create(
-            model="claude-opus-4-6",
+            model="claude-sonnet-4-6",
             max_tokens=max_tokens,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_message}],
@@ -149,7 +149,7 @@ def run_single(sign: str, date_str: str, fmt_key: str) -> None:
     video_format = FORMAT_MAP[fmt_key]
 
     print(f"\n[INFO] Generating {fmt_key} assets for: {topic}")
-    print(f"[INFO] Format: {video_format} | Model: claude-opus-4-6 | max_tokens={MAX_TOKENS_MAP[fmt_key]}")
+    print(f"[INFO] Format: {video_format} | Model: claude-sonnet-4-6 | max_tokens={MAX_TOKENS_MAP[fmt_key]}")
 
     data = call_claude(topic, video_format, fmt_key)
     out_path = write_output(data, zodiac_slug, fmt_key)
@@ -175,7 +175,7 @@ def main() -> None:
         topic, zodiac_slug = build_topic(args.topic)
         video_format = FORMAT_MAP[fmt_key]
         print(f"[INFO] Generating {fmt_key} assets for: {topic}")
-        print(f"[INFO] Format: {video_format} | Model: claude-opus-4-6 | max_tokens={MAX_TOKENS_MAP[fmt_key]}")
+        print(f"[INFO] Format: {video_format} | Model: claude-sonnet-4-6 | max_tokens={MAX_TOKENS_MAP[fmt_key]}")
         data = call_claude(topic, video_format, fmt_key)
         out_path = write_output(data, zodiac_slug, fmt_key)
         print_results(data, out_path)
