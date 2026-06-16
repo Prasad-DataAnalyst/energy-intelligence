@@ -4,14 +4,16 @@ generate_horoscope_assets.py
 Generates YouTube horoscope video content assets using the Anthropic API.
 
 Usage:
-  python generate_horoscope_assets.py "Scorpio June 2026" --format short
-  python generate_horoscope_assets.py Scorpio "June 2026" --format long
+  python3 generate_horoscope_assets.py "Scorpio June 2026" --format short
+  python3 generate_horoscope_assets.py Scorpio "June 2026" --format long
+  python3 generate_horoscope_assets.py --all "June 2026" --format short
 """
 import argparse
 import json
 import os
 import re
 import sys
+import time
 from datetime import date
 
 import anthropic
@@ -33,6 +35,11 @@ Output ONLY a valid JSON object. Do not include any introduction, conversational
   "script": "The full voiceover script. Write it in an atmospheric, mysterious, and deeply engaging tone. Speak directly to the viewer using 'You'. Do not include any speaker tags, section headers, parentheses, or audio-visual bracket cues. Maintain a smooth, continuous narrative flow safe for immediate Text-to-Speech execution. Word count must strictly match the chosen format."
 }"""
 
+ALL_SIGNS = [
+    "Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo",
+    "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces",
+]
+
 FORMAT_MAP = {
     "short": "Vertical Short (9:16, 130 words)",
     "long":  "Long-form (16:9, 700 words)",
@@ -50,10 +57,16 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate YouTube horoscope video assets via Claude API"
     )
-    parser.add_argument(
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument(
         "topic",
-        nargs="+",
+        nargs="*",
         help="Zodiac sign and date: 'Scorpio June 2026' or two args: Scorpio 'June 2026'",
+    )
+    group.add_argument(
+        "--all",
+        metavar="DATE",
+        help="Generate assets for all 12 signs. Provide the date, e.g. 'June 2026'",
     )
     parser.add_argument(
         "--format",
@@ -131,19 +144,42 @@ def print_results(data: dict, out_path: str) -> None:
     print(f"[INFO] Output written to: {out_path}")
 
 
-def main() -> None:
-    args = parse_args()
-    topic, zodiac_slug = build_topic(args.topic)
-    fmt_key = args.format
+def run_single(sign: str, date_str: str, fmt_key: str) -> None:
+    topic = f"{sign} {date_str}"
+    zodiac_slug = sign.lower()
     video_format = FORMAT_MAP[fmt_key]
 
-    print(f"[INFO] Generating {fmt_key} assets for: {topic}")
-    print(f"[INFO] Format: {video_format}")
-    print(f"[INFO] Model: claude-opus-4-6  max_tokens={MAX_TOKENS_MAP[fmt_key]}")
+    print(f"\n[INFO] Generating {fmt_key} assets for: {topic}")
+    print(f"[INFO] Format: {video_format} | Model: claude-opus-4-6 | max_tokens={MAX_TOKENS_MAP[fmt_key]}")
 
     data = call_claude(topic, video_format, fmt_key)
     out_path = write_output(data, zodiac_slug, fmt_key)
     print_results(data, out_path)
+
+
+def main() -> None:
+    args = parse_args()
+    fmt_key = args.format
+
+    if args.all:
+        date_str = args.all
+        print(f"[INFO] Generating {fmt_key} assets for ALL 12 signs — {date_str}")
+        for i, sign in enumerate(ALL_SIGNS):
+            run_single(sign, date_str, fmt_key)
+            if i < len(ALL_SIGNS) - 1:
+                time.sleep(1)  # brief pause between API calls
+        print(f"\n[DONE] Generated assets for all 12 signs.")
+    else:
+        if not args.topic:
+            print("[ERROR] Provide a zodiac sign and date, or use --all DATE", file=sys.stderr)
+            sys.exit(1)
+        topic, zodiac_slug = build_topic(args.topic)
+        video_format = FORMAT_MAP[fmt_key]
+        print(f"[INFO] Generating {fmt_key} assets for: {topic}")
+        print(f"[INFO] Format: {video_format} | Model: claude-opus-4-6 | max_tokens={MAX_TOKENS_MAP[fmt_key]}")
+        data = call_claude(topic, video_format, fmt_key)
+        out_path = write_output(data, zodiac_slug, fmt_key)
+        print_results(data, out_path)
 
 
 if __name__ == "__main__":
