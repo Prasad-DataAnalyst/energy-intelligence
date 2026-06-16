@@ -317,8 +317,8 @@ def process(json_path: str) -> None:
             blend_rgba(frame, hook_rgba, alpha)
         return frame
 
-    video_clip = VideoClip(make_frame, duration=duration).set_fps(FPS)
-    video_clip = video_clip.set_audio(audio_clip)
+    video_clip = VideoClip(make_frame, duration=duration).with_fps(FPS)
+    video_clip = video_clip.with_audio(audio_clip)
 
     video_clip.write_videofile(
         video_path,
