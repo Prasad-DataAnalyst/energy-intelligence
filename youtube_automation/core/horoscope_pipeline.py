@@ -161,26 +161,60 @@ def _stage_content(video_type: str, date: datetime.date,
 # Stage 2: Audio — edge-tts female voice + ambient background music
 # ---------------------------------------------------------------------------
 
-async def _async_edge_tts(text: str, out_path: str, voice: str, rate: str) -> None:
+import re as _re
+
+
+async def _async_edge_tts(text: str, out_path: str,
+                           voice: str, rate: str, pitch: str) -> None:
     """Generate speech using edge-tts (Microsoft Neural TTS, free)."""
     import edge_tts
-    communicate = edge_tts.Communicate(text, voice=voice, rate=rate)
+    communicate = edge_tts.Communicate(text, voice=voice, rate=rate, pitch=pitch)
     await communicate.save(out_path)
+
+
+def _add_breath_pauses(text: str) -> str:
+    """
+    Insert SSML <break> tags between sentences so the reading feels meditative
+    rather than machine-continuous.  Edge-tts interprets these inline.
+
+      • 900 ms pause between sign sections (paragraph break \n\n) — applied FIRST
+        so paragraph newlines are not consumed by the sentence regex
+      • 550 ms pause after every sentence (. ! ?) — applied second
+
+    This alone makes the biggest audible difference — listeners need a moment
+    to absorb each line before the next one begins.
+    """
+    # 1. Sign-transition pause FIRST (before the sentence regex consumes newlines)
+    processed = text.replace('\n\n', ' <break time="900ms"/> ')
+    # 2. Sentence pause: after . ! ? followed by whitespace + capital/symbol
+    processed = _re.sub(
+        r'([.!?])\s+([A-Z♈♉♊♋♌♍♎♏♐♑♒♓])',
+        r'\1 <break time="550ms"/> \2',
+        processed,
+    )
+    return processed
 
 
 def _edge_tts_voiceover(text: str, out_path: str) -> bool:
     """
-    Generate voiceover with edge-tts using a calm female voice at slow pace.
-    Returns True on success.
+    Generate horoscope voiceover with a deep, soft, warm female voice.
 
-    Voice: en-US-AriaNeural — clear, warm, professional female voice
-    Rate: -15% — noticeably slower than normal (clear for all listeners)
+    Voice:  en-GB-SoniaNeural
+      — BBC-quality British female voice.  When slowed and pitched down,
+        she sounds oracular: authoritative yet intimate.  Listeners naturally
+        associate this timbre with wisdom and trust.
+
+    Rate:   -22%  — slow and deliberate; each word has space to land.
+    Pitch:  -8Hz  — slightly lower than default; warmer, not harsh.
+    Pauses: 550 ms between sentences, 900 ms between signs — meditative pacing.
     """
     try:
-        voice = "en-US-AriaNeural"
-        rate = "-15%"
-        log.info(f"edge-tts: voice={voice}, rate={rate}, chars={len(text)}")
-        asyncio.run(_async_edge_tts(text, out_path, voice, rate))
+        voice = "en-GB-SoniaNeural"
+        rate  = "-22%"
+        pitch = "-8Hz"
+        prepared = _add_breath_pauses(text)
+        log.info(f"edge-tts: voice={voice} rate={rate} pitch={pitch} chars={len(prepared)}")
+        asyncio.run(_async_edge_tts(prepared, out_path, voice, rate, pitch))
         if os.path.exists(out_path) and os.path.getsize(out_path) > 1000:
             log.info(f"edge-tts voice: {out_path} ({os.path.getsize(out_path)//1024}KB)")
             return True
@@ -195,17 +229,19 @@ def _edge_tts_voiceover(text: str, out_path: str) -> bool:
 
 
 def _espeak_voiceover(text: str, out_path: str) -> bool:
-    """Fallback: espeak-ng with best female-sounding voice settings."""
+    """Fallback: espeak-ng with deep, warm female voice settings."""
+    # Strip SSML break tags — espeak-ng doesn't understand them
+    clean = _re.sub(r'<break[^>]*/?>', ' ', text)
     try:
         result = subprocess.run(
             [
                 "espeak-ng",
-                "-v", "en-us+f3",   # female voice variant 3
-                "-s", "140",         # words per minute (140 = slow, clear)
-                "-p", "55",          # pitch 55/100 (lower = more pleasant)
-                "-a", "180",         # amplitude (volume)
+                "-v", "en-gb+f3",   # British female variant 3 — warmer than en-us
+                "-s", "125",         # words per minute (slower = more meditative)
+                "-p", "42",          # pitch 42/100 (lower = deeper, warmer)
+                "-a", "180",         # amplitude
                 "-w", out_path,
-                text[:8000],
+                clean[:8000],
             ],
             capture_output=True, text=True, timeout=300,
         )

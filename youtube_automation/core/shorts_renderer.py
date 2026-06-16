@@ -343,8 +343,14 @@ def _render_outro_frame(out_path: str, bg) -> None:
 
 async def _async_tts(text: str, out_path: str) -> None:
     import edge_tts
-    # Shorts: normal speed (+0%) — energetic and punchy, not slow/meditative
-    comm = edge_tts.Communicate(text, voice="en-US-AriaNeural", rate="+0%")
+    # Shorts: warm British voice at -8% — fast enough to fit 45s, deep enough
+    # to feel intentional.  Same voice family as main video for brand consistency.
+    comm = edge_tts.Communicate(
+        text,
+        voice="en-GB-SoniaNeural",
+        rate="-8%",
+        pitch="-5Hz",
+    )
     await comm.save(out_path)
 
 
