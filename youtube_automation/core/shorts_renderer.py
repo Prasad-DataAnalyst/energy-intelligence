@@ -217,7 +217,8 @@ def _render_intro_frame(out_path: str, date: datetime.date, bg) -> None:
 
 
 def _render_sign_frame(reading: dict, out_path: str,
-                       date: datetime.date, bg) -> None:
+                       date: datetime.date, bg,
+                       sign_index: int = 0, total_signs: int = 12) -> None:
     from PIL import Image, ImageDraw
 
     sign      = reading.get("sign", "")
@@ -287,12 +288,29 @@ def _render_sign_frame(reading: dict, out_path: str,
     lucky_line = f"✦ {lucky_color}  •  {lucky_day} ✦"
     _draw_centered(draw, lucky_line, box_y2 + 36, _load_font(40), (*accent,))
 
-    # CTA (bottom)
-    cta_y = H - 205
-    _draw_centered(draw, "🔔 Subscribe for Daily Readings",
-                   cta_y,      _load_font(50, True), (255, 215, 55))
-    _draw_centered(draw, "GetMindFuelNow",
-                   cta_y + 68, _load_font(42),       (190, 155, 255))
+    # ── Progress bar + sign counter (e.g. "3 / 12") ─────────────────────────
+    # Shows viewers where they are in the Short — drives watch time
+    bar_y  = H - 130
+    bar_h  = 8
+    bar_x1, bar_x2 = 60, W - 60
+    bar_w  = bar_x2 - bar_x1
+    filled = int(bar_w * (sign_index + 1) / total_signs)
+
+    # Background bar (dim)
+    draw.rounded_rectangle([(bar_x1, bar_y), (bar_x2, bar_y + bar_h)],
+                            radius=4, fill=(60, 40, 100, 180))
+    # Filled portion (element accent colour)
+    if filled > 0:
+        draw.rounded_rectangle([(bar_x1, bar_y), (bar_x1 + filled, bar_y + bar_h)],
+                                radius=4, fill=(*accent,))
+
+    # Sign counter
+    counter_text = f"{sign_index + 1} / {total_signs}"
+    _draw_centered(draw, counter_text, bar_y + 16, _load_font(36, True), (*accent,))
+
+    # Bottom channel label
+    _draw_centered(draw, "GetMindFuelNow  •  🔔 Subscribe",
+                   H - 65, _load_font(36, True), (255, 215, 55))
 
     img.save(out_path, "PNG")
 
@@ -387,7 +405,7 @@ def _build_segment(frame_path: str, audio_path: str,
         ),
         "-r", "30",
         "-preset", "ultrafast",
-        "-crf", "26",
+        "-crf", "23",        # sharper than 26; same speed with ultrafast
         "-shortest",
         out_path,
     ]
@@ -544,9 +562,10 @@ def generate_combined_short(
         audio_path = str(shorts_dir / f"comb_audio_{sign.lower()}.mp3")
         video_path = str(shorts_dir / f"comb_seg_{sign.lower()}.mp4")
 
-        # Frame
+        # Frame — pass index so progress bar shows "3 / 12"
         try:
-            _render_sign_frame(reading, frame_path, date, bg)
+            _render_sign_frame(reading, frame_path, date, bg,
+                               sign_index=i, total_signs=len(readings))
         except Exception as e:
             log.warning(f"Sign frame error ({sign}): {e}")
             continue

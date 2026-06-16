@@ -228,23 +228,31 @@ def _generate_ambient_music(duration_s: int, out_path: str) -> bool:
     Volume is kept low so it sits under the voice without competing.
     """
     try:
+        # Six-note mystical chord in solfeggio/432Hz tuning:
+        #   432 Hz  (A4-tuned root), 480 Hz (major 3rd), 540 Hz (perfect 5th),
+        #   576 Hz (minor 7th warmth), 648 Hz (octave), 720 Hz (major 9th shimmer)
+        # Each note has its own reverb tail at different lengths for depth and width.
+        d = duration_s + 6
         cmd = [
             "ffmpeg", "-y",
-            # Three sine waves — a gentle A-major-ish chord
-            "-f", "lavfi", "-i", f"sine=f=432:d={duration_s + 5}",
-            "-f", "lavfi", "-i", f"sine=f=540:d={duration_s + 5}",
-            "-f", "lavfi", "-i", f"sine=f=648:d={duration_s + 5}",
+            "-f", "lavfi", "-i", f"sine=f=432:d={d}",
+            "-f", "lavfi", "-i", f"sine=f=480:d={d}",
+            "-f", "lavfi", "-i", f"sine=f=540:d={d}",
+            "-f", "lavfi", "-i", f"sine=f=576:d={d}",
+            "-f", "lavfi", "-i", f"sine=f=648:d={d}",
+            "-f", "lavfi", "-i", f"sine=f=720:d={d}",
             "-filter_complex",
             (
-                # Volume-balance each tone
-                "[0]volume=0.12,aecho=0.8:0.9:800:0.5[a0];"
-                "[1]volume=0.07,aecho=0.7:0.85:1200:0.4[a1];"
-                "[2]volume=0.05,aecho=0.6:0.8:1600:0.3[a2];"
-                # Mix, lowpass to make it warm and soft
-                "[a0][a1][a2]amix=inputs=3:duration=first,"
-                "lowpass=f=700,highpass=f=80,"
-                # Fade in 2s, fade out 3s
-                f"afade=t=in:d=2,afade=t=out:st={duration_s - 3}:d=3[out]"
+                "[0]volume=0.13,aecho=0.8:0.88:900:0.55[a0];"
+                "[1]volume=0.09,aecho=0.75:0.85:1100:0.45[a1];"
+                "[2]volume=0.08,aecho=0.7:0.82:1400:0.40[a2];"
+                "[3]volume=0.06,aecho=0.65:0.80:1700:0.35[a3];"
+                "[4]volume=0.05,aecho=0.60:0.78:2100:0.30[a4];"
+                "[5]volume=0.04,aecho=0.55:0.75:2500:0.25[a5];"
+                "[a0][a1][a2][a3][a4][a5]amix=inputs=6:duration=first,"
+                "lowpass=f=900,highpass=f=60,"          # warm, remove sub-rumble
+                "treble=g=-3:f=4000,"                   # slight treble cut for softness
+                f"afade=t=in:d=3,afade=t=out:st={max(1, duration_s - 4)}:d=4[out]"
             ),
             "-map", "[out]",
             "-ar", "44100", "-ac", "2",
@@ -266,8 +274,14 @@ def _generate_ambient_music(duration_s: int, out_path: str) -> bool:
 def _mix_voice_and_music(voice_path: str, music_path: str,
                           out_path: str, voice_duration_s: int) -> str:
     """
-    Mix voice (loud) + music (quiet background). Returns out_path.
-    Music is ducked to -18 dB relative to voice.
+    Voice EQ + compression + music mix + loudnorm mastering.
+
+    Processing chain:
+      Voice → highpass(80Hz) removes room rumble
+            → lowpass(12kHz) removes harshness from TTS
+            → compand for gentle dynamic compression (broadcast consistency)
+      Music → volume -18dB (soft background)
+      Mix   → amix → alimiter → loudnorm EBU R128 (-16 LUFS broadcast standard)
     """
     try:
         cmd = [
@@ -276,13 +290,18 @@ def _mix_voice_and_music(voice_path: str, music_path: str,
             "-i", music_path,
             "-filter_complex",
             (
-                # Voice at full volume, music at -18 dB
-                "[0]volume=1.0[v];"
-                "[1]volume=0.12[m];"
+                # Voice chain: EQ → gentle compression → normalize
+                "[0]highpass=f=80,lowpass=f=12000,"
+                "compand=attacks=0.05:decays=0.3:"
+                "points=-70/-70|-40/-40|-20/-14|-5/-5:gain=2[v];"
+                # Music: ducked to background level
+                "[1]volume=0.10[m];"
+                # Mix, limit, loudnorm EBU R128 (-16 LUFS, -1.5 dBTP)
                 f"[v][m]amix=inputs=2:duration=first,"
                 f"alimiter=limit=0.95:level=true,"
                 f"afade=t=in:d=0.5,"
-                f"afade=t=out:st={max(0, voice_duration_s - 2)}:d=2[out]"
+                f"afade=t=out:st={max(0, voice_duration_s - 2)}:d=2,"
+                "loudnorm=I=-16:TP=-1.5:LRA=11[out]"
             ),
             "-map", "[out]",
             "-ar", "44100", "-ac", "2",
@@ -1112,9 +1131,9 @@ def _frame_to_animated_video(image_path: str, out_path: str, duration: int) -> N
             f"fade=t=in:st=0:d={fade_dur},"
             f"fade=t=out:st={fade_out_start}:d={fade_dur}"
         ),
-        "-r", "15",
+        "-r", "24",          # 24fps — YouTube minimum recommendation; smoother than 15fps
         "-preset", "ultrafast",
-        "-crf", "28",
+        "-crf", "23",        # CRF 23 — noticeably sharper than 28 with same ultrafast speed
         out_path,
     ]
     result = subprocess.run(cmd, capture_output=True, timeout=1200)
