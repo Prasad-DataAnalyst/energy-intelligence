@@ -57,13 +57,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate YouTube horoscope video assets via Claude API"
     )
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument(
+    parser.add_argument(
         "topic",
         nargs="*",
         help="Zodiac sign and date: 'Scorpio June 2026' or two args: Scorpio 'June 2026'",
     )
-    group.add_argument(
+    parser.add_argument(
         "--all",
         metavar="DATE",
         help="Generate assets for all 12 signs. Provide the date, e.g. 'June 2026'",
@@ -71,8 +70,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--format",
         choices=["short", "long"],
-        default="long",
-        help="Video format: short (130w) or long (700w). Default: long",
+        default="short",
+        help="Video format: short (130w) or long (700w). Default: short",
     )
     return parser.parse_args()
 
