@@ -44,7 +44,10 @@ def _get_credentials() -> Credentials:
         if creds.expired and creds.refresh_token:
             try:
                 creds.refresh(Request())
-                token_path.write_text(creds.to_json())
+                try:
+                    token_path.write_text(creds.to_json())
+                except Exception as write_err:
+                    log.warning("Could not save refreshed token (will re-refresh next run): %s", write_err)
                 log.info("YouTube OAuth token refreshed successfully")
             except Exception as exc:
                 raise RuntimeError(
@@ -125,7 +128,11 @@ def upload_video(video_path: str, content: dict, seo_package: dict = None) -> st
     if not init_resp.ok:
         log.error("YouTube upload init failed %d: %s", init_resp.status_code, init_resp.text[:500])
     init_resp.raise_for_status()
-    upload_url = init_resp.headers["Location"]
+    upload_url = init_resp.headers.get("Location")
+    if not upload_url:
+        raise RuntimeError(
+            f"YouTube upload init succeeded ({init_resp.status_code}) but returned no Location header"
+        )
 
     log.info("Uploading: %s  (%.1f MB)", title, file_size / 1_048_576)
     video_id = _stream_upload(session, upload_url, video_path, file_size)

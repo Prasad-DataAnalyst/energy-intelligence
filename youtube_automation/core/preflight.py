@@ -112,8 +112,8 @@ def _check_disk_space(video_type: str) -> CheckResult:
     stat = shutil.disk_usage("/")
     available_gb = stat.free / (1024 ** 3)
 
-    if available_gb >= min_gb:
-        return CheckResult("disk_space", True, f"{available_gb:.1f}GB free (need {min_gb}GB)")
+    if available_gb >= min_gb + 0.5:
+        return CheckResult("disk_space", True, f"{available_gb:.1f}GB free (need {min_gb}GB + 0.5GB safety margin)")
 
     # Auto-fix: delete output dirs older than 7 days
     freed_gb = 0.0
@@ -134,7 +134,7 @@ def _check_disk_space(video_type: str) -> CheckResult:
     stat2 = shutil.disk_usage("/")
     avail2 = stat2.free / (1024 ** 3)
 
-    if avail2 >= min_gb:
+    if avail2 >= min_gb + 0.5:
         return CheckResult(
             "disk_space", True,
             f"{avail2:.1f}GB free after cleanup",
@@ -240,7 +240,7 @@ def _check_python_packages() -> CheckResult:
             log.info("Auto-installing: %s", pkg)
             subprocess.run(
                 [python, "-m", "pip", "install", "--quiet", pkg],
-                capture_output=True, timeout=120, check=True,
+                capture_output=True, timeout=300, check=True,
             )
             fixed.append(pkg)
         except Exception as e:

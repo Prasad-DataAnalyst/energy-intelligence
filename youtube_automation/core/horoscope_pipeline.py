@@ -307,56 +307,10 @@ def _get_audio_duration(path: str) -> int:
              "-of", "default=noprint_wrappers=1:nokey=1", path],
             capture_output=True, text=True, timeout=30,
         )
-        return max(60, int(float(result.stdout.strip())))
-    except Exception:
+        return max(1, int(float(result.stdout.strip())))
+    except Exception as e:
+        log.warning(f"ffprobe duration check failed for {path}: {e}")
         return 60
-
-
-def _tts_padded(text: str, out_wav: str, target_s: int) -> bool:
-    """
-    Generate TTS for text, then pad or trim to exactly target_s seconds.
-    Writes a WAV file.  Returns True on success.
-    Audio longer than target_s is trimmed; shorter audio is silence-padded.
-    This guarantees that every segment is exactly target_s long so that
-    when segments are concatenated, video and audio stay in sync.
-    """
-    raw_mp3 = out_wav.replace(".wav", "_raw.mp3")
-    ok = _edge_tts_voiceover(text, raw_mp3)
-    if not ok or not os.path.exists(raw_mp3):
-        _generate_silent_wav(out_wav, target_s)
-        return False
-
-    # apad=whole_dur pads silence to reach target_s; -t trims if longer
-    cmd = [
-        "ffmpeg", "-y", "-i", raw_mp3,
-        "-af", f"apad=whole_dur={target_s}",
-        "-t", str(target_s),
-        "-ar", "44100", "-ac", "2", "-acodec", "pcm_s16le",
-        out_wav,
-    ]
-    r = subprocess.run(cmd, capture_output=True, timeout=120)
-    if r.returncode == 0 and os.path.exists(out_wav):
-        return True
-    log.warning(f"TTS pad failed ({r.stderr.decode()[-80:]}), using silence")
-    _generate_silent_wav(out_wav, target_s)
-    return False
-
-
-def _concat_audio_files(paths: list[str], out_path: str) -> str:
-    """Concatenate WAV files into one using ffmpeg concat demuxer."""
-    txt = out_path + "_list.txt"
-    with open(txt, "w") as f:
-        for p in paths:
-            f.write(f"file '{p}'\n")
-    cmd = [
-        "ffmpeg", "-y", "-f", "concat", "-safe", "0",
-        "-i", txt, "-c", "copy", out_path,
-    ]
-    r = subprocess.run(cmd, capture_output=True, timeout=300)
-    if r.returncode == 0 and os.path.exists(out_path):
-        return out_path
-    log.warning(f"Audio concat failed: {r.stderr.decode()[-200:]}")
-    return paths[0] if paths else out_path
 
 
 def _stage_audio(
@@ -427,7 +381,8 @@ def _stage_audio(
                 capture_output=True, timeout=120,
             )
             if conv.returncode != 0 or not os.path.exists(voice_wav):
-                voice_wav = voice_mp3
+                log.warning("MP3→WAV conversion failed — will retry with espeak")
+                voice_ok = False
 
         if not voice_ok or not os.path.exists(voice_wav):
             log.warning("edge-tts failed — trying espeak-ng fallback")
@@ -435,7 +390,7 @@ def _stage_audio(
 
         if not voice_ok or not os.path.exists(voice_wav):
             log.warning("All TTS failed — using silence")
-            _generate_silent_wav(voice_wav, len(sign_sections) * 30 + 24)
+            _generate_silent_wav(voice_wav, max(300, len(sign_sections) * 30 + 24))
 
         voice_duration = _get_audio_duration(voice_wav)
         log.info(f"Daily balanced TTS: {voice_duration}s (1 API call, {len(sign_sections)} signs × 55 words)")
@@ -453,7 +408,8 @@ def _stage_audio(
                 capture_output=True, timeout=60,
             )
             if conv.returncode != 0 or not os.path.exists(voice_wav):
-                voice_wav = voice_mp3
+                log.warning("MP3→WAV conversion failed — will retry with espeak")
+                voice_ok = False
 
         if not voice_ok or not os.path.exists(voice_wav):
             log.warning("edge-tts failed — trying espeak-ng fallback")
@@ -479,13 +435,17 @@ def _stage_audio(
     return final_audio, voice_duration
 
 
-def _generate_silent_wav(path: str, duration_s: int = 60, sample_rate: int = 44100) -> None:
+def _generate_silent_wav(path: str, duration_s: int = 60, sample_rate: int = 44100) -> bool:
     cmd = [
         "ffmpeg", "-y", "-f", "lavfi",
         "-i", f"anullsrc=channel_layout=stereo:sample_rate={sample_rate}",
         "-t", str(duration_s), "-acodec", "pcm_s16le", path,
     ]
-    subprocess.run(cmd, capture_output=True, timeout=30)
+    r = subprocess.run(cmd, capture_output=True, timeout=30)
+    if r.returncode != 0 or not os.path.exists(path):
+        log.warning(f"Silent WAV generation failed for {path}: {r.stderr.decode()[-100:]}")
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -588,7 +548,7 @@ def _download_ai_background(prompt: str, out_path: str, seed: int) -> bool:
         )
         log.info(f"Generating AI thumbnail (seed={seed}, prompt[:60]={prompt[:60]}...)")
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=90) as resp:
+        with urllib.request.urlopen(req, timeout=180) as resp:
             with open(out_path, "wb") as f:
                 f.write(resp.read())
         ok = os.path.exists(out_path) and os.path.getsize(out_path) > 5_000
@@ -756,8 +716,8 @@ def _stage_video(
     # Calculate sign duration from actual audio so video and audio stay in sync.
     # Fixed sign_dur ignores how long TTS actually runs, causing audio/video mismatch.
     if audio_duration > 0 and len(readings) > 0:
-        available = audio_duration - intro_dur - outro_dur
-        sign_dur = max(20, available // len(readings))
+        available = max(0, audio_duration - intro_dur - outro_dur)
+        sign_dur = max(20, round(available / len(readings)))
     else:
         sign_dur = get_duration_per_sign(video_type)
 
@@ -802,7 +762,7 @@ def _stage_video(
     result = subprocess.run(
         ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
          "-i", concat_list_path, "-c", "copy", final_silent_path],
-        capture_output=True, timeout=600,
+        capture_output=True, timeout=1200,
     )
     if result.returncode != 0:
         raise RuntimeError(f"ffmpeg concat failed:\n{result.stderr.decode()[-500:]}")
@@ -853,7 +813,7 @@ def _render_intro_frame(frame_path: str, video_type: str, date: datetime.date) -
         draw.rectangle([(0, H - 7), (W, H)], fill=(140, 70, 240))
         img.save(frame_path, "PNG")
     except Exception as e:
-        log.debug(f"Intro frame PIL error: {e}")
+        log.warning(f"Intro frame PIL error: {e}")
         _ffmpeg_solid_frame(frame_path, "HOROSCOPE — All 12 Signs")
 
 
@@ -886,7 +846,7 @@ def _render_outro_frame(frame_path: str, date: datetime.date) -> None:
         draw.rectangle([(0, H - 7), (W, H)], fill=(140, 70, 240))
         img.save(frame_path, "PNG")
     except Exception as e:
-        log.debug(f"Outro frame PIL error: {e}")
+        log.warning(f"Outro frame PIL error: {e}")
         _ffmpeg_solid_frame(frame_path, "SUBSCRIBE — GetMindFuelNow")
 
 
@@ -1074,7 +1034,7 @@ def _render_sign_frame(
         img.save(frame_path, "PNG")
 
     except Exception as e:
-        log.debug(f"PIL sign frame error for {reading.get('sign', '?')}: {e}")
+        log.warning(f"PIL sign frame error for {reading.get('sign', '?')}: {e}")
         _ffmpeg_solid_frame(
             frame_path,
             f"{reading.get('symbol', '★')} {reading.get('sign', '').upper()}",
@@ -1192,12 +1152,12 @@ def _stage_upload(
 
     try:
         from youtube_uploader import upload_video, upload_thumbnail, update_channel_branding
-        video_url = upload_video(final_path, metadata)
-        log.info(f"Uploaded: {video_url} ({_elapsed(t0)})")
+        video_id = upload_video(final_path, metadata)
+        full_url = f"https://youtu.be/{video_id}"
+        log.info(f"Uploaded: {full_url} ({_elapsed(t0)})")
 
         # Upload thumbnail separately if present
         if thumbnail_path and os.path.exists(thumbnail_path):
-            video_id = video_url.split("/")[-1] if "/" in str(video_url) else str(video_url)
             upload_thumbnail(video_id, thumbnail_path)
 
         # Keep channel bio + keywords fresh (runs at most once per week)
@@ -1206,7 +1166,7 @@ def _stage_upload(
         except Exception as be:
             log.debug(f"Channel branding update skipped: {be}")
 
-        return {"ok": True, "url": video_url, "elapsed": _elapsed(t0)}
+        return {"ok": True, "url": full_url, "elapsed": _elapsed(t0)}
     except Exception as e:
         log.error(f"Upload failed: {e}\n{traceback.format_exc()}")
         _add_to_retry_queue(final_path, metadata)

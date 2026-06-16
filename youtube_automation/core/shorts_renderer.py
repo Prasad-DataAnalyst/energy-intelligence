@@ -163,7 +163,7 @@ def _get_shared_bg(shorts_dir: Path, date: datetime.date):
         )
         log.info(f"Downloading shared AI background (seed={seed})…")
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=90) as resp:
+        with urllib.request.urlopen(req, timeout=180) as resp:
             with open(ai_path, "wb") as f:
                 f.write(resp.read())
         if os.path.exists(ai_path) and os.path.getsize(ai_path) > 5_000:
@@ -351,7 +351,7 @@ def _audio_duration(path: str) -> int:
              "-of", "default=noprint_wrappers=1:nokey=1", path],
             capture_output=True, text=True, timeout=30,
         )
-        return max(2, int(float(r.stdout.strip())))
+        return max(1, int(float(r.stdout.strip())))
     except Exception:
         return 5
 
@@ -583,9 +583,9 @@ def generate_combined_short(
     log.info(f"Outro: {outro_dur}s")
 
     # ── 5. Concatenate ────────────────────────────────────────────────────────
-    if not segments:
-        log.error("No segments to concatenate — Combined Short failed")
-        return {"ok": False, "error": "no segments"}
+    if len(segments) < 3:
+        log.error(f"Too few segments ({len(segments)}) to build Combined Short — need at least intro + 1 sign + outro")
+        return {"ok": False, "error": f"only {len(segments)} segment(s) built"}
 
     final_path = str(shorts_dir / f"combined_short_{date.isoformat()}.mp4")
     ok = _concat_segments(segments, final_path)
