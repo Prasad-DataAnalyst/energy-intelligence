@@ -373,6 +373,16 @@ def _stage_audio(
             outro_text
         )
 
+        # Track word counts per section for proportional video timing.
+        # This is the only way to keep audio and video in sync when using a
+        # single-pass TTS — each video segment's duration is set proportionally
+        # to the number of words TTS will read in that section.
+        section_words = (
+            [len(intro_text.split())]
+            + [len(s.split()) for s in sign_sections]
+            + [len(outro_text.split())]
+        )
+
         voice_ok = _edge_tts_voiceover(balanced_script, voice_mp3)
         if voice_ok:
             conv = subprocess.run(
@@ -391,6 +401,7 @@ def _stage_audio(
         if not voice_ok or not os.path.exists(voice_wav):
             log.warning("All TTS failed — using silence")
             _generate_silent_wav(voice_wav, max(300, len(sign_sections) * 30 + 24))
+            section_words = []
 
         voice_duration = _get_audio_duration(voice_wav)
         log.info(f"Daily balanced TTS: {voice_duration}s (1 API call, {len(sign_sections)} signs × 55 words)")
@@ -432,7 +443,11 @@ def _stage_audio(
         final_audio = voice_wav
 
     log.info(f"Audio stage: {_elapsed(t0)}, output: {final_audio}, duration: {voice_duration}s")
-    return final_audio, voice_duration
+    # section_words: [intro_words, sign0_words, ..., sign11_words, outro_words]
+    # Empty list means fall back to uniform timing in _stage_video.
+    if video_type != "daily":
+        section_words = []
+    return final_audio, voice_duration, section_words
 
 
 def _generate_silent_wav(path: str, duration_s: int = 60, sample_rate: int = 44100) -> bool:
@@ -691,6 +706,7 @@ def _stage_video(
     video_type: str,
     date: datetime.date,
     audio_duration: int,
+    section_words: list[int] | None = None,
 ) -> str:
     """
     Generate the full video using ffmpeg.
@@ -711,15 +727,29 @@ def _stage_video(
         get_duration_per_sign, get_intro_duration, get_outro_duration,
     )
 
-    intro_dur = get_intro_duration(video_type)
-    outro_dur = get_outro_duration(video_type)
-    # Calculate sign duration from actual audio so video and audio stay in sync.
-    # Fixed sign_dur ignores how long TTS actually runs, causing audio/video mismatch.
-    if audio_duration > 0 and len(readings) > 0:
-        available = max(0, audio_duration - intro_dur - outro_dur)
-        sign_dur = max(20, round(available / len(readings)))
+    # Proportional timing: each segment's duration is proportional to its word count.
+    # This is the only accurate way to sync video frames with single-pass TTS audio.
+    # Falls back to uniform distribution when section_words is not available.
+    if section_words and len(section_words) == len(readings) + 2:
+        total_w = max(1, sum(section_words))
+        intro_dur  = max(6,  round(section_words[0]  / total_w * audio_duration))
+        outro_dur  = max(6,  round(section_words[-1] / total_w * audio_duration))
+        sign_durs  = [max(15, round(w / total_w * audio_duration))
+                      for w in section_words[1:-1]]
+        log.info(
+            f"Proportional timing — intro:{intro_dur}s "
+            f"signs:{min(sign_durs)}–{max(sign_durs)}s "
+            f"outro:{outro_dur}s  total:{intro_dur + sum(sign_durs) + outro_dur}s  audio:{audio_duration}s"
+        )
     else:
-        sign_dur = get_duration_per_sign(video_type)
+        intro_dur = get_intro_duration(video_type)
+        outro_dur = get_outro_duration(video_type)
+        if audio_duration > 0 and len(readings) > 0:
+            available = max(0, audio_duration - intro_dur - outro_dur)
+            uniform   = max(20, round(available / len(readings)))
+        else:
+            uniform   = get_duration_per_sign(video_type)
+        sign_durs = [uniform] * len(readings)
 
     frames_dir = out_dir / "frames"
     frames_dir.mkdir(exist_ok=True)
@@ -741,10 +771,11 @@ def _stage_video(
         frame_path = str(frames_dir / f"sign_{i:02d}_{reading['sign'].lower()}.png")
         _render_sign_frame(frame_path, reading, date, video_type)
 
-        seg_path = str(out_dir / f"seg_{i:02d}_{reading['sign'].lower()}.mp4")
-        _frame_to_animated_video(frame_path, seg_path, duration=sign_dur)
+        seg_dur_i  = sign_durs[i] if i < len(sign_durs) else sign_durs[-1]
+        seg_path   = str(out_dir / f"seg_{i:02d}_{reading['sign'].lower()}.mp4")
+        _frame_to_animated_video(frame_path, seg_path, duration=seg_dur_i)
         segment_files.append(seg_path)
-        log.info(f"  [{i+1:02d}/12] {reading['sign']} — {sign_dur}s")
+        log.info(f"  [{i+1:02d}/12] {reading['sign']} — {seg_dur_i}s")
 
     # ── Outro ─────────────────────────────────────────────────────────────────
     outro_frame = str(frames_dir / "outro.png")
@@ -1241,7 +1272,7 @@ def run_horoscope_pipeline(
     # Stage 2: Audio
     word_count = len(full_script.split())
     try:
-        mixed_audio, audio_duration = _stage_audio(
+        mixed_audio, audio_duration, section_words = _stage_audio(
             readings, full_script, audio_dir, date_tag,
             primary_type, date, word_count,
         )
@@ -1251,8 +1282,9 @@ def run_horoscope_pipeline(
         log.error(f"Audio stage failed: {e}\n{traceback.format_exc()}")
         report["errors"].append(f"audio: {e}")
         report["stages"]["audio"] = {"ok": False, "error": str(e)}
-        mixed_audio = ""
+        mixed_audio    = ""
         audio_duration = max(60, word_count * 60 // 140)
+        section_words  = []
 
     # Stage 3: Thumbnail
     try:
@@ -1268,7 +1300,7 @@ def run_horoscope_pipeline(
     try:
         silent_path = _stage_video(
             readings, mixed_audio, out_base, date_tag,
-            primary_type, date, audio_duration,
+            primary_type, date, audio_duration, section_words,
         )
         report["stages"]["video"] = {"ok": True, "path": silent_path}
     except Exception as e:

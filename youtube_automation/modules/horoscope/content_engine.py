@@ -274,26 +274,63 @@ def _pick_n(rng: random.Random, items: list, n: int) -> list:
 # Core reading generators
 # ---------------------------------------------------------------------------
 
+_DAILY_STYLES = [
+    # Style 0: Moon + Action — what's happening cosmically and what to DO
+    lambda sign, moon, wpl, kl, kc, ln, lc, ld, aff: (
+        f"{sign['name']} {sign['symbol']} — The {moon['name']} {moon['emoji']} invites you to {moon['meaning']}. "
+        f"Love responds powerfully to {kl} energy today — one genuine gesture shifts everything. "
+        f"At work, your {kc} instincts are razor-sharp — trust them and move fast. "
+        f"Best color: {lc}. Lucky {ln}. {aff}"
+    ),
+    # Style 1: Planet-led + Specific Insight
+    lambda sign, moon, wpl, kl, kc, ln, lc, ld, aff: (
+        f"{sign['name']} {sign['symbol']} — {wpl} fires up {sign['ruling_planet']}'s influence in your chart, "
+        f"making {kc} moves more powerful than usual. "
+        f"In love, {kl} conversations open hearts — speak honestly and without editing yourself. "
+        f"Caution: scattered energy before noon; focus sharpens in the afternoon. "
+        f"Lucky {ln} and {lc}. {aff}"
+    ),
+    # Style 2: Element + Warning
+    lambda sign, moon, wpl, kl, kc, ln, lc, ld, aff: (
+        f"{sign['name']} {sign['symbol']} — Your {sign['element']} nature meets the {moon['name']} {moon['emoji']} "
+        f"in an alignment that amplifies {kc} potential dramatically. "
+        f"Love deepens through {kl} honesty — what you say now carries lasting weight. "
+        f"Watch: avoid overcommitting your time; protect your energy for what matters most. "
+        f"Power combo: {lc} and {ln}. {aff}"
+    ),
+    # Style 3: Two-domain power + lucky timing
+    lambda sign, moon, wpl, kl, kc, ln, lc, ld, aff: (
+        f"{sign['name']} {sign['symbol']} — Today is built for {sign['name']}. "
+        f"{sign['ruling_planet']} and the {moon['name']} {moon['emoji']} align for peak {kc} performance. "
+        f"A {kl} gesture in love now creates ripples that last for weeks. "
+        f"Your luckiest window: midday to 3 PM. Lucky {ln}. Wear {lc}. {aff}"
+    ),
+    # Style 4: Emotional depth + practical edge
+    lambda sign, moon, wpl, kl, kc, ln, lc, ld, aff: (
+        f"{sign['name']} {sign['symbol']} — Something shifts in your favor as {wpl} meets your {sign['element'].lower()} core. "
+        f"In relationships, {kl} understanding heals old tension without a single argument. "
+        f"Professionally, {kc} collaboration attracts the right people and the right opportunities. "
+        f"Lucky on {ld}. Carry {lc} energy and the number {ln}. {aff}"
+    ),
+]
+
+
 def _generate_daily_script(sign: dict, date: datetime.date, rng: random.Random,
                             moon: dict, weekday_planet: str) -> str:
-    """Generate a ~60-word voiceover script for a daily reading."""
-    opener = _pick(rng, ENERGY_OPENERS)
-    element = sign["element"]
-    keyword_love = _pick(rng, sign["keywords"]["love"])
+    """Generate a ~60-word voiceover script using one of 5 rotating styles."""
+    keyword_love   = _pick(rng, sign["keywords"]["love"])
     keyword_career = _pick(rng, sign["keywords"]["career"])
-    lucky_num = _pick(rng, sign["lucky_numbers"])
-    lucky_color = _pick(rng, sign["lucky_colors"])
-    affirmation = sign["positive_affirmation"]
+    lucky_num      = _pick(rng, sign["lucky_numbers"])
+    lucky_color    = _pick(rng, sign["lucky_colors"])
+    lucky_day      = _pick(rng, sign["lucky_days"])
+    affirmation    = sign["positive_affirmation"]
 
-    script = (
-        f"{sign['name']} — {opener} {element.lower()} essence today. "
-        f"With the {moon['name']} casting {moon['meaning']}, your {keyword_love} nature "
-        f"shines in love, while your {keyword_career} abilities open professional doors. "
-        f"{weekday_planet} energizes your ruling planet {sign['ruling_planet']}, amplifying your gifts. "
-        f"Lucky number: {lucky_num}. Lucky color: {lucky_color}. "
-        f"Today's affirmation: {affirmation}"
+    style_fn = _DAILY_STYLES[rng.randint(0, len(_DAILY_STYLES) - 1)]
+    return style_fn(
+        sign, moon, weekday_planet,
+        keyword_love, keyword_career,
+        lucky_num, lucky_color, lucky_day, affirmation,
     )
-    return script
 
 
 def _generate_weekly_script(sign: dict, date: datetime.date, rng: random.Random,

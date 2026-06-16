@@ -325,7 +325,8 @@ def _render_outro_frame(out_path: str, bg) -> None:
 
 async def _async_tts(text: str, out_path: str) -> None:
     import edge_tts
-    comm = edge_tts.Communicate(text, voice="en-US-AriaNeural", rate="-10%")
+    # Shorts: normal speed (+0%) — energetic and punchy, not slow/meditative
+    comm = edge_tts.Communicate(text, voice="en-US-AriaNeural", rate="+0%")
     await comm.save(out_path)
 
 
@@ -524,11 +525,7 @@ def generate_combined_short(
     except Exception as e:
         log.warning(f"Intro frame error: {e}")
 
-    intro_text = (
-        f"Daily horoscope for all 12 zodiac signs. "
-        f"{date.strftime('%B %d, %Y')}. "
-        "Let's see what the stars have for each sign."
-    )
+    intro_text = f"All twelve signs. {date.strftime('%B %d')}. Here we go."
     intro_dur = _tts(intro_text, intro_audio)
 
     if os.path.exists(intro_frame) and _build_segment(intro_frame, intro_audio, intro_video, intro_dur):
@@ -539,7 +536,9 @@ def generate_combined_short(
     for i, reading in enumerate(readings):
         sign    = reading.get("sign", f"sign{i}")
         words   = reading.get("script_text", "").split()
-        preview = " ".join(words[:20])                 # ~8-10 s of speech
+        # 5 words per sign → ~3s at normal TTS speed → 12×3 = 36s for signs alone
+        # Total Short target: intro(~3s) + 12×3s + outro(~3s) ≈ 42s ✓
+        preview = " ".join(words[:5])
 
         frame_path = str(shorts_dir / f"comb_frame_{sign.lower()}.png")
         audio_path = str(shorts_dir / f"comb_audio_{sign.lower()}.mp3")
@@ -552,7 +551,7 @@ def generate_combined_short(
             log.warning(f"Sign frame error ({sign}): {e}")
             continue
 
-        # Audio: "{Sign}. {first 20 words}"
+        # Audio: "{Sign}. {first 5 words}" — short, punchy, Shorts-native
         tts_text = f"{sign}. {preview}."
         seg_dur  = _tts(tts_text, audio_path)
 
@@ -572,10 +571,7 @@ def generate_combined_short(
     except Exception as e:
         log.warning(f"Outro frame error: {e}")
 
-    outro_text = (
-        "Subscribe to GetMindFuelNow for your complete daily reading. "
-        "Drop your zodiac sign in the comments!"
-    )
+    outro_text = "Subscribe. GetMindFuelNow. Daily readings."
     outro_dur = _tts(outro_text, outro_audio)
 
     if os.path.exists(outro_frame) and _build_segment(outro_frame, outro_audio, outro_video, outro_dur):
