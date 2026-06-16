@@ -172,27 +172,14 @@ async def _async_edge_tts(text: str, out_path: str,
     await communicate.save(out_path)
 
 
-def _add_breath_pauses(text: str) -> str:
-    """
-    Insert SSML <break> tags between sentences so the reading feels meditative
-    rather than machine-continuous.  Edge-tts interprets these inline.
+def _add_text_pauses(text: str) -> str:
+    """Convert paragraph breaks to ellipsis pauses safe for edge-tts.
 
-      • 900 ms pause between sign sections (paragraph break \n\n) — applied FIRST
-        so paragraph newlines are not consumed by the sentence regex
-      • 550 ms pause after every sentence (. ! ?) — applied second
-
-    This alone makes the biggest audible difference — listeners need a moment
-    to absorb each line before the next one begins.
+    edge-tts HTML-escapes input text before embedding it in SSML, so literal
+    <break> tags become &lt;break…&gt; and are read aloud word-for-word.
+    Using '...' instead triggers a natural neural-TTS pause without any SSML.
     """
-    # 1. Sign-transition pause FIRST (before the sentence regex consumes newlines)
-    processed = text.replace('\n\n', ' <break time="900ms"/> ')
-    # 2. Sentence pause: after . ! ? followed by whitespace + capital/symbol
-    processed = _re.sub(
-        r'([.!?])\s+([A-Z♈♉♊♋♌♍♎♏♐♑♒♓])',
-        r'\1 <break time="550ms"/> \2',
-        processed,
-    )
-    return processed
+    return text.replace('\n\n', '... ')
 
 
 def _edge_tts_voiceover(text: str, out_path: str) -> bool:
@@ -212,7 +199,7 @@ def _edge_tts_voiceover(text: str, out_path: str) -> bool:
         voice = "en-GB-SoniaNeural"
         rate  = "-22%"
         pitch = "-8Hz"
-        prepared = _add_breath_pauses(text)
+        prepared = _add_text_pauses(text)
         log.info(f"edge-tts: voice={voice} rate={rate} pitch={pitch} chars={len(prepared)}")
         asyncio.run(_async_edge_tts(prepared, out_path, voice, rate, pitch))
         if os.path.exists(out_path) and os.path.getsize(out_path) > 1000:
@@ -230,8 +217,8 @@ def _edge_tts_voiceover(text: str, out_path: str) -> bool:
 
 def _espeak_voiceover(text: str, out_path: str) -> bool:
     """Fallback: espeak-ng with deep, warm female voice settings."""
-    # Strip SSML break tags — espeak-ng doesn't understand them
-    clean = _re.sub(r'<break[^>]*/?>', ' ', text)
+    # Strip any stray SSML tags just in case; espeak-ng doesn't understand them
+    clean = _re.sub(r'<[^>]+>', ' ', text)
     try:
         result = subprocess.run(
             [
@@ -1207,6 +1194,107 @@ def _stage_mux(silent_path: str, audio_path: str, final_path: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Chapter timestamps + SRT subtitles
+# ---------------------------------------------------------------------------
+
+def _build_chapter_description(
+    readings: list[dict],
+    section_words: list[int],
+    audio_duration: int,
+) -> str:
+    """Build a YouTube chapter timestamp block from proportional word-count timing.
+
+    Requires section_words = [intro_words, sign0_words, …, sign11_words, outro_words].
+    YouTube requires chapters start at 0:00, have ≥3 entries, and be ≥10s apart.
+    """
+    if not section_words or len(section_words) != len(readings) + 2:
+        return ""
+
+    total_w = max(1, sum(section_words))
+
+    def _fmt(secs: int) -> str:
+        secs = max(0, secs)
+        m, s = divmod(secs, 60)
+        return f"{m}:{s:02d}"
+
+    lines: list[str] = []
+    t = 0
+    lines.append("0:00 🌟 Introduction")
+    t += max(6, round(section_words[0] / total_w * audio_duration))
+
+    for i, reading in enumerate(readings):
+        symbol = reading.get("symbol", "★")
+        sign   = reading.get("sign", f"Sign {i+1}")
+        lines.append(f"{_fmt(t)} {symbol} {sign}")
+        t += max(15, round(section_words[i + 1] / total_w * audio_duration))
+
+    lines.append(f"{_fmt(t)} ✨ Subscribe — GetMindFuelNow")
+    return "\n".join(lines)
+
+
+def _generate_srt(
+    readings: list[dict],
+    section_words: list[int],
+    audio_duration: int,
+    out_path: str,
+) -> bool:
+    """Write an SRT subtitle file with one caption entry per zodiac sign."""
+    if not section_words or len(section_words) != len(readings) + 2:
+        return False
+
+    total_w = max(1, sum(section_words))
+
+    def _srt_ts(ms: int) -> str:
+        ms = max(0, ms)
+        h  = ms // 3_600_000
+        m  = (ms % 3_600_000) // 60_000
+        s  = (ms % 60_000) // 1_000
+        cs = ms % 1_000
+        return f"{h:02d}:{m:02d}:{s:02d},{cs:03d}"
+
+    entries: list[str] = []
+    idx  = 1
+    t_ms = 0
+
+    # Intro
+    dur_ms = max(6000, round(section_words[0] / total_w * audio_duration) * 1000)
+    entries.append(
+        f"{idx}\n{_srt_ts(t_ms)} --> {_srt_ts(t_ms + dur_ms)}\n🌟 Daily Horoscope — All 12 Signs"
+    )
+    idx  += 1
+    t_ms += dur_ms
+
+    # Per-sign
+    for i, reading in enumerate(readings):
+        symbol    = reading.get("symbol", "★")
+        sign      = reading.get("sign", f"Sign {i+1}")
+        dates_str = reading.get("dates", "")
+        element   = reading.get("element", "")
+        dur_ms    = max(15000, round(section_words[i + 1] / total_w * audio_duration) * 1000)
+        caption   = f"{symbol} {sign}"
+        if dates_str or element:
+            caption += f"\n{dates_str}  •  {element} Sign"
+        entries.append(f"{idx}\n{_srt_ts(t_ms)} --> {_srt_ts(t_ms + dur_ms)}\n{caption}")
+        idx  += 1
+        t_ms += dur_ms
+
+    # Outro
+    dur_ms = max(6000, round(section_words[-1] / total_w * audio_duration) * 1000)
+    entries.append(
+        f"{idx}\n{_srt_ts(t_ms)} --> {_srt_ts(t_ms + dur_ms)}\n✨ GetMindFuelNow — Subscribe for Daily Readings"
+    )
+
+    try:
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write("\n\n".join(entries) + "\n")
+        log.info(f"SRT subtitles: {out_path}")
+        return True
+    except Exception as e:
+        log.warning(f"SRT generation failed: {e}")
+        return False
+
+
+# ---------------------------------------------------------------------------
 # Stage 6: Upload
 # ---------------------------------------------------------------------------
 
@@ -1341,6 +1429,13 @@ def run_horoscope_pipeline(
         audio_duration = max(60, word_count * 60 // 140)
         section_words  = []
 
+    # Inject accurate chapter timestamps into description now that audio timing is known
+    if section_words and primary_type == "daily":
+        chapters = _build_chapter_description(readings, section_words, audio_duration)
+        if chapters:
+            description = description.rstrip() + "\n\n" + chapters
+            log.info("Chapter timestamps added to description")
+
     # Stage 3: Thumbnail
     try:
         thumb_path = _stage_thumbnail(readings, thumb_dir, primary_type, date,
@@ -1379,6 +1474,12 @@ def run_horoscope_pipeline(
         log.error(f"Mux failed: {e}")
         report["errors"].append(f"mux: {e}")
         report["stages"]["mux"] = {"ok": False, "error": str(e)}
+
+    # Generate SRT subtitle file alongside the final video
+    if section_words and primary_type == "daily":
+        srt_path = final_path.replace(".mp4", ".srt")
+        if _generate_srt(readings, section_words, audio_duration, srt_path):
+            report["output_files"]["srt_path"] = srt_path
 
     # Stage 6: Upload
     upload_result = _stage_upload(
