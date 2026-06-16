@@ -314,13 +314,8 @@ def main() -> None:
         if not args.topic:
             print("[ERROR] Provide a zodiac sign and date, or use --all DATE", file=sys.stderr)
             sys.exit(1)
-        topic, zodiac_slug = build_topic(args.topic)
-        video_format = FORMAT_MAP[fmt_key]
-        print(f"[INFO] Generating {fmt_key} assets for: {topic}")
-        print(f"[INFO] Format: {video_format} | Model: claude-sonnet-4-6 | max_tokens={MAX_TOKENS_MAP[fmt_key]}")
-        data = call_claude(topic, video_format, fmt_key)
-        out_path = write_output(data, zodiac_slug, fmt_key)
-        print_results(data, out_path)
+        run_single(args.topic[0], " ".join(args.topic[1:]) if len(args.topic) > 1 else args.topic[0],
+                   fmt_key)
 
 
 if __name__ == "__main__":
