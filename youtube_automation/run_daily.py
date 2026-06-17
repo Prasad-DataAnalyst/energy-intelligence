@@ -72,6 +72,11 @@ def main():
     results  = {}
     t_start  = time.time()
 
+    # Pause the daemon so video rendering gets full CPU + RAM
+    subprocess.run(["sudo", "systemctl", "stop", "getmindfuelnow"],
+                   capture_output=True)
+    print("  [INFO] Daemon paused for rendering — will restart after all signs\n")
+
     for idx, sign in enumerate(signs, 1):
         print(f"\n[{idx:02d}/{len(signs):02d}] ── {sign.upper()} ──────────────────────────")
         r = {}
@@ -99,7 +104,7 @@ def main():
         print(f"  [2/3] Video    — rendering (live output below)...")
         ok = run_live(
             [PYTHON, "make_shorts_video.py", json_file],
-            timeout=600,
+            timeout=1800,
         )
         r["video"] = "✅" if ok else "❌ render failed"
         if not ok:
@@ -139,6 +144,11 @@ def main():
     print(f"\n  {passed}/{len(signs)} signs complete")
     print(f"  Output: outputs/{args.date}/")
     print(f"{'='*60}\n")
+
+    # Restart daemon now that rendering is done
+    subprocess.run(["sudo", "systemctl", "start", "getmindfuelnow"],
+                   capture_output=True)
+    print("  [INFO] Daemon restarted\n")
 
     sys.exit(0 if passed == len(signs) else 1)
 
