@@ -84,13 +84,24 @@ _CINZEL_B  = _FONT_DIR / "Cinzel-Bold.ttf"
 _CINZEL_R  = _FONT_DIR / "Cinzel-Regular.ttf"
 
 _FALLBACK_BOLD = [
+    "/usr/share/fonts/truetype/cinzel/Cinzel-Bold.otf",        # fonts-cinzel apt pkg
+    "/usr/share/fonts/opentype/cinzel/Cinzel-Bold.otf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+    "/usr/share/fonts/truetype/ubuntu/Ubuntu-B.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
 ]
 _FALLBACK_REG = [
+    "/usr/share/fonts/truetype/cinzel/Cinzel-Regular.otf",
+    "/usr/share/fonts/opentype/cinzel/Cinzel-Regular.otf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+    "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
 ]
 
 _font_cache: dict = {}
@@ -140,11 +151,27 @@ def get_font(size: int, bold: bool = True) -> ImageFont.FreeTypeFont:
         candidates = ([str(_CINZEL_B)] + _FALLBACK_BOLD if bold
                       else [str(_CINZEL_R)] + _FALLBACK_REG)
         for p in candidates:
-            if Path(p).exists():
-                _font_cache[key] = ImageFont.truetype(p, size)
-                break
+            if not Path(p).exists():
+                continue
+            try:
+                f = ImageFont.truetype(p, size)
+                # Validate: font must actually render a visible glyph.
+                # Variable fonts and corrupt files can load without error but
+                # produce zero-width / invisible characters.
+                _tmp = ImageDraw.Draw(Image.new("RGB", (max(size * 2, 40), max(size * 2, 40))))
+                bbox = _tmp.textbbox((0, 0), "X", font=f)
+                if bbox[2] - bbox[0] > 2:   # at least 3px wide → real glyph
+                    _font_cache[key] = f
+                    print(f"[FONT] Using {Path(p).name} @ {size}px") if size == 88 else None
+                    break
+            except Exception:
+                continue
         else:
-            _font_cache[key] = ImageFont.load_default()
+            # Absolute last resort: PIL built-in (respects size in Pillow 10+)
+            try:
+                _font_cache[key] = ImageFont.load_default(size=size)
+            except TypeError:
+                _font_cache[key] = ImageFont.load_default()
     return _font_cache[key]
 
 
