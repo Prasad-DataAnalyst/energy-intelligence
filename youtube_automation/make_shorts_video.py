@@ -551,7 +551,17 @@ def process(json_path: str) -> None:
     hook_ov   = build_hook_overlay(hook_text)
     base_ov   = build_base_overlay(sign)
     chunks    = make_caption_chunks(script, duration)
-    cap_cache = {txt: build_caption_overlay(txt, sign) for _, _, txt in chunks}
+    # Store only the non-transparent band of each caption overlay (~10MB vs ~256MB)
+    cap_cache = {}
+    for _, _, txt in chunks:
+        if txt not in cap_cache:
+            full      = build_caption_overlay(txt, sign)
+            row_alpha = full[:, :, 3].max(axis=1)
+            rows      = np.where(row_alpha > 0)[0]
+            y0 = int(rows[0])      if len(rows) else 0
+            y1 = int(rows[-1]) + 1 if len(rows) else HEIGHT
+            cap_cache[txt] = (y0, y1, full[y0:y1].copy())
+            del full
 
     hook_end = 3.5
     fade_dur = 0.4
@@ -569,7 +579,8 @@ def process(json_path: str) -> None:
         if t >= 0.5:
             for start, end, txt in chunks:
                 if start <= t < end:
-                    blend_rgba(frame, cap_cache[txt], 1.0)
+                    y0, y1, band = cap_cache[txt]
+                    blend_rgba(frame[y0:y1], band, 1.0)
                     break
         # Global 0.8s fade-in from black
         if t < fade_in:
