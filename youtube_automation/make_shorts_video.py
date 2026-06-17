@@ -549,17 +549,17 @@ def process(json_path: str) -> None:
     # ── 2. Pre-render all overlays ────────────────────────────────────────────
     print(f"[2/4] Rendering {WIDTH}x{HEIGHT} @ {FPS}fps...")
 
-    # Pre-blend static aura + vignette into bg once — saves 2 blend calls per frame
+    # Pre-blend ALL static overlays into bg — stars/particles draw on top,
+    # make_frame then only needs hook + caption blends (not every frame)
     bg = make_gradient(sign)
     blend_rgba(bg, build_aura_overlay(sign), 1.0)
     blend_rgba(bg, make_vignette(), 1.0)
+    blend_rgba(bg, build_base_overlay(sign), 1.0)
 
     stars     = make_star_field(320, seed=hash(sign) % 2**31)
     particles = make_particles(60, seed=hash(sign + "p") % 2**31)
     hook_ov   = build_hook_overlay(hook_text)
-    base_ov   = build_base_overlay(sign)
     chunks    = make_caption_chunks(script, duration)
-    # Each caption is a small band (not a full 1080×1920 frame)
     cap_cache = {}
     for _, _, txt in chunks:
         if txt not in cap_cache:
@@ -570,10 +570,10 @@ def process(json_path: str) -> None:
     fade_in  = 0.8   # global video fade-in duration
 
     def make_frame(t: float) -> np.ndarray:
-        # bg already has aura + vignette pre-blended — only 1-2 blends needed per frame
+        # bg has aura + vignette + header/footer pre-blended
+        # only hook (first 3.5s) and captions need per-frame blending
         frame = draw_stars(bg, stars, t)
         frame = draw_particles(frame, particles, t)
-        blend_rgba(frame, base_ov, 1.0)
         if t < hook_end:
             a = min(1.0, t / fade_dur) * min(1.0, (hook_end - t) / fade_dur)
             blend_rgba(frame, hook_ov, a)
