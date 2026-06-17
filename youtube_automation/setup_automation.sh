@@ -7,7 +7,7 @@ set -e
 
 USER_HOME="/home/prasad2t"
 REPO="$USER_HOME/energy-intelligence/youtube_automation"
-VENV_PYTHON="$USER_HOME/energy-intelligence/.venv/bin/python3"
+VENV_PYTHON="/usr/bin/python3"
 LOG="$USER_HOME/daily_horoscope.log"
 
 echo ""
@@ -26,13 +26,12 @@ if [ ! -f "$REPO/run_daily.py" ]; then
 fi
 
 if [ ! -f "$VENV_PYTHON" ]; then
-    echo "  ERROR: venv not found at $VENV_PYTHON"
-    echo "  Try: python3 -m venv $USER_HOME/energy-intelligence/.venv"
+    echo "  ERROR: python3 not found at $VENV_PYTHON"
     exit 1
 fi
 
 echo "  OK: run_daily.py found"
-echo "  OK: python venv found"
+echo "  OK: python3 found at $VENV_PYTHON"
 
 # ── 2. Allow passwordless sudo for systemctl stop/start daemon ────────────────
 echo ""
