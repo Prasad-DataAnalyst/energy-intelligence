@@ -352,31 +352,37 @@ def build_base_overlay(sign: str) -> np.ndarray:
     return np.array(img)
 
 
-def build_caption_overlay(text: str, sign: str) -> np.ndarray:
+def build_caption_overlay(text: str, sign: str) -> tuple:
     """
-    Caption strip: white Cinzel text, dark pill background.
-    Positioned in lower-middle to not clash with footer.
+    Returns (y_start, band_array) — creates only the caption strip, not the full
+    1080×1920 frame. 10× smaller allocation, 10× faster to build.
     """
     font  = get_font(58, bold=False)
-    img   = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
-    draw  = ImageDraw.Draw(img)
+    lines = wrap_text(text, font, WIDTH - 120)
+    lh    = 74
+    total = len(lines) * lh + 20
+    cap_y = HEIGHT - 200 - total   # y of first text line in the full frame
 
-    lines  = wrap_text(text, font, WIDTH - 120)
-    lh     = 74
-    total  = len(lines) * lh + 20
-    cap_y  = HEIGHT - 200 - total
+    pill_top    = cap_y - 18
+    pill_bottom = cap_y + total + 10
+    band_h      = pill_bottom - pill_top + 4   # tiny safety margin
 
-    draw.rectangle([50, cap_y - 18, WIDTH - 50, cap_y + total + 10],
+    img  = Image.new("RGBA", (WIDTH, band_h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    # pill (coordinates are relative to the band)
+    draw.rectangle([50, 0, WIDTH - 50, pill_bottom - pill_top],
                    fill=(0, 0, 0, 175))
 
-    y = cap_y
+    # text (y relative to band = frame_y - pill_top)
+    y = cap_y - pill_top   # == 18
     for line in lines:
         x = (WIDTH - text_width(line, font)) // 2
         draw.text((x + 2, y + 2), line, font=font, fill=(0, 0, 0, 200))
         draw.text((x, y), line, font=font, fill=(*WHITE, 255))
         y += lh
 
-    return np.array(img)
+    return pill_top, np.array(img)
 
 
 # ── Caption timing ─────────────────────────────────────────────────────────────
@@ -543,35 +549,30 @@ def process(json_path: str) -> None:
     # ── 2. Pre-render all overlays ────────────────────────────────────────────
     print(f"[2/4] Rendering {WIDTH}x{HEIGHT} @ {FPS}fps...")
 
-    bg        = make_gradient(sign)
+    # Pre-blend static aura + vignette into bg once — saves 2 blend calls per frame
+    bg = make_gradient(sign)
+    blend_rgba(bg, build_aura_overlay(sign), 1.0)
+    blend_rgba(bg, make_vignette(), 1.0)
+
     stars     = make_star_field(320, seed=hash(sign) % 2**31)
     particles = make_particles(60, seed=hash(sign + "p") % 2**31)
-    vignette  = make_vignette()
-    aura_ov   = build_aura_overlay(sign)
     hook_ov   = build_hook_overlay(hook_text)
     base_ov   = build_base_overlay(sign)
     chunks    = make_caption_chunks(script, duration)
-    # Store only the non-transparent band of each caption overlay (~10MB vs ~256MB)
+    # Each caption is a small band (not a full 1080×1920 frame)
     cap_cache = {}
     for _, _, txt in chunks:
         if txt not in cap_cache:
-            full      = build_caption_overlay(txt, sign)
-            row_alpha = full[:, :, 3].max(axis=1)
-            rows      = np.where(row_alpha > 0)[0]
-            y0 = int(rows[0])      if len(rows) else 0
-            y1 = int(rows[-1]) + 1 if len(rows) else HEIGHT
-            cap_cache[txt] = (y0, y1, full[y0:y1].copy())
-            del full
+            cap_cache[txt] = build_caption_overlay(txt, sign)
 
     hook_end = 3.5
     fade_dur = 0.4
     fade_in  = 0.8   # global video fade-in duration
 
     def make_frame(t: float) -> np.ndarray:
+        # bg already has aura + vignette pre-blended — only 1-2 blends needed per frame
         frame = draw_stars(bg, stars, t)
         frame = draw_particles(frame, particles, t)
-        blend_rgba(frame, aura_ov, 1.0)
-        blend_rgba(frame, vignette, 1.0)
         blend_rgba(frame, base_ov, 1.0)
         if t < hook_end:
             a = min(1.0, t / fade_dur) * min(1.0, (hook_end - t) / fade_dur)
@@ -579,8 +580,8 @@ def process(json_path: str) -> None:
         if t >= 0.5:
             for start, end, txt in chunks:
                 if start <= t < end:
-                    y0, y1, band = cap_cache[txt]
-                    blend_rgba(frame[y0:y1], band, 1.0)
+                    y0, band = cap_cache[txt]
+                    blend_rgba(frame[y0:y0 + band.shape[0]], band, 1.0)
                     break
         # Global 0.8s fade-in from black
         if t < fade_in:

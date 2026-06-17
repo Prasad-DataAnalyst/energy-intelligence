@@ -34,7 +34,7 @@ def run_captured(cmd: list, timeout: int = 120) -> tuple:
         return False, str(e)
 
 
-def run_live(cmd: list, timeout: int = 600) -> bool:
+def run_live(cmd: list, timeout: int = 1200) -> bool:
     """Run command with live stdout (for long video rendering steps)."""
     try:
         r = subprocess.run(cmd, timeout=timeout)
