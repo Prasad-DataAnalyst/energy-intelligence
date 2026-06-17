@@ -7,7 +7,7 @@ set -e
 
 USER_HOME="/home/prasad2t"
 REPO="$USER_HOME/energy-intelligence/youtube_automation"
-VENV_PYTHON="$USER_HOME/energy-intelligence/venv/bin/python3"
+VENV_PYTHON="$USER_HOME/energy-intelligence/.venv/bin/python3"
 LOG="$USER_HOME/daily_horoscope.log"
 
 echo ""
@@ -27,7 +27,7 @@ fi
 
 if [ ! -f "$VENV_PYTHON" ]; then
     echo "  ERROR: venv not found at $VENV_PYTHON"
-    echo "  Try: python3 -m venv $USER_HOME/energy-intelligence/venv"
+    echo "  Try: python3 -m venv $USER_HOME/energy-intelligence/.venv"
     exit 1
 fi
 
