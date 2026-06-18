@@ -19,8 +19,11 @@ import urllib.request
 from pathlib import Path
 
 import numpy as np
+from dotenv import load_dotenv
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from moviepy import AudioFileClip, VideoClip
+
+load_dotenv()
 
 # ── Video constants ────────────────────────────────────────────────────────────
 WIDTH, HEIGHT = 1080, 1920
@@ -460,6 +463,23 @@ def _mix_audio(voice_path: str, ambient_path: str, out_path: str) -> bool:
 
 
 def generate_audio(script: str, out_path: str) -> None:
+    """Generate TTS — OpenAI nova (primary, human-quality) with edge-tts fallback."""
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    if api_key:
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=api_key)
+            resp = client.audio.speech.create(
+                model="tts-1",
+                voice="nova",
+                input=script,
+                speed=0.9,
+            )
+            resp.stream_to_file(out_path)
+            print(f"[TTS] OpenAI nova (tts-1)")
+            return
+        except Exception as e:
+            print(f"[TTS] OpenAI failed ({e}) — falling back to edge-tts")
     asyncio.run(_tts(script, out_path))
 
 

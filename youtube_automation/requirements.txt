@@ -30,9 +30,9 @@ pytrends>=4.9.2
 # Scheduling
 APScheduler>=3.10.4
 
-# AI services (install as needed — all are optional with fallbacks)
+# AI services
+openai>=1.0.0
 # elevenlabs>=1.0.0
-# openai>=1.0.0
 # replicate>=0.25.0
 
 # Caption sync (optional — improves word-highlight captions)
