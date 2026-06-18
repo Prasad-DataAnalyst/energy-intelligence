@@ -11,6 +11,7 @@ Usage:
 import argparse
 import json
 import os
+import math
 import re
 import sys
 import time
@@ -21,38 +22,40 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-SYSTEM_PROMPT = """You are a senior YouTube Shorts producer and cinematic astrologer for the channel GetMindFuelNow. Your style is dark, mysterious, premium, and emotionally personal. Every piece of content must make the viewer feel: "This message was meant for me."
+SYSTEM_PROMPT = """You are a senior YouTube Shorts producer and cinematic astrologer for the channel GetMindFuelNow. Your style is dark, mysterious, premium, and emotionally personal. Every piece of content must make the viewer feel: "This message was meant for me right now."
 
 You will receive:
 - Zodiac Sign + Date
 - Content Angle (the emotional theme for this reading)
+- Today's Focus (the universal energy topic for this day of the week)
+- Moon Phase (weave in naturally if it fits — 1 sentence max)
 - Video Format: "Vertical Short (9:16, ~130 words)" or "Long-form (16:9, ~700 words)"
 
 ═══ SCRIPT RULES ═══
 Structure every script in this exact emotional arc:
-1. HOOK (first 2 sentences): Strong emotional trigger. No greetings. No "Welcome back". Start mid-thought. Create immediate curiosity.
-2. EARLY PAYOFF: Tell the viewer what energy or shift is coming for them this period.
-3. PERSONAL CONNECTION: Name a private feeling, unspoken struggle, or hidden situation the viewer is living right now.
+1. HOOK (first 2 sentences): Strong emotional trigger. No greetings. No "Welcome back". Start mid-thought. Drop the viewer INTO a feeling.
+2. EARLY PAYOFF: Tell them what energy or shift is coming for them this period.
+3. PERSONAL CONNECTION: Name a private feeling, unspoken struggle, or hidden situation they are living right now.
 4. MID-VIDEO TWIST: Add a warning, hidden obstacle, test, or delay. Do not skip this.
 5. EMOTIONAL RELEASE: Give clarity, hope, or a powerful prediction.
 6. ENGAGEMENT ENDING: One line that naturally invites a comment, save, or follow. Never sound spammy.
 
-Script style rules:
-- Speak directly to the viewer using "you" and "your"
-- Use short sentences. One idea per sentence.
-- Use ellipses ... for natural dramatic pauses
-- Use natural conversational rhythm safe for Text-to-Speech
-- NEVER start with: Hey guys / Welcome back / Today we / In this video
+Script tone rules — THIS IS THE MOST IMPORTANT PART:
+- Write like you are TALKING, not writing. Casual. Warm. Like a wise friend on the phone.
+- Use "you" and "your" throughout. Never third-person.
+- Short punchy sentences. One idea per sentence. Like this.
+- Use ellipses ... for breath, suspense, and natural pauses.
+- Add casual human phrases: "here's the thing..." / "and honestly?" / "pay attention to this..." / "no, seriously..." / "this is the part most people miss..."
+- Vary sentence length — mix very short punchy lines with slightly longer ones.
+- NEVER start with: Hey guys / Welcome back / Today we / In this video / Hello [sign] / Greetings
 - NEVER include: [music] / (pause) / Speaker: / Section headers / SSML tags / markdown
 - NEVER use long breathless sentences over 20 words
 - Short format: 120–150 words. Long format: 650–750 words.
 
-Example tone lines (use this style, not these exact words):
-"Something is shifting around you... and you already feel it."
-"Someone is watching your silence more than your words."
-"This opportunity looks small at first... but it opens a bigger door."
-"Be careful who you explain your plans to right now."
-"What is meant for you is moving closer... but not everyone can come with you."
+Moon Phase guidance:
+- If a moon phase is provided, weave it into 1 sentence naturally if it adds power.
+- Good: "The {moon} right now is amplifying everything you've been suppressing."
+- Bad: forcing it when it doesn't fit the angle. Skip it if it feels forced.
 
 ═══ HOOK RULES ═══
 hook_on_screen_text STRICT RULES:
@@ -149,6 +152,36 @@ REQUIRED_KEYS = {
     "title", "description", "hashtags", "tags", "pinned_comment", "content_angle",
 }
 
+# Day-of-week content focus — rotates automatically every day
+DAY_ANGLES = {
+    0: ("career & ambition",    "What's building in their career and life purpose right now"),
+    1: ("love & relationships", "What's shifting in their love life and closest connections"),
+    2: ("money & finances",     "What's changing with their money energy and abundance"),
+    3: ("health & energy",      "What their body, mind, and spirit need right now"),
+    4: ("social & fun",         "Who's entering their world and what social energy is arriving"),
+    5: ("reflection & soul",    "What their soul is quietly asking them to release or accept"),
+    6: ("new beginnings",       "What fresh start or unexpected door is opening for them"),
+}
+
+
+def get_moon_phase() -> tuple:
+    """Return (phase_name, emoji) using synodic cycle math. No external library needed."""
+    ref  = date(2024, 1, 17)   # known new moon
+    days = (date.today() - ref).days % 29.53
+    if days < 1.85:    return "New Moon",       "🌑"
+    elif days < 7.38:  return "Waxing Crescent","🌒"
+    elif days < 9.22:  return "First Quarter",  "🌓"
+    elif days < 14.77: return "Waxing Gibbous", "🌔"
+    elif days < 16.61: return "Full Moon",      "🌕"
+    elif days < 22.15: return "Waning Gibbous", "🌖"
+    elif days < 23.99: return "Last Quarter",   "🌗"
+    return "Waning Crescent", "🌘"
+
+
+def get_day_angle() -> tuple:
+    """Return (label, description) based on today's day of week."""
+    return DAY_ANGLES[date.today().weekday()]
+
 
 def validate_content(data: dict) -> list:
     """Return list of validation warnings. Empty list = all pass."""
@@ -206,9 +239,13 @@ def call_claude(topic: str, video_format: str, fmt_key: str,
                 content_angle: str, max_retries: int = 2) -> dict:
     """Call claude-sonnet-4-6 with retry on invalid JSON or missing keys."""
     client = anthropic.Anthropic()
+    moon_name, moon_emoji = get_moon_phase()
+    day_label, day_desc   = get_day_angle()
     user_message = (
         f"Zodiac Sign + Date: {topic}\n"
         f"Content Angle: {content_angle}\n"
+        f"Today's Focus: {day_label} — {day_desc}\n"
+        f"Moon Phase: {moon_name} {moon_emoji}\n"
         f"Video Format: {video_format}"
     )
     max_tokens = MAX_TOKENS_MAP[fmt_key]

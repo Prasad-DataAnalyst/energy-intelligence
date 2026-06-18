@@ -9,6 +9,7 @@ Usage:
   python3 run_daily.py --date 20260616 --period "June 2026" --skip-assets
 """
 import argparse
+import json
 import subprocess
 import sys
 import time
@@ -58,6 +59,8 @@ def main():
                         help="Comma-separated subset (default: all 12)")
     parser.add_argument("--skip-assets", action="store_true",
                         help="Reuse existing JSON files instead of regenerating")
+    parser.add_argument("--upload", action="store_true",
+                        help="Auto-upload completed videos to YouTube")
     args = parser.parse_args()
 
     signs = ([s.strip().lower() for s in args.signs.split(",")]
@@ -122,6 +125,32 @@ def main():
         print(f"         {'PASS' if ok else 'FAIL'}" +
               (f"\n{out}" if not ok else ""))
 
+        # ── 4. Upload (optional) ──────────────────────────────────────────────
+        if args.upload and r.get("quality", "").startswith("✅"):
+            print(f"  [4/4] Upload   — uploading to YouTube...")
+            try:
+                import sys as _sys
+                _sys.path.insert(0, str(Path(__file__).parent))
+                from youtube_uploader import upload_video, upload_thumbnail, post_comment, pin_comment
+                assets_json = f"outputs/{args.date}/{sign.title()}/{sign}_{args.date}_assets.json"
+                assets      = json.loads(Path(assets_json).read_text(encoding="utf-8"))
+                content     = {
+                    "title":          assets.get("title", ""),
+                    "description":    assets.get("description", ""),
+                    "tags":           assets.get("tags", []),
+                    "date":           args.date,
+                    "privacy_status": "public",
+                }
+                vid_id = upload_video(video_path, content)
+                upload_thumbnail(vid_id, video_path.replace(".mp4", "_thumbnail.jpg"))
+                cid = post_comment(vid_id, assets.get("pinned_comment", ""))
+                pin_comment(vid_id, cid)
+                r["upload"] = f"✅ youtu.be/{vid_id}"
+                print(f"         OK: https://youtu.be/{vid_id}")
+            except Exception as _e:
+                r["upload"] = f"❌ {str(_e)[:80]}"
+                print(f"         FAILED: {_e}")
+
         results[sign] = r
 
     # ── Final summary ──────────────────────────────────────────────────────────
@@ -135,9 +164,11 @@ def main():
         a = r.get("assets",  "—")
         v = r.get("video",   "—")
         q = r.get("quality", "—")
+        u = r.get("upload", "")
         all_ok = all(str(x).startswith("✅") for x in [a, v, q] if x)
         icon   = "✅" if all_ok else "❌"
-        print(f"  {icon}  {sign.title():<14}  assets:{a}  video:{v}  qc:{q}")
+        print(f"  {icon}  {sign.title():<14}  assets:{a}  video:{v}  qc:{q}" +
+              (f"  upload:{u}" if u else ""))
         if all_ok:
             passed += 1
 

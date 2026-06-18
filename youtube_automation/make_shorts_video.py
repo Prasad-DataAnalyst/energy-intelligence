@@ -14,6 +14,7 @@ import glob
 import json
 import os
 import sys
+import subprocess as _sp
 import urllib.request
 from pathlib import Path
 
@@ -422,6 +423,42 @@ async def _tts(script: str, path: str) -> None:
     await edge_tts.Communicate(script, name, rate=rate, pitch=pitch).save(path)
 
 
+def _generate_ambient(duration: float, out_path: str) -> bool:
+    """Generate layered ambient cosmic tones using ffmpeg lavfi — no external audio files."""
+    fade_start = max(1, int(duration) - 3)
+    cmd = [
+        "ffmpeg", "-y", "-loglevel", "error",
+        "-f", "lavfi", "-t", str(duration + 2), "-i", "sine=frequency=55:sample_rate=44100",
+        "-f", "lavfi", "-t", str(duration + 2), "-i", "sine=frequency=82:sample_rate=44100",
+        "-f", "lavfi", "-t", str(duration + 2), "-i", "sine=frequency=110:sample_rate=44100",
+        "-filter_complex",
+        f"[0:a]volume=0.40[a0];[1:a]volume=0.25[a1];[2:a]volume=0.20[a2];"
+        f"[a0][a1][a2]amix=inputs=3:duration=shortest[mix];"
+        f"[mix]afade=t=in:ss=0:d=4,afade=t=out:st={fade_start}:d=3[out]",
+        "-map", "[out]", "-t", str(duration), out_path,
+    ]
+    try:
+        r = _sp.run(cmd, capture_output=True, timeout=30)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def _mix_audio(voice_path: str, ambient_path: str, out_path: str) -> bool:
+    """Mix voice (100%) with ambient background (18%) using ffmpeg."""
+    cmd = [
+        "ffmpeg", "-y", "-loglevel", "error",
+        "-i", voice_path, "-i", ambient_path,
+        "-filter_complex", "[0:a][1:a]amix=inputs=2:weights=1 0.18:duration=first[a]",
+        "-map", "[a]", out_path,
+    ]
+    try:
+        r = _sp.run(cmd, capture_output=True, timeout=30)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
 def generate_audio(script: str, out_path: str) -> None:
     asyncio.run(_tts(script, out_path))
 
@@ -546,6 +583,14 @@ def process(json_path: str) -> None:
     duration   = audio_clip.duration
     print(f"      {duration:.1f}s  |  {len(script.split())} words")
 
+    # Mix ambient background music under voice (silent fail — won't block render)
+    _bg   = str(out_dir / f"{base}_bg.mp3")
+    _mxd  = str(out_dir / f"{base}_mx.mp3")
+    if _generate_ambient(duration, _bg) and _mix_audio(audio_path, _bg, _mxd):
+        audio_clip.close()
+        audio_clip = AudioFileClip(_mxd)
+        print(f"      [+ambient music]")
+
     # ── 2. Pre-render all overlays ────────────────────────────────────────────
     print(f"[2/4] Rendering {WIDTH}x{HEIGHT} @ {FPS}fps...")
 
@@ -596,6 +641,13 @@ def process(json_path: str) -> None:
     )
     audio_clip.close()
     clip.close()
+
+    # Remove intermediate ambient audio files
+    for _tmp in [str(out_dir / f"{base}_bg.mp3"), str(out_dir / f"{base}_mx.mp3")]:
+        try:
+            Path(_tmp).unlink(missing_ok=True)
+        except Exception:
+            pass
 
     # ── 3. SRT subtitles ──────────────────────────────────────────────────────
     print(f"[3/4] Writing SRT...")
