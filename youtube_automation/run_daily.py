@@ -29,6 +29,23 @@ SIGNS = [
     "libra", "scorpio", "sagittarius", "capricorn", "aquarius", "pisces",
 ]
 
+# Each sign publishes at a different hour — spreads 12 videos across the day
+# Times in UTC (EDT = UTC-4, so 10 UTC = 6 AM EST = prime morning horoscope time)
+SIGN_PUBLISH_HOUR_UTC = {
+    "aries":       10,   # 6 AM EST
+    "taurus":      11,   # 7 AM EST
+    "gemini":      12,   # 8 AM EST
+    "cancer":      13,   # 9 AM EST
+    "leo":         14,   # 10 AM EST
+    "virgo":       15,   # 11 AM EST
+    "libra":       16,   # 12 PM EST
+    "scorpio":     17,   # 1 PM EST
+    "sagittarius": 18,   # 2 PM EST
+    "capricorn":   19,   # 3 PM EST
+    "aquarius":    20,   # 4 PM EST
+    "pisces":      21,   # 5 PM EST
+}
+
 
 def run_captured(cmd: list, timeout: int = 120) -> tuple:
     try:
@@ -201,12 +218,19 @@ def main():
                     "date":           args.date,
                     "privacy_status": "public",
                 }
-                vid_id = upload_video(video_path, content)
+                # Schedule each sign to publish at its own hour
+                pub_hour = SIGN_PUBLISH_HOUR_UTC.get(sign, 12)
+                pub_date = datetime.strptime(args.date, "%Y%m%d")
+                publish_at = pub_date.replace(
+                    hour=pub_hour, minute=0, second=0
+                ).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+                vid_id = upload_video(video_path, content, publish_at=publish_at)
                 upload_thumbnail(vid_id, video_path.replace(".mp4", "_thumbnail.jpg"))
                 cid = post_comment(vid_id, assets.get("pinned_comment", ""))
                 pin_comment(vid_id, cid)
-                r["upload"] = f"✅ youtu.be/{vid_id}"
-                print(f"         OK: https://youtu.be/{vid_id}")
+                r["upload"] = f"✅ youtu.be/{vid_id} @ {pub_hour}:00 UTC"
+                print(f"         OK: https://youtu.be/{vid_id} — publishes {publish_at}")
             except Exception as _e:
                 r["upload"] = f"❌ {str(_e)[:80]}"
                 print(f"         FAILED: {_e}")

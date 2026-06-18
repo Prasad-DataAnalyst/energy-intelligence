@@ -70,12 +70,15 @@ def _authed_session():
 # Main video upload
 # ─────────────────────────────────────────────────────────────────────────────
 
-def upload_video(video_path: str, content: dict, seo_package: dict = None) -> str:
+def upload_video(video_path: str, content: dict, seo_package: dict = None,
+                 publish_at: str = None) -> str:
     """
     Upload video_path to YouTube.
 
     content:     dict with title, description, tags, category, date
     seo_package: optional dict from YouTubePackager with richer metadata
+    publish_at:  optional ISO-8601 UTC string e.g. "2026-06-19T10:00:00Z"
+                 If set, video uploads as private and auto-publishes at that time.
 
     Returns video_id (e.g. "dQw4w9WgXcQ").
     Raises RuntimeError on quota / auth failure.
@@ -84,7 +87,6 @@ def upload_video(video_path: str, content: dict, seo_package: dict = None) -> st
     if not os.path.exists(video_path):
         raise FileNotFoundError(f"Video file not found: {video_path}")
 
-    # Merge SEO package into metadata
     title       = _best(seo_package, "selected_title", content, "title",  "Mind Fuel Daily")
     description = _build_description(content, seo_package)
     tags        = _build_tags(content, seo_package)
@@ -92,22 +94,32 @@ def upload_video(video_path: str, content: dict, seo_package: dict = None) -> st
     session, creds = _authed_session()
     file_size = os.path.getsize(video_path)
 
-    category_id   = str(content.get("category_id", getattr(config, "CATEGORY_ID", "22")))
-    privacy_status = str(content.get("privacy_status", getattr(config, "PRIVACY_STATUS", "public")))
+    category_id = str(content.get("category_id", getattr(config, "CATEGORY_ID", "22")))
+
+    # Use scheduled publishing if publish_at provided
+    if publish_at:
+        status_block = {
+            "privacyStatus": "private",
+            "publishAt":     publish_at,
+            "madeForKids":   content.get("made_for_kids", False),
+        }
+        log.info("Scheduled publish at: %s", publish_at)
+    else:
+        privacy_status = str(content.get("privacy_status",
+                             getattr(config, "PRIVACY_STATUS", "public")))
+        status_block = {
+            "privacyStatus": privacy_status,
+            "madeForKids":   content.get("made_for_kids", False),
+        }
 
     metadata = {
         "snippet": {
             "title":       title[:100],
             "description": description[:5000],
-            "tags":        tags,           # already character-limited by _build_tags
+            "tags":        tags,
             "categoryId":  category_id,
-            # NOTE: defaultLanguage is a channel property, NOT a video property.
-            # Sending it here causes YouTube to return 400 Bad Request.
         },
-        "status": {
-            "privacyStatus": privacy_status,
-            "madeForKids":   content.get("made_for_kids", False),
-        },
+        "status": status_block,
     }
 
     init_resp = session.post(
