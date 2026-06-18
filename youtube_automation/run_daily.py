@@ -61,6 +61,8 @@ def main():
                         help="Reuse existing JSON files instead of regenerating")
     parser.add_argument("--upload", action="store_true",
                         help="Auto-upload completed videos to YouTube")
+    parser.add_argument("--tiktok", action="store_true",
+                        help="Also cross-post completed videos to TikTok")
     args = parser.parse_args()
 
     signs = ([s.strip().lower() for s in args.signs.split(",")]
@@ -151,6 +153,26 @@ def main():
                 r["upload"] = f"❌ {str(_e)[:80]}"
                 print(f"         FAILED: {_e}")
 
+        # ── 5. TikTok (optional) ─────────────────────────────────────────────
+        if args.tiktok and r.get("quality", "").startswith("✅"):
+            print(f"  [5/5] TikTok   — cross-posting...")
+            try:
+                import sys as _sys
+                _sys.path.insert(0, str(Path(__file__).parent))
+                from tiktok_uploader import upload_to_tiktok
+                assets_json = f"outputs/{args.date}/{sign.title()}/{sign}_{args.date}_assets.json"
+                assets      = json.loads(Path(assets_json).read_text(encoding="utf-8"))
+                pub_id = upload_to_tiktok(
+                    video_path,
+                    assets.get("title", ""),
+                    assets.get("hashtags", []),
+                )
+                r["tiktok"] = f"✅ {pub_id[:12]}"
+                print(f"         OK: publish_id {pub_id}")
+            except Exception as _e:
+                r["tiktok"] = f"❌ {str(_e)[:80]}"
+                print(f"         FAILED: {_e}")
+
         results[sign] = r
 
     # ── Final summary ──────────────────────────────────────────────────────────
@@ -167,8 +189,10 @@ def main():
         u = r.get("upload", "")
         all_ok = all(str(x).startswith("✅") for x in [a, v, q] if x)
         icon   = "✅" if all_ok else "❌"
+        tt = r.get("tiktok", "")
         print(f"  {icon}  {sign.title():<14}  assets:{a}  video:{v}  qc:{q}" +
-              (f"  upload:{u}" if u else ""))
+              (f"  yt:{u}"  if u  else "") +
+              (f"  tt:{tt}" if tt else ""))
         if all_ok:
             passed += 1
 
