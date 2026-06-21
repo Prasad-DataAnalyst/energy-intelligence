@@ -54,9 +54,9 @@ fi
 
 # ── 3. Install cron job ───────────────────────────────────────────────────────
 echo ""
-echo "[3/4] Installing cron job (runs daily at 5:30 AM)..."
+echo "[3/4] Installing cron job (runs daily at 5:30 AM UTC — all 12 signs, auto-upload)..."
 
-CRON_CMD="30 5 * * * cd $REPO && $VENV_PYTHON run_daily.py --date \$(date +\\%Y\\%m\\%d) --period \"\$(date +'\\%B \\%Y')\" --format short >> $LOG 2>&1"
+CRON_CMD="30 5 * * * cd $REPO && $VENV_PYTHON run_daily.py --date \$(date +\\%Y\\%m\\%d) --period \"\$(date +'\\%B \\%Y')\" --upload >> $LOG 2>&1"
 
 # Remove any old version of this cron job first
 ( crontab -l 2>/dev/null | grep -v "run_daily.py" ) | crontab - 2>/dev/null || true
@@ -78,6 +78,7 @@ echo "  SETUP COMPLETE"
 echo "============================================"
 echo ""
 echo "  Schedule : Every day at 5:30 AM (VM time)"
+echo "  Mode     : All 12 signs in one video (148s)"
 echo "  Log file : $LOG"
 echo ""
 echo "  To check what time it is on VM:"
@@ -86,7 +87,10 @@ echo ""
 echo "  To watch the log live tomorrow:"
 echo "    tail -f $LOG"
 echo ""
-echo "  To run manually RIGHT NOW (test):"
+echo "  To run manually RIGHT NOW:"
 echo "    cd $REPO"
-echo "    $VENV_PYTHON run_daily.py --date \$(date +%Y%m%d) --period \"\$(date +'%B %Y')\" --format short"
+echo "    $VENV_PYTHON run_daily.py --date \$(date +%Y%m%d) --period \"\$(date +'%B %Y')\" --upload"
+echo ""
+echo "  To skip asset generation (reuse today's JSON):"
+echo "    $VENV_PYTHON run_daily.py --date \$(date +%Y%m%d) --period \"\$(date +'%B %Y')\" --skip-assets --upload"
 echo ""
