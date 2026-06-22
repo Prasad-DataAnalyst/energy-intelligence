@@ -34,9 +34,9 @@ CHANNEL_ID     = ""          # filled in after first OAuth setup
 # 3. POSTING SCHEDULE  (all times in US Eastern Time)
 # ─────────────────────────────────────────────────────────────────────────────
 
-WEEKDAY_MAIN_TIMES  = ["07:00", "16:30"]        # Mon–Fri main videos
-WEEKDAY_SHORT_TIMES = ["07:00", "12:30", "16:30"]  # Mon–Fri Shorts
-SUNDAY_TIMES        = ["10:00", "16:00"]         # Sunday educational
+WEEKDAY_MAIN_TIMES  = ["07:00", "16:30"]
+WEEKDAY_SHORT_TIMES = ["07:00", "12:30", "16:30"]
+SUNDAY_TIMES        = ["10:00", "16:00"]
 TIMEZONE            = "America/New_York"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -67,7 +67,6 @@ SHORTS_MUSIC_VOLUME = 0.15   # background music volume for Shorts (15%)
 TTS_ENGINE   = "edge-tts"
 TTS_FALLBACK = "gtts"
 
-# Day-of-week voice rotation — different voice keeps content fresh
 TTS_VOICES = {
     "monday":    "en-US-GuyNeural",
     "tuesday":   "en-US-GuyNeural",
@@ -77,8 +76,8 @@ TTS_VOICES = {
     "sunday":    "en-US-AriaNeural",
 }
 
-TTS_RATE   = "+0%"   # adjust with e.g. "+10%" to speed up
-TTS_VOLUME = "+0%"   # adjust with e.g. "+5%" to increase gain
+TTS_RATE   = "+0%"
+TTS_VOLUME = "+0%"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 6. CONTENT SETTINGS
@@ -125,7 +124,6 @@ HOOK_VARIATIONS = [
 # 7. SUNDAY ROTATION
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Week-of-month themes (1-indexed)
 SUNDAY_THEMES = {
     1: "investment_banking",
     2: "insurance_protection",
@@ -133,7 +131,6 @@ SUNDAY_THEMES = {
     4: "rotating_bonus",
 }
 
-# Cycle order for week-4 bonus theme
 ROTATING_BONUS_ORDER = [
     "real_estate",
     "crypto_digital",
@@ -147,14 +144,14 @@ ROTATING_BONUS_ORDER = [
 # 8. QUOTA MANAGEMENT
 # ─────────────────────────────────────────────────────────────────────────────
 
-DAILY_QUOTA_TOTAL  = 10_000   # YouTube Data API v3 free-tier daily cap
-DAILY_QUOTA_BUDGET = 8_100    # safe operating budget (leaves buffer)
-DAILY_QUOTA_BUFFER = 1_900    # reserved for unexpected retries / reads
+DAILY_QUOTA_TOTAL  = 10_000
+DAILY_QUOTA_BUDGET = 8_100
+DAILY_QUOTA_BUFFER = 1_900
 
-UPLOAD_COST          = 1_600   # videos.insert
-THUMBNAIL_COST       = 50      # thumbnails.set
-METADATA_UPDATE_COST = 50      # videos.update (title / description)
-MIN_QUOTA_TO_UPLOAD  = 1_700   # minimum remaining quota required before uploading
+UPLOAD_COST          = 1_600
+THUMBNAIL_COST       = 50
+METADATA_UPDATE_COST = 50
+MIN_QUOTA_TO_UPLOAD  = 1_700
 
 QUOTA_STATE_FILE = "logs/quota_state.json"
 
@@ -191,7 +188,6 @@ BLOCKED_PHRASES = [
     "this is a sure thing",
 ]
 
-# At least one of these must appear in every script (credibility anchors)
 REQUIRED_PHRASES = [
     "according to",
     "data shows",
@@ -205,7 +201,7 @@ REQUIRED_PHRASES = [
 ]
 
 DISCLAIMER = (
-    "This content is for informational, educational, and entertainment "
+    "This content is for informational and entertainment "
     "purposes only and does not constitute financial advice. "
     "Always consult a licensed financial advisor before "
     "making any investment decisions."
@@ -248,43 +244,43 @@ POSITIVE_COLOR  = "#00C851"
 NEGATIVE_COLOR  = "#FF4444"
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 13. AI / API SETTINGS
+# 13. AI / API RUNTIME CONSTANTS
 # ─────────────────────────────────────────────────────────────────────────────
 
 CLAUDE_MODEL       = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
 CLAUDE_MAX_TOKENS  = 2048
 CLAUDE_TEMPERATURE = 0.7
 
-MAX_RETRIES         = 3
-RETRY_BACKOFF_BASE  = 2      # seconds — wait = BASE ** attempt
+MAX_RETRIES        = 3
+RETRY_BACKOFF_BASE = 2      # seconds — wait = BASE ** attempt
 
 AUDIO_BITRATE = "192k"
 VIDEO_BITRATE = "8000k"
 
-DAILY_UPLOAD_LIMIT  = DAILY_QUOTA_BUDGET // UPLOAD_COST  # ≈5 per day
+DAILY_UPLOAD_LIMIT = DAILY_QUOTA_BUDGET // UPLOAD_COST   # ≈5 per day
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 14. MARKET WATCHLIST & FRED SERIES
 # ─────────────────────────────────────────────────────────────────────────────
 
 TRACKED_TICKERS = [
-    "^GSPC", "^IXIC", "^DJI",         # indices
-    "AAPL", "MSFT", "GOOGL", "AMZN",  # mega-cap tech
-    "NVDA", "META", "TSLA",            # high-beta
-    "JPM", "GS", "BAC",               # financials
-    "XOM", "CVX",                      # energy
-    "SPY", "QQQ", "IWM",              # ETFs
-    "^VIX", "^TNX",                   # vol + 10-yr yield
+    "^GSPC", "^IXIC", "^DJI",
+    "AAPL", "MSFT", "GOOGL", "AMZN",
+    "NVDA", "META", "TSLA",
+    "JPM", "GS", "BAC",
+    "XOM", "CVX",
+    "SPY", "QQQ", "IWM",
+    "^VIX", "^TNX",
 ]
 
 FRED_SERIES = {
-    "CPIAUCSL":  "CPI (Inflation)",
-    "FEDFUNDS":  "Fed Funds Rate",
-    "UNRATE":    "Unemployment Rate",
-    "GDP":       "Real GDP",
-    "T10YIE":    "10-Year Breakeven Inflation",
-    "DGS10":     "10-Year Treasury Yield",
-    "UMCSENT":   "Consumer Sentiment",
+    "CPIAUCSL": "CPI (Inflation)",
+    "FEDFUNDS": "Fed Funds Rate",
+    "UNRATE":   "Unemployment Rate",
+    "GDP":      "Real GDP",
+    "T10YIE":   "10-Year Breakeven Inflation",
+    "DGS10":    "10-Year Treasury Yield",
+    "UMCSENT":  "Consumer Sentiment",
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -295,59 +291,40 @@ FRED_SERIES = {
 from types import SimpleNamespace  # noqa: E402
 
 settings = SimpleNamespace(
-    # API keys
-    anthropic_api_key     = ANTHROPIC_API_KEY,
-    elevenlabs_api_key    = ELEVENLABS_API_KEY,
-    elevenlabs_voice_id   = ELEVENLABS_VOICE_ID,
-    fred_api_key          = FRED_API_KEY,
-    finnhub_api_key       = FINNHUB_API_KEY,
-    pexels_api_key        = PEXELS_API_KEY,
+    anthropic_api_key      = ANTHROPIC_API_KEY,
+    elevenlabs_api_key     = ELEVENLABS_API_KEY,
+    elevenlabs_voice_id    = ELEVENLABS_VOICE_ID,
+    fred_api_key           = FRED_API_KEY,
+    finnhub_api_key        = FINNHUB_API_KEY,
+    pexels_api_key         = PEXELS_API_KEY,
     youtube_client_secrets = OAUTH_FILE,
-
-    # Channel
-    channel_name   = CHANNEL_NAME,
-    channel_handle = CHANNEL_HANDLE,
-    channel_id     = CHANNEL_ID,
-
-    # AI
-    claude_model       = CLAUDE_MODEL,
-    claude_max_tokens  = CLAUDE_MAX_TOKENS,
-    claude_temperature = CLAUDE_TEMPERATURE,
-
-    # Retry
-    max_retries        = MAX_RETRIES,
-    retry_backoff_base = RETRY_BACKOFF_BASE,
-
-    # Video / audio specs
-    video_width   = VIDEO_RESOLUTION[0],
-    video_height  = VIDEO_RESOLUTION[1],
-    shorts_width  = SHORTS_RESOLUTION[0],
-    shorts_height = SHORTS_RESOLUTION[1],
-    video_fps     = VIDEO_FPS,
-    video_bitrate = VIDEO_BITRATE,
-    audio_bitrate = AUDIO_BITRATE,
+    channel_name           = CHANNEL_NAME,
+    channel_handle         = CHANNEL_HANDLE,
+    channel_id             = CHANNEL_ID,
+    claude_model           = CLAUDE_MODEL,
+    claude_max_tokens      = CLAUDE_MAX_TOKENS,
+    claude_temperature     = CLAUDE_TEMPERATURE,
+    max_retries            = MAX_RETRIES,
+    retry_backoff_base     = RETRY_BACKOFF_BASE,
+    video_width            = VIDEO_RESOLUTION[0],
+    video_height           = VIDEO_RESOLUTION[1],
+    shorts_width           = SHORTS_RESOLUTION[0],
+    shorts_height          = SHORTS_RESOLUTION[1],
+    video_fps              = VIDEO_FPS,
+    video_bitrate          = VIDEO_BITRATE,
+    audio_bitrate          = AUDIO_BITRATE,
     shorts_duration_target = SHORTS_DURATION_TARGET,
-
-    # Quota
-    daily_upload_quota = DAILY_UPLOAD_LIMIT,
-
-    # Compliance
+    daily_upload_quota     = DAILY_UPLOAD_LIMIT,
     compliance_block_phrases = BLOCKED_PHRASES,
-    disclaimer_text          = DISCLAIMER,
-    ai_disclosure            = AI_DISCLOSURE,
-
-    # Timezone
-    timezone = TIMEZONE,
-
-    # Paths
-    root_dir   = BASE_DIR,
-    assets_dir = ASSETS_DIR,
-    output_dir = OUTPUT_DIR,
-    logs_dir   = LOGS_DIR,
-    config_dir = CONFIG_DIR,
-    oauth_file = OAUTH_FILE,
-
-    # Data
-    tracked_tickers = TRACKED_TICKERS,
-    fred_series     = FRED_SERIES,
+    disclaimer_text        = DISCLAIMER,
+    ai_disclosure          = AI_DISCLOSURE,
+    timezone               = TIMEZONE,
+    root_dir               = BASE_DIR,
+    assets_dir             = ASSETS_DIR,
+    output_dir             = OUTPUT_DIR,
+    logs_dir               = LOGS_DIR,
+    config_dir             = CONFIG_DIR,
+    oauth_file             = OAUTH_FILE,
+    tracked_tickers        = TRACKED_TICKERS,
+    fred_series            = FRED_SERIES,
 )

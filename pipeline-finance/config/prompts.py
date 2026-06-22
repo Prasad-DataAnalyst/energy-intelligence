@@ -1,15 +1,15 @@
 """
 config/prompts.py — DriftWire326 Claude API Prompt Library
-All 16 prompt constants for script generation, titles, descriptions, and compliance.
-Use Python str.format(**kwargs) at call time — never mutate these at import.
+All 16 production prompts for script generation, titles, descriptions, and compliance.
+Use str.format(**kwargs) at call-site — never mutate these constants.
 
-Backward-compatible Template aliases are at the bottom of this file so existing
-generators can continue to use .substitute() until they are individually upgraded.
+Backward-compatible string.Template aliases at the bottom preserve the
+.substitute() API used by existing generators until each is upgraded.
 """
 from string import Template
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SHARED SYSTEM PERSONA  (pass as system= in every Claude call)
+# SHARED SYSTEM PERSONA  (pass as system= on every Claude call)
 # ─────────────────────────────────────────────────────────────────────────────
 
 SYSTEM_PERSONA = (
@@ -19,30 +19,31 @@ SYSTEM_PERSONA = (
     "Rules: never give financial advice; frame everything as news, education, or analysis; "
     "always include the disclaimer when covering individual stocks; never guarantee returns "
     "or predict specific prices; use plain English and explain jargon immediately; "
-    "hook the viewer in the first 10 seconds; cite data and sources; end every video with a CTA."
+    "hook the viewer in the first 10 seconds; cite data and sources; end with a CTA."
 )
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. TOPIC_SELECTOR_PROMPT
-# Variables: {topics_json}, {date}, {day_type}
-# Output: JSON array — top 3 topics ranked by audience appeal
+# Input:  {topics_json}, {date}, {day_type}
+# Output: JSON array — top 3 topics ranked by gossip/news value
 # ─────────────────────────────────────────────────────────────────────────────
 
 TOPIC_SELECTOR_PROMPT = """\
-You are selecting the best finance story for a YouTube video on {date} ({day_type}).
+You are selecting the best finance story for a DriftWire326 YouTube video.
 
+DATE: {date}
+DAY TYPE: {day_type}
 AVAILABLE TOPICS (JSON):
 {topics_json}
 
-Rank the top 3 topics by their combined score across:
-- Viral potential (will Gen Z / Millennial investors care?)
-- News recency (happened in the last 24 hours scores highest)
-- Emotional hook (fear, greed, surprise, outrage)
-- Data richness (can we cite specific numbers?)
-- Story arc (clear cause → effect → so-what)
+Rank the top 3 topics by combined gossip/news value:
+- Viral potential (will Gen Z / Millennial investors stop their scroll?)
+- Recency (happened in the last 24 hours scores highest)
+- Emotional hook strength (fear, greed, surprise, outrage)
+- Data richness (specific numbers available to cite)
+- Story clarity (clear cause → effect → so-what)
 
-Return ONLY valid JSON — no markdown, no explanation:
+Return ONLY valid JSON — no markdown, no commentary:
 [
   {{
     "rank": 1,
@@ -67,11 +68,12 @@ Return ONLY valid JSON — no markdown, no explanation:
   }}
 ]"""
 
-
 # ─────────────────────────────────────────────────────────────────────────────
-# 2. WEEKDAY_SCRIPT_TIER1_PROMPT  — breakout move (≥5 % move)
-# Variables: {topic}, {anchor_number}, {context}, {style}, {hook}
+# 2. WEEKDAY_SCRIPT_TIER1_PROMPT — breakout story (≥5% move)
+# Input:  {topic}, {anchor_number}, {context}, {style}, {hook}
 # Output: 280-420 word script, urgent breaking-news tone
+# Structure: Hook(5s) → What Happened(40s) → Why It Matters(50s) →
+#            Numbers Deep Dive(40s) → What Happens Next(25s) → CTA(15s)
 # ─────────────────────────────────────────────────────────────────────────────
 
 WEEKDAY_SCRIPT_TIER1_PROMPT = """\
@@ -82,50 +84,52 @@ ANCHOR NUMBER: {anchor_number}
 CONTEXT / DATA: {context}
 OPENING HOOK: {hook}
 
-This is a major market move (≥5%). Match the energy of live breaking-news coverage.
-Total word count: 280-420 words. Every second counts.
+This is a MAJOR market move (≥5%). Energy: live breaking-news coverage, urgent, electric.
+Word count: 280-420 words. Every second earns its place.
 
-Use this EXACT structure with section headers:
+Use these EXACT section headers:
 
 [HOOK] — 5 seconds
-One explosive sentence using the anchor number. Start mid-action.
-Use the provided hook: "{hook}"
+One explosive sentence built around the anchor number. Start mid-action, no preamble.
+Open with: "{hook}"
 
 [WHAT HAPPENED] — 40 seconds
-The who-what-when of the move. Cite two or more specific data points.
-No padding. Short declarative sentences.
+The who-what-when of the move. Minimum two specific data points.
+Short declarative sentences. Zero filler.
 
 [WHY IT MATTERS] — 50 seconds
-Cause → ripple effects. Who wins? Who loses? What does this signal?
-Ground every claim with data or a named source.
+Cause → ripple effects. Who wins? Who loses? What does this signal for the broader market?
+Every claim grounded in data or a named source.
 
 [NUMBERS DEEP DIVE] — 40 seconds
-Go granular: percentages, volume, comparisons, historical context.
-Use at least three distinct numbers.
+Go granular: percentage moves, trading volume, comparisons to 52-week range or peer group,
+one historical parallel. Minimum three distinct numbers.
 
 [WHAT HAPPENS NEXT] — 25 seconds
-Forward-looking but NOT predictive. "Traders are watching…" / "Key level to monitor…"
-No price targets, no guarantees.
+Forward-looking but never predictive. Frame as: "Traders are watching…" / "Key level to monitor…"
+No price targets. No guarantees.
 
 [CTA] — 15 seconds
-"If this surprised you, drop a comment below. Subscribe so you never miss a move like this."
+"If this caught you off guard, subscribe so the next move doesn't. Drop a comment — \
+did you see this coming?"
 
-Rules:
-- Include at least one phrase from: "according to", "data shows", "reported", "as of today",
+Compliance rules (non-negotiable):
+- Must include at least one of: "according to", "data shows", "reported", "as of today",
   "markets indicate", "analysts note", "figures show", "sources indicate", "market data suggests"
-- Do NOT use: "you should buy", "guaranteed return", "this will go up", "best investment",
-  "I recommend buying", "go all in", "this is a sure thing"
-- End with: "This content is for informational and entertainment purposes only and does not
-  constitute financial advice. Always consult a licensed financial advisor before making any
-  investment decisions. Narration is AI-generated."
+- Must NOT contain: "you should buy", "you should sell", "guaranteed return", "this will go up",
+  "best investment", "I recommend buying", "do not miss this opportunity",
+  "you need to purchase", "go all in", "this is a sure thing"
+- Final line must be: "This content is for informational and entertainment purposes only and \
+does not constitute financial advice. Always consult a licensed financial advisor before \
+making any investment decisions. Narration is AI-generated."
 
-Return plain text only — no markdown, no commentary outside the script."""
-
+Return plain script text only — section headers included, no other markdown."""
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 3. WEEKDAY_SCRIPT_TIER2_PROMPT  — notable move (2 %–4.99 %)
-# Variables: {topic}, {anchor_number}, {context}, {style}, {hook}
-# Output: 280-420 words, confident market-anchor tone
+# 3. WEEKDAY_SCRIPT_TIER2_PROMPT — notable story (2%–4.99% move)
+# Input:  {topic}, {anchor_number}, {context}, {style}, {hook}
+# Output: 280-420 word script, confident anchor tone
+# Structure: Hook(5s) → Story(60s) → Analysis(60s) → Context(25s) → CTA(15s)
 # ─────────────────────────────────────────────────────────────────────────────
 
 WEEKDAY_SCRIPT_TIER2_PROMPT = """\
@@ -136,279 +140,291 @@ ANCHOR NUMBER: {anchor_number}
 CONTEXT / DATA: {context}
 OPENING HOOK: {hook}
 
-This is a meaningful but not explosive market event (2-4.99% move).
-Tone: confident, informed market anchor — not frantic, not boring.
-Total word count: 280-420 words.
+This is a meaningful but not explosive event (2–4.99% move).
+Tone: confident, informed market anchor — authoritative without being breathless.
+Word count: 280-420 words.
 
-Structure (use section headers exactly):
+Use these EXACT section headers:
 
 [HOOK] — 5 seconds
-Crisp, data-driven opener. Intrigue over alarm.
-Use: "{hook}"
+Crisp data-driven opener. Intrigue over alarm. Use: "{hook}"
 
-[WHAT HAPPENED] — 40 seconds
-Clean narrative: what moved, by how much, when, and triggered by what catalyst.
-Cite at least two data points.
+[STORY] — 60 seconds
+Full narrative: what moved, by how much, when, and triggered by which catalyst.
+Two or more specific data points. Cause and effect clearly connected.
 
-[WHY IT MATTERS] — 50 seconds
-Connect this move to the bigger picture: sector trends, macro forces, investor sentiment.
-Source every claim.
+[ANALYSIS] — 60 seconds
+Deeper read: what does this move reveal about the sector, macro environment, or investor sentiment?
+Connect to at least one broader theme. Source every assertion.
 
-[NUMBERS DEEP DIVE] — 40 seconds
-Three or more specific figures: performance vs. peer, vs. index, vs. 52-week range.
-Historical comparison adds credibility.
-
-[WHAT HAPPENS NEXT] — 25 seconds
-Upcoming catalysts to monitor (earnings date, Fed meeting, data release).
+[CONTEXT] — 25 seconds
+Upcoming catalysts to monitor: earnings dates, Fed meetings, data releases.
 Frame as "watch for" — never as a price prediction.
 
 [CTA] — 15 seconds
-Invite engagement: a question for the comments, a subscribe reminder.
+Invite engagement: a specific question for the comments + subscribe reminder.
 
-Rules:
-- Include at least one phrase from: "according to", "data shows", "reported", "as of today",
-  "markets indicate", "analysts note", "figures show", "sources indicate", "market data suggests"
-- Do NOT use: "you should buy", "guaranteed return", "this will go up", "best investment",
-  "I recommend buying", "go all in", "this is a sure thing"
-- Close with the full disclaimer and AI disclosure.
+Compliance rules (non-negotiable):
+- Must include at least one credibility anchor: "according to", "data shows", "reported",
+  "as of today", "markets indicate", "analysts note", "figures show",
+  "sources indicate", "market data suggests"
+- Must NOT contain advisory language: "you should buy/sell", "guaranteed return",
+  "this will go up", "best investment", "I recommend buying", "go all in",
+  "this is a sure thing"
+- Final line: "This content is for informational and entertainment purposes only and \
+does not constitute financial advice. Always consult a licensed financial advisor before \
+making any investment decisions. Narration is AI-generated."
 
-Return plain text only."""
-
+Return plain script text only."""
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4. WEEKDAY_SCRIPT_TIER3_PROMPT  — routine / educational day
-# Variables: {topic}, {anchor_number}, {context}, {style}, {hook}
-# Output: 280-420 words, warm educational reporter tone
+# 4. WEEKDAY_SCRIPT_TIER3_PROMPT — routine / educational day
+# Input:  {topic}, {context}, {style}, {hook}
+# Output: 280-420 word script, educational tone
+# Structure: Hook(5s) → Context(50s) → Explanation(70s) → Takeaway(25s) → CTA(15s)
 # ─────────────────────────────────────────────────────────────────────────────
 
 WEEKDAY_SCRIPT_TIER3_PROMPT = """\
 Write a TIER-3 ROUTINE / EDUCATIONAL script for DriftWire326. Style: {style}.
 
 TOPIC: {topic}
-ANCHOR NUMBER: {anchor_number}
 CONTEXT / DATA: {context}
 OPENING HOOK: {hook}
 
 Markets were quiet today — lean into education. Help viewers understand the underlying
-concept or trend. Tone: warm, knowledgeable friend who happens to follow the market closely.
-Total word count: 280-420 words.
+concept, trend, or data point. Tone: warm, knowledgeable friend who happens to follow
+the market closely. Word count: 280-420 words.
 
-Structure:
+Use these EXACT section headers:
 
 [HOOK] — 5 seconds
-Open with a relatable question or a "did you know" angle. Use: "{hook}"
+Open with a relatable question or "did you know" angle. Use: "{hook}"
 
-[WHAT HAPPENED] — 40 seconds
-Describe today's action matter-of-factly. Ground the narrative in the anchor number.
+[CONTEXT] — 50 seconds
+Describe today's market action matter-of-factly grounded in real numbers.
+What happened? Where did markets close? What was the standout data point?
 
-[WHY IT MATTERS] — 50 seconds
-Pivot to the educational angle. Why should a new investor care about this metric,
-sector, or concept on a quiet day?
+[EXPLANATION] — 70 seconds
+Pivot to the educational angle. Explain the underlying concept, metric, or sector
+dynamic that drives today's story. Use a plain-language analogy. Cite at least
+two data points (year-to-date, vs. historical average, vs. index, etc.).
 
-[NUMBERS DEEP DIVE] — 40 seconds
-Contextualise the numbers. Year-to-date performance, sector vs. index, historical average.
-Make the data approachable.
-
-[WHAT HAPPENS NEXT] — 25 seconds
-Upcoming data points or events that could change the picture.
+[TAKEAWAY] — 25 seconds
+One clear insight the viewer can carry with them. Not advice — perspective.
+"What this tells us is…" / "The pattern here suggests…"
 
 [CTA] — 15 seconds
-Ask a learning question in the comments ("What concept do you want us to break down next?").
+Ask a learning question: "What concept do you want us to break down next?
+Drop it below and subscribe so you don't miss it."
 
-Rules:
-- Include at least one phrase from: "according to", "data shows", "reported", "as of today",
-  "markets indicate", "analysts note", "figures show", "sources indicate", "market data suggests"
-- Do NOT use advisory language (buy, sell, invest recommendations).
-- Close with the full disclaimer and AI disclosure.
+Compliance rules (non-negotiable):
+- Must include at least one credibility anchor: "according to", "data shows", "reported",
+  "as of today", "markets indicate", "analysts note", "figures show",
+  "sources indicate", "market data suggests"
+- Must NOT contain advisory language
+- Final line: "This content is for informational and entertainment purposes only and \
+does not constitute financial advice. Always consult a licensed financial advisor before \
+making any investment decisions. Narration is AI-generated."
 
-Return plain text only."""
-
+Return plain script text only."""
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. SHORTS_SCRIPT_PROMPT
-# Variables: {topic}, {anchor_number}, {hook_text}, {key_stat}, {ticker}, {sentiment}
-# Output: 5 text-card script, <55 seconds total
+# Input:  {topic}, {anchor_number}, {tier}
+# Output: exactly 5 text cards, total read time under 55 seconds
+# Card specs: word limits + display color
 # ─────────────────────────────────────────────────────────────────────────────
 
 SHORTS_SCRIPT_PROMPT = """\
-Write a YouTube Shorts script for DriftWire326 that fits in 55 seconds max.
+Write a YouTube Shorts script for DriftWire326. Format: exactly 5 TEXT CARDS.
+Total narration read time must be UNDER 55 SECONDS at a natural speaking pace.
 
 TOPIC: {topic}
-TICKER / ASSET: {ticker}
-SENTIMENT: {sentiment}
 ANCHOR NUMBER: {anchor_number}
-KEY STAT: {key_stat}
-HOOK LINE: {hook_text}
+STORY TIER: {tier}
 
-Format as 5 TEXT CARDS — each card = one screen of bold on-screen text read aloud.
-Cards must flow naturally when read back-to-back at conversational pace.
+Each card = one screen of on-screen text read aloud by the narrator.
+Follow the word limits and color specs exactly.
 
-CARD 1 — HOOK (0-5 s)
-One sentence. Start with the most shocking number or outcome. No "hey guys".
-Use: "{hook_text}"
+CARD 1 — HOOK  |  display color: NEON GREEN (#00FF41)
+Max 8 words. The most shocking outcome or number. No greeting, no "hey guys".
+Example: "Apple just lost 180 billion in one day."
 
-CARD 2 — CONTEXT (5-18 s)
-What triggered this? Two to three short sentences. Cite the source or data.
+CARD 2 — THE NUMBER  |  display color: WHITE (#FFFFFF)
+Max 4 words + the anchor number. Make the stat the visual centerpiece.
+Example: "Down {anchor_number} in hours."
 
-CARD 3 — IMPACT (18-33 s)
-Who wins, who loses, what ripples out. Keep it vivid and specific.
+CARD 3 — THE REASON  |  display color: WHITE (#FFFFFF)
+Max 12 words. One sentence. Clear cause. Cite the source or name the trigger.
+Example: "Revenue missed estimates by 8% — worst beat in three years."
 
-CARD 4 — THE NUMBER (33-45 s)
-One killer stat displayed large. Benchmark it so viewers grasp its size.
+CARD 4 — THE CONTEXT  |  display color: WHITE (#FFFFFF)
+Max 20 words. Two short sentences. Zoom out: what this means for investors or the sector.
+Example: "Tech stocks fell across the board. Traders are watching the Fed's next move closely."
 
-CARD 5 — CTA (45-55 s)
-"Follow @DriftWire326 for daily market moves." or a comment prompt ending with "👇"
+CARD 5 — CTA  |  display color: NEON GREEN (#00FF41)
+Max 8 words. Drive the action.
+Example: "Follow @DriftWire326 for daily market moves 👇"
 
-Rules:
-- Total narration word count: 110-145 words
+Hard rules:
+- Total word count across all 5 cards: 45-70 words
 - No financial advice language whatsoever
-- Each card: max 25 words on screen
-- End with: "Not financial advice. AI narration."
+- End note appended below Card 5 (not read aloud): "Not financial advice. AI narration."
 
-Return ONLY the 5 card texts labelled CARD 1 through CARD 5. No extra commentary."""
-
+Return ONLY the 5 cards in this exact format — no other text:
+CARD 1: <text>
+CARD 2: <text>
+CARD 3: <text>
+CARD 4: <text>
+CARD 5: <text>"""
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 6. SUNDAY_INVESTMENT_SCRIPT_PROMPT  — Week 1: investment banking
-# Variables: {topic}, {week_context}, {audience_level}
-# Output: 280-350 words, engaging teacher tone
+# 6. SUNDAY_INVESTMENT_SCRIPT_PROMPT — Week 1: investment banking & markets
+# Input:  {topic}, {week_context}
+# Output: 280-350 word educational script, engaging teacher tone
 # ─────────────────────────────────────────────────────────────────────────────
 
 SUNDAY_INVESTMENT_SCRIPT_PROMPT = """\
 Write a Sunday educational script for DriftWire326 on INVESTMENT BANKING & MARKETS.
 
 TOPIC: {topic}
-WEEK CONTEXT: {week_context}
-AUDIENCE LEVEL: {audience_level}
+THIS WEEK'S MARKET CONTEXT: {week_context}
 
 Tone: engaging teacher who genuinely loves finance and wants everyone to understand it.
-No condescension. Analogies welcome. Word count: 280-350 words.
+Real numbers and real examples only. Word count: 280-350 words.
 
-Structure:
+Structure (use these section headers):
 
 [HOOK] — 10 seconds
-Lead with a surprising fact or counter-intuitive truth about investment banking.
+Lead with a surprising fact or counter-intuitive truth about investment banking or markets.
+Tie it to something that happened this week: "{week_context}"
 
 [WHAT IS IT] — 60 seconds
-Define the concept clearly. One strong real-world analogy.
+Define the concept clearly. One strong real-world analogy that a 22-year-old gets instantly.
 
 [HOW IT WORKS] — 90 seconds
-Walk through the mechanics step by step. Use 2024-2026 examples where possible.
-Cite real data or credible sources.
+Walk through the mechanics step by step. Use real 2025-2026 examples and cite data.
+At least two specific numbers (dollar amounts, percentages, timelines).
 
 [WHY IT MATTERS TO YOU] — 50 seconds
-Connect it to everyday investing: how does this affect a 25-year-old's portfolio?
+Connect it to everyday investing: how does this affect someone's 401k, brokerage, or returns?
 
 [KEY TAKEAWAY] — 20 seconds
 One memorable sentence the viewer can repeat to a friend.
 
 [CTA] — 15 seconds
-Subscribe prompt + question for comments.
+"Subscribe for a new deep-dive every Sunday. What should we cover next — drop it below."
 
-Rules:
-- Include credibility anchors: "according to", "data shows", "as of today", etc.
-- No advisory language.
-- Close with full disclaimer and AI disclosure.
+Compliance rules:
+- Must include at least one credibility anchor ("according to", "data shows", "as of today", etc.)
+- No advisory language ("you should buy", "invest in", "guaranteed return", etc.)
+- Final line: "This content is for informational and entertainment purposes only and \
+does not constitute financial advice. Always consult a licensed financial advisor before \
+making any investment decisions. Narration is AI-generated."
 
-Return plain text script only."""
-
+Return plain script text only."""
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 7. SUNDAY_INSURANCE_SCRIPT_PROMPT  — Week 2: insurance & protection
-# Variables: {topic}, {week_context}, {audience_level}
-# Output: 280-350 words, reassuring-but-energetic tone
+# 7. SUNDAY_INSURANCE_SCRIPT_PROMPT — Week 2: insurance & protection
+# Input:  {topic}, {week_context}
+# Output: 280-350 word educational script, insurance/protection tone
 # ─────────────────────────────────────────────────────────────────────────────
 
 SUNDAY_INSURANCE_SCRIPT_PROMPT = """\
 Write a Sunday educational script for DriftWire326 on INSURANCE & FINANCIAL PROTECTION.
 
 TOPIC: {topic}
-WEEK CONTEXT: {week_context}
-AUDIENCE LEVEL: {audience_level}
+THIS WEEK'S MARKET CONTEXT: {week_context}
 
-Tone: reassuring but energetic — the friend who explains why insurance actually matters
-before you need it. Word count: 280-350 words.
+Tone: reassuring but energetic — the friend who explains why protection matters
+before you need it. Empowering, never fear-mongering. Word count: 280-350 words.
 
 Structure:
 
 [HOOK] — 10 seconds
 Open with a "what if" scenario or a real statistic about financial risk.
+Anchor it in this week's market news: "{week_context}"
 
 [THE PROBLEM] — 50 seconds
-Why do people underestimate this risk? What's the cost of being unprotected?
-Use real figures.
+Why do people underestimate this risk? What is the real cost of going unprotected?
+Use real figures (average claim costs, percentage of Americans uninsured, etc.).
 
 [HOW IT WORKS] — 80 seconds
 Explain the insurance product or protection concept clearly.
-Avoid sales language — stay educational. Real examples.
+Educational framing only — no sales language, no provider recommendations.
+Real dollar examples.
 
 [WHAT TO LOOK FOR] — 60 seconds
-Key features, common pitfalls, questions to ask. Empower the viewer, not advise them.
+Key features, common pitfalls, questions to ask an advisor.
+Empower the viewer with knowledge — not prescriptions.
 
 [KEY TAKEAWAY] — 20 seconds
-The one thing to remember.
+The one thing to walk away remembering.
 
 [CTA] — 15 seconds
-Subscribe, share, and a comment question about their biggest financial concern.
+"Subscribe and share with someone who needs to hear this. What's your biggest financial concern?"
 
-Rules:
+Compliance rules:
 - Credibility anchors required ("according to", "data shows", "reported", etc.)
-- Never recommend a specific product or provider.
-- Close with full disclaimer and AI disclosure.
+- Never recommend a specific product, provider, or coverage amount
+- Final line: "This content is for informational and entertainment purposes only and \
+does not constitute financial advice. Always consult a licensed financial advisor before \
+making any investment decisions. Narration is AI-generated."
 
-Return plain text only."""
-
+Return plain script text only."""
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 8. SUNDAY_SAVINGS_SCRIPT_PROMPT  — Week 3: savings & wealth building
-# Variables: {topic}, {week_context}, {audience_level}
-# Output: 280-350 words, motivational wealth-building tone
+# 8. SUNDAY_SAVINGS_SCRIPT_PROMPT — Week 3: savings & wealth building
+# Input:  {topic}, {week_context}
+# Output: 280-350 word educational script, motivational wealth-building tone
 # ─────────────────────────────────────────────────────────────────────────────
 
 SUNDAY_SAVINGS_SCRIPT_PROMPT = """\
 Write a Sunday educational script for DriftWire326 on SAVINGS & WEALTH BUILDING.
 
 TOPIC: {topic}
-WEEK CONTEXT: {week_context}
-AUDIENCE LEVEL: {audience_level}
+THIS WEEK'S MARKET CONTEXT: {week_context}
 
 Tone: motivational, data-grounded wealth coach — compound interest is your friend,
-but you have to start. Inspiring without being preachy. Word count: 280-350 words.
+but you have to start today. Inspiring without being preachy. Word count: 280-350 words.
 
 Structure:
 
 [HOOK] — 10 seconds
 A compound growth stat that makes viewers say "wait, really?"
+Tie it to this week if possible: "{week_context}"
 
 [THE OPPORTUNITY] — 60 seconds
 What this savings or wealth-building vehicle offers. Clear, jargon-free.
-Ground in current rates or market context.
+Ground in current rates or recent market context. Real numbers.
 
 [HOW TO START] — 80 seconds
-Concrete, actionable framework. Dollar amounts should be ranges ("$50-$100/month"),
-never specific prescriptions. Use examples.
+Concrete, accessible framework. Dollar amounts as ranges ("$50-$200/month"),
+never specific prescriptions. Walk through a realistic example.
 
 [COMMON MISTAKES] — 50 seconds
-The top two or three mistakes young investors make here and how to avoid them.
+The top two or three mistakes young investors make here and how to sidestep them.
+Cite data where possible (average savings rate, median emergency fund, etc.).
 
 [KEY TAKEAWAY] — 20 seconds
-One sentence that sticks.
+One sentence that sticks: short, punchy, shareable.
 
 [CTA] — 15 seconds
-Subscribe + ask viewers to share how they're building wealth.
+"Subscribe and share — tag someone who needs to start building wealth today."
 
-Rules:
-- Credibility anchors required.
-- Frame actions as options ("one approach is…", "some investors choose…"), never commands.
-- Close with full disclaimer and AI disclosure.
+Compliance rules:
+- Credibility anchors required
+- Frame actions as options ("one approach is…", "some investors choose…"), never commands
+- Final line: "This content is for informational and entertainment purposes only and \
+does not constitute financial advice. Always consult a licensed financial advisor before \
+making any investment decisions. Narration is AI-generated."
 
-Return plain text only."""
-
+Return plain script text only."""
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 9. SUNDAY_BONUS_SCRIPT_PROMPT  — Week 4: rotating bonus theme
-# Variables: {topic}, {bonus_theme}, {week_context}, {audience_level}
-# Output: 280-350 words, tone adapts to bonus_theme
+# 9. SUNDAY_BONUS_SCRIPT_PROMPT — Week 4: rotating bonus theme
+# Input:  {topic}, {bonus_theme}, {week_context}
+# Output: 280-350 word script, tone adapts to bonus_theme
 # ─────────────────────────────────────────────────────────────────────────────
 
 SUNDAY_BONUS_SCRIPT_PROMPT = """\
@@ -416,52 +432,53 @@ Write a Sunday educational script for DriftWire326 on this week's BONUS THEME.
 
 TOPIC: {topic}
 BONUS THEME: {bonus_theme}
-WEEK CONTEXT: {week_context}
-AUDIENCE LEVEL: {audience_level}
+THIS WEEK'S MARKET CONTEXT: {week_context}
 
 Adapt tone to the theme:
-- real_estate       → grounded, opportunity-focused
-- crypto_digital    → balanced, hype-aware, data-first
-- tax_strategy      → practical, detail-oriented, empowering
-- retirement_planning → calm, long-horizon, reassuring
-- side_income       → entrepreneurial, realistic, energetic
-- macro_finance     → big-picture, analytical, connecting dots
+- real_estate       → grounded, opportunity-focused, patient investor mindset
+- crypto_digital    → balanced, hype-aware, data-first, includes volatility caution
+- tax_strategy      → practical, detail-oriented, empowering ("you can do this")
+- retirement_planning → calm, long-horizon, reassuring, compound-interest optimism
+- side_income       → entrepreneurial, realistic, energetic, avoid get-rich-quick framing
+- macro_finance     → big-picture, analytical, connecting market dots for the everyday investor
 
 Word count: 280-350 words.
 
 Structure:
 
 [HOOK] — 10 seconds
-The sharpest angle on this theme right now.
+The sharpest current angle on this theme. Connect to this week: "{week_context}"
 
 [WHAT IT IS] — 60 seconds
-Clear definition + why it matters in the current market environment.
+Clear definition + why it matters in the current market environment. No jargon without explanation.
 
 [HOW IT WORKS / KEY MECHANICS] — 80 seconds
-The practical framework. Real examples, current data.
+Practical framework with real examples and current data.
+At least two specific figures.
 
 [OPPORTUNITY & RISK] — 50 seconds
-Both sides honestly. Not sales, not fear — balanced perspective with data.
+Both sides honestly. Not a sales pitch, not fear — balanced, data-backed perspective.
+Crypto scripts must note: "highly speculative asset class."
 
 [KEY TAKEAWAY] — 20 seconds
-The one thing viewers should remember this week.
+The one thing viewers remember this week.
 
 [CTA] — 15 seconds
-Subscribe + theme-relevant comment prompt.
+Theme-relevant comment prompt + subscribe.
 
-Rules:
-- Credibility anchors required.
-- No specific product recommendations.
-- Crypto scripts must include extra caution: "highly speculative asset class".
-- Close with full disclaimer and AI disclosure.
+Compliance rules:
+- Credibility anchors required
+- No specific product or investment recommendations
+- Final line: "This content is for informational and entertainment purposes only and \
+does not constitute financial advice. Always consult a licensed financial advisor before \
+making any investment decisions. Narration is AI-generated."
 
-Return plain text only."""
-
+Return plain script text only."""
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 10. TITLE_MAIN_PROMPT  — weekday main video
-# Variables: {topic}, {anchor_number}, {sentiment}, {ticker}
-# Output: JSON array of 3 scored title options, 40-65 chars each
+# 10. TITLE_MAIN_PROMPT — weekday main video
+# Input:  {topic}, {anchor_number}, {script_summary}
+# Output: JSON with 3 scored options (40-65 chars each) + recommended
 # ─────────────────────────────────────────────────────────────────────────────
 
 TITLE_MAIN_PROMPT = """\
@@ -469,34 +486,36 @@ Generate 3 YouTube title options for a DriftWire326 weekday finance video.
 
 TOPIC: {topic}
 ANCHOR NUMBER: {anchor_number}
-SENTIMENT: {sentiment}
-TICKER / ASSET: {ticker}
+SCRIPT SUMMARY: {script_summary}
 
-Title rules:
-- Length: 40-65 characters (including spaces)
-- Must include at least one specific number
-- Trigger: curiosity or urgency — factual, never misleading clickbait
-- Power words allowed: Crashed, Surged, Shocked, Breaking, Warning, Record, Revealed
-- Do NOT start with "How to" — this is news, not a tutorial
-- Include ticker symbol if it fits naturally
+Title rules — every option must:
+- Be 40-65 characters long (count spaces)
+- Include the anchor number ({anchor_number}) in the title
+- Lead with a target keyword in the first 5 words (stock, market, S&P, Fed, earnings, etc.)
+- Trigger curiosity or urgency — factual, never misleading
+- Avoid starting with "How to" (this is news, not a tutorial)
 
-Score each title 0-100 across:
-  ctr_potential (will it stop the scroll?): 0-40 pts
-  seo_strength (searchable keywords): 0-30 pts
-  brand_fit (matches DriftWire326 voice): 0-30 pts
+Score each option 0-100:
+  - keyword_placement (target word in first 5 words): 0-35
+  - emotional_hook (urgency / curiosity / surprise): 0-35
+  - clarity (viewer instantly knows what the video is about): 0-30
 
-Return ONLY valid JSON — no markdown:
-[
-  {{"title": "<title 1>", "score": <int>, "ctr_potential": <int>, "seo_strength": <int>, "brand_fit": <int>}},
-  {{"title": "<title 2>", "score": <int>, "ctr_potential": <int>, "seo_strength": <int>, "brand_fit": <int>}},
-  {{"title": "<title 3>", "score": <int>, "ctr_potential": <int>, "seo_strength": <int>, "brand_fit": <int>}}
-]"""
+Pick the highest-scoring option as recommended.
 
+Return ONLY valid JSON:
+{{
+  "options": [
+    {{"title": "<title>", "score": <int>, "keyword_placement": <int>, "emotional_hook": <int>, "clarity": <int>}},
+    {{"title": "<title>", "score": <int>, "keyword_placement": <int>, "emotional_hook": <int>, "clarity": <int>}},
+    {{"title": "<title>", "score": <int>, "keyword_placement": <int>, "emotional_hook": <int>, "clarity": <int>}}
+  ],
+  "recommended": "<exact title string of highest scoring option>"
+}}"""
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 11. TITLE_SHORTS_PROMPT
-# Variables: {topic}, {anchor_number}, {sentiment}, {ticker}
-# Output: JSON array of 3 scored titles, <40 chars, declarative punch
+# Input:  {topic}, {anchor_number}, {hook_card_text}
+# Output: JSON with 3 options (under 40 chars hard cap) + recommended
 # ─────────────────────────────────────────────────────────────────────────────
 
 TITLE_SHORTS_PROMPT = """\
@@ -504,112 +523,127 @@ Generate 3 YouTube Shorts title options for DriftWire326.
 
 TOPIC: {topic}
 ANCHOR NUMBER: {anchor_number}
-SENTIMENT: {sentiment}
-TICKER / ASSET: {ticker}
+HOOK CARD TEXT (Card 1 of the short): {hook_card_text}
 
-Shorts title rules:
-- Length: under 40 characters (shorter = better for mobile)
-- Declarative statement, not a question
-- Include the number if it fits (e.g. "+8% TODAY")
-- All caps or mixed caps for punch (e.g. "MARKET JUST CRASHED")
-- Add #shorts only if character budget allows
-- Optimise for mobile thumbnail readability
+Title rules — every option must:
+- Be UNDER 40 characters — hard cap, no exceptions
+- Be a declarative statement (NO questions — no "?")
+- Echo the hook card text (use similar keywords or the same number)
+- Use ALL CAPS or Mixed CAPS for visual punch on mobile
+- Include the anchor number if it fits within the character cap
 
-Score each 0-100: ctr_potential (0-50), mobile_readability (0-30), brand_fit (0-20).
+Score each option 0-100:
+  - hook_echo (mirrors the hook card text): 0-40
+  - mobile_impact (punchy, readable on small screen): 0-35
+  - declarative_strength (bold statement, not a question): 0-25
 
 Return ONLY valid JSON:
-[
-  {{"title": "<title 1>", "score": <int>, "ctr_potential": <int>, "mobile_readability": <int>, "brand_fit": <int>}},
-  {{"title": "<title 2>", "score": <int>, "ctr_potential": <int>, "mobile_readability": <int>, "brand_fit": <int>}},
-  {{"title": "<title 3>", "score": <int>, "ctr_potential": <int>, "mobile_readability": <int>, "brand_fit": <int>}}
-]"""
-
+{{
+  "options": [
+    {{"title": "<title>", "score": <int>, "hook_echo": <int>, "mobile_impact": <int>, "declarative_strength": <int>}},
+    {{"title": "<title>", "score": <int>, "hook_echo": <int>, "mobile_impact": <int>, "declarative_strength": <int>}},
+    {{"title": "<title>", "score": <int>, "hook_echo": <int>, "mobile_impact": <int>, "declarative_strength": <int>}}
+  ],
+  "recommended": "<exact title string of highest scoring option>"
+}}"""
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 12. TITLE_SUNDAY_PROMPT
-# Variables: {topic}, {theme}, {audience_level}
-# Output: JSON array of 3 scored educational-formula titles, 45-65 chars
+# Input:  {topic}, {sunday_theme}
+# Output: JSON with 3 educational-formula options + recommended
 # ─────────────────────────────────────────────────────────────────────────────
 
 TITLE_SUNDAY_PROMPT = """\
 Generate 3 YouTube title options for a DriftWire326 Sunday educational video.
 
 TOPIC: {topic}
-THEME: {theme}
-AUDIENCE LEVEL: {audience_level}
+SUNDAY THEME: {sunday_theme}
 
-Sunday title rules:
-- Length: 45-65 characters
-- Use educational formulas: "What Is X?", "X Explained", "The Truth About X",
-  "Why X Matters", "X: What Nobody Tells You", "X in 3 Minutes"
+Use educational title formulas — pick the 3 that best fit this topic:
+- "What Is [Term]? 2-Minute Answer"
+- "The [Term] Rule Nobody Talks About"
+- "How [Term] Actually Works (And Why It Matters)"
+- "The Truth About [Term] in 2026"
+- "[Term] Explained: What Every Investor Should Know"
+- "Why [Term] Changes Everything for Your Money"
+
+Title rules — every option must:
+- Be 45-65 characters long
 - Promise a clear learning outcome
-- Do NOT use scare tactics or urgent language — this is educational
-- Numbers are a bonus but not required
+- Avoid scare tactics or urgency language (this is educational, not breaking news)
+- Include the topic keyword naturally
 
-Score each 0-100: educational_value (0-40), search_intent_match (0-35), brand_fit (0-25).
+Score each option 0-100:
+  - educational_clarity (promise is obvious, outcome is clear): 0-40
+  - search_intent_match (what someone would actually search for): 0-35
+  - brand_fit (sounds like DriftWire326's voice): 0-25
 
 Return ONLY valid JSON:
-[
-  {{"title": "<title 1>", "score": <int>, "educational_value": <int>, "search_intent_match": <int>, "brand_fit": <int>}},
-  {{"title": "<title 2>", "score": <int>, "educational_value": <int>, "search_intent_match": <int>, "brand_fit": <int>}},
-  {{"title": "<title 3>", "score": <int>, "educational_value": <int>, "search_intent_match": <int>, "brand_fit": <int>}}
-]"""
-
+{{
+  "options": [
+    {{"title": "<title>", "score": <int>, "educational_clarity": <int>, "search_intent_match": <int>, "brand_fit": <int>}},
+    {{"title": "<title>", "score": <int>, "educational_clarity": <int>, "search_intent_match": <int>, "brand_fit": <int>}},
+    {{"title": "<title>", "score": <int>, "educational_clarity": <int>, "search_intent_match": <int>, "brand_fit": <int>}}
+  ],
+  "recommended": "<exact title string of highest scoring option>"
+}}"""
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 13. DESCRIPTION_PROMPT
-# Variables: {title}, {script_summary}, {video_type}, {timestamps}, {tags}
-# Output: full YouTube description, SEO-optimised, <5000 chars
+# Input:  {title}, {script_summary}, {tags}, {video_type}, {date}
+# Output: full YouTube description, SEO-optimised, under 5000 chars
 # ─────────────────────────────────────────────────────────────────────────────
 
 DESCRIPTION_PROMPT = """\
-Write a complete YouTube description for a DriftWire326 video. Max 5000 characters.
+Write a complete YouTube description for a DriftWire326 video. Hard cap: 5000 characters.
 
 TITLE: {title}
 VIDEO TYPE: {video_type}
+DATE: {date}
 SCRIPT SUMMARY: {script_summary}
-TIMESTAMPS: {timestamps}
-TAGS: {tags}
+TAGS / KEYWORDS: {tags}
 
-Description structure (in this order):
+Write all sections in order:
 
-HOOK LINE (first 150 chars — critical for search snippet):
-One punchy sentence that mirrors the title's promise. Include the anchor number.
+HOOK PARAGRAPH (first 150 chars are critical — shown before "show more"):
+2-3 punchy sentences that mirror the title's promise and include the key stat.
+This is the most important section for SEO and click-through.
 
-BODY (200-350 words):
-Expand on what viewers will learn/see. Use 3-5 short paragraphs or bullet points.
-Include: key statistics mentioned, why this matters today, what's covered.
-Naturally weave in SEO keywords (stock market, investing, [ticker], 2026, etc.)
+WHAT YOU WILL LEARN (bullet points):
+• 3-5 bullet points covering the main takeaways of this video.
+• Use the keywords from TAGS naturally.
 
-TIMESTAMPS:
-{timestamps}
-(Format: 00:00 Section Name — one per line)
+TIMESTAMPS (main videos only — skip for Shorts):
+00:00 Introduction
+[Fill in based on script_summary — estimate realistic timestamps]
 
-LINKS SECTION:
-📊 Track our picks (placeholder): [PORTFOLIO_LINK]
-📰 Source data: [FRED_LINK] | [YAHOO_FINANCE_LINK]
-📧 Business inquiries: [CONTACT_EMAIL]
+LINKS:
+📊 Portfolio tracker (placeholder): [PORTFOLIO_LINK]
+📰 Data sources: [FRED_LINK] | [YAHOO_FINANCE_LINK]
+📧 Business: [CONTACT_EMAIL]
 
 SOCIAL:
 🐦 Twitter/X: @DriftWire326
 📸 Instagram: @DriftWire326
 💬 Discord: [DISCORD_LINK]
 
-HASHTAGS (20 max):
+HASHTAGS (10-15 relevant tags from the provided list):
 {tags}
 
-DISCLAIMER:
+CHANNEL CTA:
+Subscribe to DriftWire326 for daily stock market news, financial education, and market \
+analysis built for the next generation of investors.
+
+DISCLAIMER (auto-append exactly as written):
 This content is for informational and entertainment purposes only and does not constitute \
 financial advice. Always consult a licensed financial advisor before making any investment \
 decisions. Narration is AI-generated.
 
----
-Write all sections in order. Keep tone punchy and professional. Return plain text."""
-
+Return plain text — all sections in order, no extra commentary."""
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 14. TAGS_PROMPT
-# Variables: {title}, {topic}, {ticker}, {video_type}
+# Input:  {topic}, {title}, {video_type}
 # Output: JSON array of exactly 20 YouTube tags
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -618,86 +652,88 @@ Generate exactly 20 YouTube tags for a DriftWire326 video.
 
 TITLE: {title}
 TOPIC: {topic}
-TICKER / ASSET: {ticker}
 VIDEO TYPE: {video_type}
 
 Tag rules:
-- Always include these 4 channel tags: "DriftWire326", "drift wire326", "stock market 2026",
-  "investing for beginners"
-- Remaining 16 tags: mix of broad (stock market, investing) and specific ({ticker}, topic keywords)
-- Tags should be 1-5 words each
-- No hashtag symbols — plain text only
-- Prioritise what people actually search on YouTube
-- Include at least one "how to" keyword variant and one news keyword variant
+- Always include ALL of these channel tags: "finance", "stocks", "market news",
+  "investing", "DriftWire326"
+- Remaining 15 tags: mix of broad terms (stock market, Wall Street, S&P 500) and
+  specific terms (topic keywords, named tickers, named data events)
+- Each tag: 1-5 words, no hashtag symbols, plain text only
+- Prioritise what people actually search on YouTube Finance
+- Include at least one "how to" keyword variant (e.g., "how to invest", "how to read stocks")
+- Include at least one trending news term matching the topic
 
-Return ONLY a valid JSON array of exactly 20 strings:
-["tag1", "tag2", ..., "tag20"]"""
-
+Return ONLY a valid JSON array of exactly 20 strings — no markdown, no commentary:
+["tag1", "tag2", "tag3", ..., "tag20"]"""
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 15. PROMISE_MATCH_PROMPT
-# Variables: {title}, {script_excerpt}
-# Output: JSON {matched: bool, reason: str, confidence: float}
+# Input:  {title}, {script_opening_150_words}
+# Output: JSON {matched: bool, reason: str}
+# Rule:   title claim must appear within the first ~15 seconds of script
 # ─────────────────────────────────────────────────────────────────────────────
 
 PROMISE_MATCH_PROMPT = """\
-Check whether this YouTube video's script delivers on the promise made in its title.
+Check whether this video's script opening delivers on the promise made in its title.
 
 TITLE: {title}
 
-SCRIPT EXCERPT (first 300 words):
-{script_excerpt}
+SCRIPT OPENING (first ~150 words / first ~15 seconds):
+{script_opening_150_words}
 
-Evaluate:
-1. Does the script address the specific claim or question raised in the title?
-2. Is the anchor number / key fact from the title present in the script?
-3. Would a viewer who clicked for the title's promise feel satisfied by this content?
+Evaluation criteria:
+1. Does the script opening directly address the specific claim or event in the title?
+2. Is the anchor number or key fact from the title present in the first 15 seconds?
+3. Would a viewer who clicked expecting the title's promise feel immediately satisfied?
 
-Return ONLY valid JSON — no markdown, no explanation:
+Rule: the title's core claim must appear within the first 15 seconds.
+If it doesn't, explain exactly what is missing and where it appears instead (if at all).
+
+Return ONLY valid JSON — no markdown, no preamble:
 {{
   "matched": true,
-  "reason": "<one sentence explaining why it matches or doesn't>",
-  "confidence": 0.92
-}}
-
-confidence is a float 0.0-1.0 representing how certain you are of your matched verdict."""
-
+  "reason": "<one sentence — either confirming the match or stating precisely what is missing>"
+}}"""
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 16. SUNDAY_TOPIC_SELECTOR_PROMPT
-# Variables: {theme}, {week_market_summary}, {available_topics_list}
-# Output: JSON — selected topic with rationale and content angle
+# Input:  {theme}, {week_market_summary}, {available_topics_list}
+# Output: best topic for this Sunday given market context
 # ─────────────────────────────────────────────────────────────────────────────
 
 SUNDAY_TOPIC_SELECTOR_PROMPT = """\
 Select the best Sunday educational topic for DriftWire326 this week.
 
-THEME FOR THIS SUNDAY: {theme}
-WEEK'S MARKET SUMMARY: {week_market_summary}
+SUNDAY THEME: {theme}
+THIS WEEK'S MARKET SUMMARY: {week_market_summary}
 AVAILABLE TOPICS (not recently used):
 {available_topics_list}
 
+Your goal: pick the topic that keeps Sunday content contextually relevant to
+what actually happened in markets this week, while fitting the theme.
+
 Selection criteria:
-1. Relevance — does this topic connect naturally to what happened in markets this week?
-2. Timeliness — is there a current news hook that makes this topic more compelling right now?
+1. Market relevance — does this topic connect naturally to this week's events?
+2. Timeliness — is there a current news hook that makes it more compelling right now?
 3. Audience fit — will Gen Z / Millennial investors find this genuinely useful?
-4. Content richness — enough data, examples, and angles for a 3-5 minute educational video?
+4. Content richness — enough data, real examples, and angles for a 280-350 word script?
 
 Return ONLY valid JSON:
 {{
   "selected_topic": "<exact topic name from the available list>",
   "theme": "{theme}",
-  "market_connection": "<one sentence linking this topic to this week's markets>",
-  "content_angle": "<the specific angle or hook to lead with>",
-  "key_stat_to_research": "<one data point to look up before scripting>",
+  "market_connection": "<one sentence linking this topic to this week's market events>",
+  "content_angle": "<the specific angle or hook to lead the script with>",
+  "key_stat_to_research": "<one data point worth looking up before scripting>",
   "confidence": 0.88
 }}"""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # BACKWARD-COMPATIBLE TEMPLATE ALIASES
-# Generators built before the Module 1 rebuild use string.Template.substitute().
-# These aliases preserve that API so existing modules keep working unchanged.
+# Existing generators call .substitute() — these aliases preserve that API
+# so modules keep working until individually upgraded to str.format().
 # ─────────────────────────────────────────────────────────────────────────────
 
 WEEKDAY_SCRIPT_PROMPT = Template("""\
@@ -715,25 +751,25 @@ $economic_data
 TRENDING HEADLINES:
 $headlines
 
-Write a complete, punchy 2-3 minute script (approximately 350-420 words) following this EXACT structure:
+Write a 280-420 word script using this EXACT structure:
 
-[HOOK] — 5 seconds. One explosive opening stat. Start mid-action.
-[WHAT HAPPENED] — 40 seconds. Who, what, when, triggered by what catalyst. Two or more data points.
+[HOOK] — 5 seconds. One explosive opening stat. Start mid-action. No preamble.
+[WHAT HAPPENED] — 40 seconds. Who, what, when, and which catalyst. Two+ data points.
 [WHY IT MATTERS] — 50 seconds. Cause → ripple effects. Source every claim.
-[NUMBERS DEEP DIVE] — 40 seconds. Three or more specific figures. Historical context.
-[WHAT HAPPENS NEXT] — 25 seconds. Key catalysts to watch. No price targets.
+[NUMBERS DEEP DIVE] — 40 seconds. Three+ specific figures. Historical context.
+[WHAT HAPPENS NEXT] — 25 seconds. Catalysts to watch. No price targets.
 [CTA] — 15 seconds. Subscribe prompt + comment question.
 
-Rules:
-- Include at least one credibility anchor: "according to", "data shows", "reported", "as of today",
+Compliance rules:
+- Include at least one of: "according to", "data shows", "reported", "as of today",
   "markets indicate", "analysts note", "figures show", "sources indicate", "market data suggests"
-- NEVER use: "you should buy", "guaranteed return", "this will go up", "best investment",
+- Do NOT use: "you should buy", "guaranteed return", "this will go up", "best investment",
   "I recommend buying", "go all in", "this is a sure thing"
-- Close with: "This content is for informational and entertainment purposes only and does not
+- Final line: "This content is for informational and entertainment purposes only and does not
   constitute financial advice. Always consult a licensed financial advisor before making any
   investment decisions. Narration is AI-generated."
 
-Return plain text only — no markdown outside the section headers.\
+Return plain text only.\
 """)
 
 SUNDAY_SCRIPT_PROMPT = Template("""\
@@ -744,38 +780,35 @@ SUBTOPICS: $subtopics
 KEY CONCEPTS: $key_concepts
 CURRENT RELEVANCE: $current_relevance
 
-Write a complete 280-350 word educational script following this structure:
+Write a 280-350 word educational script:
 
 [HOOK] — 10 seconds. A surprising fact or counter-intuitive truth.
-[WHAT IS IT] — 60 seconds. Clear definition + one strong real-world analogy.
-[HOW IT WORKS] — 80 seconds. Step-by-step mechanics. Real 2025-2026 examples with data.
-[WHY IT MATTERS TO YOU] — 50 seconds. Connection to everyday investing for a 25-year-old.
+[WHAT IS IT] — 60 seconds. Clear definition + one strong analogy.
+[HOW IT WORKS] — 80 seconds. Step-by-step with real 2026 examples and data.
+[WHY IT MATTERS TO YOU] — 50 seconds. Connection to everyday investing.
 [KEY TAKEAWAY] — 20 seconds. One memorable sentence.
-[CTA] — 15 seconds. Subscribe prompt + comment question.
+[CTA] — 15 seconds. Subscribe + comment question.
 
 Rules:
 - Credibility anchors required ("according to", "data shows", "as of today", etc.)
-- No advisory language.
-- Close with full disclaimer and AI disclosure.
+- No advisory language
+- Final line: "This content is for informational and entertainment purposes only and does not
+  constitute financial advice. Always consult a licensed financial advisor before making any
+  investment decisions. Narration is AI-generated."
 
 Return plain text script only.\
 """)
 
 TITLE_GENERATION_PROMPT = Template("""\
-Generate 10 YouTube title options for a finance video. Return ONLY a JSON array of strings.
+Generate 10 YouTube title options for a DriftWire326 finance video.
 
 Topic: $topic
-Key stat/hook: $key_stat
-Video type: $video_type (weekday_recap | sunday_educational | shorts)
+Key stat: $key_stat
+Video type: $video_type
 Ticker: $specific_ticker
-Channel: DriftWire326 — US finance, Gen Z/Millennial audience
 
-Title rules:
-- 40-65 characters for main videos, under 40 for shorts
-- Include numbers where possible
-- Trigger curiosity or urgency (factual — not misleading clickbait)
-- Power words: Crashed, Surged, Revealed, Warning, Breaking, Record, Shocked
-- SEO keywords: stock market, investing, specific ticker if relevant
+Rules: 40-65 chars, include numbers, curiosity or urgency, no misleading claims.
+Power words: Crashed, Surged, Revealed, Warning, Breaking, Record, Shocked.
 
 Return exactly: ["title1", "title2", ..., "title10"]\
 """)
@@ -787,9 +820,9 @@ SCRIPT:
 $script
 
 Check for:
-1. Financial advice language (should/must buy, sell, invest recommendations)
+1. Financial advice language (buy/sell recommendations)
 2. Return guarantees or price targets stated as fact
-3. Unsubstantiated claims lacking a cited source
+3. Unsubstantiated claims without a cited source
 4. Missing disclaimer
 5. Misleading or cherry-picked statistics
 

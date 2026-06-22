@@ -93,7 +93,7 @@ class TestComplianceFilter:
         from generators.compliance_filter import check_compliance, auto_fix_script
         result = check_compliance(BAD_SCRIPT_MISSING_DISCLAIMER, use_ai=False)
         fixed = auto_fix_script(BAD_SCRIPT_MISSING_DISCLAIMER, result)
-        assert "educational" in fixed.lower() or "own research" in fixed.lower()
+        assert "financial advice" in fixed.lower() or "financial advisor" in fixed.lower()
 
     def test_auto_fix_replaces_bad_phrases(self):
         from generators.compliance_filter import check_compliance, auto_fix_script
