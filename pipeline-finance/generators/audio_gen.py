@@ -1,0 +1,240 @@
+"""
+Audio generator — ElevenLabs TTS for voice synthesis.
+Falls back to pyttsx3 (offline) when ElevenLabs is unavailable.
+Produces per-segment audio files and a merged final track.
+"""
+import io
+import logging
+import re
+import time
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
+
+import requests
+
+from config.settings import settings
+
+logger = logging.getLogger(__name__)
+
+OUTPUT_DIR = settings.output_dir / "audio"
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+ELEVENLABS_TTS_URL = "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
+ELEVENLABS_VOICE_SETTINGS = {
+    "stability": 0.60,
+    "similarity_boost": 0.85,
+    "style": 0.35,          # slight expressiveness — energetic but credible
+    "use_speaker_boost": True,
+}
+
+STAGE_DIRECTION_PATTERN = re.compile(
+    r"\[(PAUSE|B-ROLL[^]]*|GRAPHIC[^]]*|ZOOM[^]]*|MUSIC[^]]*|SFX[^]]*)\]",
+    re.IGNORECASE,
+)
+
+
+@dataclass
+class AudioSegment:
+    segment_name: str
+    text: str
+    audio_path: Optional[Path]
+    duration_seconds: Optional[float]
+    engine: str   # "elevenlabs" | "pyttsx3" | "gTTS"
+    generated_at: str = field(default_factory=lambda: datetime.now().isoformat())
+
+
+@dataclass
+class AudioTrack:
+    video_type: str
+    segments: list[AudioSegment]
+    merged_path: Optional[Path]
+    total_duration_seconds: float
+    engine: str
+    generated_at: str = field(default_factory=lambda: datetime.now().isoformat())
+
+
+def _strip_stage_directions(text: str) -> str:
+    """Remove [B-ROLL], [PAUSE], etc. — TTS shouldn't read them."""
+    return STAGE_DIRECTION_PATTERN.sub("", text).strip()
+
+
+def _clean_for_tts(text: str) -> str:
+    """Normalise text for natural TTS reading."""
+    text = _strip_stage_directions(text)
+    # Expand common finance abbreviations
+    replacements = {
+        "S&P": "S and P",
+        "Q1": "Q 1", "Q2": "Q 2", "Q3": "Q 3", "Q4": "Q 4",
+        "YoY": "year over year", "QoQ": "quarter over quarter",
+        "MoM": "month over month", "bps": "basis points",
+        "EPS": "earnings per share", "P/E": "price to earnings",
+        "%": " percent", "$": " dollars ",
+        "^VIX": "the VIX", "^TNX": "the 10-year Treasury yield",
+    }
+    for abbr, full in replacements.items():
+        text = text.replace(abbr, full)
+    # Remove markdown/formatting noise
+    text = re.sub(r"\*{1,2}(.+?)\*{1,2}", r"\1", text)
+    text = re.sub(r"#{1,4}\s", "", text)
+    text = re.sub(r"\s{2,}", " ", text)
+    return text.strip()
+
+
+def _elevenlabs_tts(text: str, output_path: Path) -> Optional[float]:
+    """Call ElevenLabs API and write MP3. Returns duration estimate."""
+    if not settings.elevenlabs_api_key:
+        return None
+
+    url = ELEVENLABS_TTS_URL.format(voice_id=settings.elevenlabs_voice_id)
+    headers = {
+        "xi-api-key": settings.elevenlabs_api_key,
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "text": text,
+        "model_id": "eleven_turbo_v2_5",   # fast + high quality
+        "voice_settings": ELEVENLABS_VOICE_SETTINGS,
+    }
+
+    for attempt in range(settings.max_retries):
+        try:
+            resp = requests.post(url, json=payload, headers=headers, timeout=60, stream=True)
+            resp.raise_for_status()
+            output_path.write_bytes(resp.content)
+            # Rough duration estimate: 150 wpm average
+            word_count = len(text.split())
+            duration = (word_count / 150) * 60
+            logger.debug("ElevenLabs TTS → %s (%.1fs)", output_path.name, duration)
+            return duration
+        except requests.RequestException as exc:
+            wait = settings.retry_backoff_base ** attempt
+            logger.warning("ElevenLabs attempt %d failed: %s — retry in %.1fs", attempt + 1, exc, wait)
+            time.sleep(wait)
+
+    return None
+
+
+def _pyttsx3_tts(text: str, output_path: Path) -> Optional[float]:
+    """Offline TTS fallback using pyttsx3."""
+    try:
+        import pyttsx3
+        engine = pyttsx3.init()
+        engine.setProperty("rate", 175)
+        engine.setProperty("volume", 1.0)
+        # Try to use a good voice
+        voices = engine.getProperty("voices")
+        for voice in voices:
+            if "en_US" in voice.id or "english" in voice.name.lower():
+                engine.setProperty("voice", voice.id)
+                break
+        engine.save_to_file(text, str(output_path))
+        engine.runAndWait()
+        word_count = len(text.split())
+        return (word_count / 175) * 60
+    except Exception as exc:
+        logger.error("pyttsx3 TTS failed: %s", exc)
+        return None
+
+
+def _merge_audio_files(segment_paths: list[Path], output_path: Path) -> Optional[float]:
+    """Merge segment MP3 files using pydub or ffmpeg subprocess."""
+    try:
+        from pydub import AudioSegment as PydubSegment
+        combined = PydubSegment.empty()
+        for p in segment_paths:
+            if p and p.exists():
+                seg = PydubSegment.from_file(str(p))
+                combined += seg
+                combined += PydubSegment.silent(duration=400)  # 400ms pause between segments
+        combined.export(str(output_path), format="mp3", bitrate=settings.audio_bitrate)
+        return len(combined) / 1000.0
+    except ImportError:
+        # Fallback: ffmpeg concat
+        import subprocess
+        list_file = output_path.parent / "concat_list.txt"
+        valid = [p for p in segment_paths if p and p.exists()]
+        if not valid:
+            return None
+        list_file.write_text("\n".join(f"file '{p.resolve()}'" for p in valid))
+        try:
+            result = subprocess.run(
+                ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                 "-i", str(list_file), "-c", "copy", str(output_path)],
+                capture_output=True, timeout=120,
+            )
+            if result.returncode == 0:
+                return sum((p.stat().st_size / 32000) for p in valid)
+        except Exception as exc:
+            logger.error("ffmpeg merge failed: %s", exc)
+        finally:
+            list_file.unlink(missing_ok=True)
+        return None
+    except Exception as exc:
+        logger.error("Audio merge failed: %s", exc)
+        return None
+
+
+def generate_audio(script_segments: dict[str, str], video_type: str) -> AudioTrack:
+    """
+    Generate TTS audio for each script segment and merge into a final track.
+    Tries ElevenLabs first, falls back to pyttsx3.
+    """
+    logger.info("Generating audio for %s (%d segments)", video_type, len(script_segments))
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    use_elevenlabs = bool(settings.elevenlabs_api_key)
+    engine_name = "elevenlabs" if use_elevenlabs else "pyttsx3"
+
+    audio_segments: list[AudioSegment] = []
+    total_duration = 0.0
+
+    for seg_name, text in script_segments.items():
+        clean_text = _clean_for_tts(text)
+        if not clean_text:
+            continue
+
+        seg_filename = f"{video_type}_{seg_name.lower().replace(' ', '_')}_{timestamp}.mp3"
+        seg_path = OUTPUT_DIR / seg_filename
+        duration = None
+
+        if use_elevenlabs:
+            duration = _elevenlabs_tts(clean_text, seg_path)
+
+        if duration is None:
+            duration = _pyttsx3_tts(clean_text, seg_path)
+            if duration:
+                engine_name = "pyttsx3"
+
+        if duration is None:
+            logger.error("All TTS engines failed for segment '%s'", seg_name)
+            seg_path = None
+
+        audio_segments.append(AudioSegment(
+            segment_name=seg_name,
+            text=clean_text,
+            audio_path=seg_path,
+            duration_seconds=duration,
+            engine=engine_name,
+        ))
+        if duration:
+            total_duration += duration
+
+    # Merge all segments
+    valid_paths = [s.audio_path for s in audio_segments if s.audio_path]
+    merged_filename = f"{video_type}_final_audio_{timestamp}.mp3"
+    merged_path = OUTPUT_DIR / merged_filename
+    merge_duration = _merge_audio_files(valid_paths, merged_path)
+    if merge_duration:
+        total_duration = merge_duration
+
+    track = AudioTrack(
+        video_type=video_type,
+        segments=audio_segments,
+        merged_path=merged_path if merged_path.exists() else None,
+        total_duration_seconds=total_duration,
+        engine=engine_name,
+    )
+
+    logger.info("Audio generation complete — %.1fs total, engine: %s", total_duration, engine_name)
+    return track

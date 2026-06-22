@@ -1,0 +1,134 @@
+{
+  "topics": [
+    {
+      "id": "options_basics",
+      "title": "Options Trading 101: Calls, Puts, and How Wall Street Really Bets",
+      "subtopics": ["call options", "put options", "strike price", "expiration dates", "premium"],
+      "key_concepts": ["intrinsic vs extrinsic value", "in-the-money vs out-of-the-money", "leverage risk"],
+      "current_relevance": "Options volume hit record highs in 2025; Gen Z traders driving 0DTE boom",
+      "target_audience": "beginners",
+      "estimated_views": "high",
+      "tags": ["options trading", "investing for beginners", "stock market education"]
+    },
+    {
+      "id": "fed_explained",
+      "title": "The Federal Reserve Explained: How 12 People Control Every Dollar You Own",
+      "subtopics": ["FOMC", "interest rates", "quantitative easing", "inflation targeting", "federal funds rate"],
+      "key_concepts": ["monetary policy", "dual mandate", "yield curve", "rate hike vs cut impact"],
+      "current_relevance": "Fed pivoting in 2026 — rate cuts reshaping investment strategies",
+      "target_audience": "beginner-intermediate",
+      "estimated_views": "very_high",
+      "tags": ["federal reserve", "interest rates", "monetary policy", "economics explained"]
+    },
+    {
+      "id": "etf_vs_stocks",
+      "title": "ETFs vs Stocks: Which One Actually Makes You More Money?",
+      "subtopics": ["expense ratios", "diversification", "index funds", "active vs passive", "tax efficiency"],
+      "key_concepts": ["total return", "tracking error", "dividend reinvestment", "portfolio construction"],
+      "current_relevance": "ETF inflows hit $1T in 2025; S&P 500 ETFs outperform 90% of active funds",
+      "target_audience": "beginner-intermediate",
+      "estimated_views": "very_high",
+      "tags": ["ETF investing", "index funds", "stock picking", "passive investing"]
+    },
+    {
+      "id": "inflation_investing",
+      "title": "How to Beat Inflation: The Assets That Actually Protect Your Money",
+      "subtopics": ["TIPS", "real assets", "commodities", "REITs", "I-bonds", "gold vs bitcoin"],
+      "key_concepts": ["real vs nominal returns", "inflation hedge", "purchasing power", "CPI explained"],
+      "current_relevance": "Inflation remains sticky in 2026; real returns matter more than ever",
+      "target_audience": "beginner-intermediate",
+      "estimated_views": "high",
+      "tags": ["inflation hedge", "protect your money", "investing 2026", "real assets"]
+    },
+    {
+      "id": "recession_signals",
+      "title": "7 Warning Signs a Recession Is Coming (And How to Prepare)",
+      "subtopics": ["yield curve inversion", "leading indicators", "consumer confidence", "PMI", "unemployment claims"],
+      "key_concepts": ["recession definition", "bear market vs recession", "defensive sectors", "cash positioning"],
+      "current_relevance": "Recession probability models at 35% for 2026H2 — critical topic",
+      "target_audience": "intermediate",
+      "estimated_views": "very_high",
+      "tags": ["recession 2026", "market crash", "economic indicators", "bear market"]
+    },
+    {
+      "id": "sp500_explained",
+      "title": "The S&P 500 Explained: Why This Index Controls Your Financial Future",
+      "subtopics": ["index composition", "market cap weighting", "rebalancing", "S&P 500 history", "concentration risk"],
+      "key_concepts": ["passive investing", "market returns", "Mag-7 dominance", "equal-weight vs cap-weight"],
+      "current_relevance": "Top 7 stocks = 35% of S&P 500 — highest concentration ever",
+      "target_audience": "beginner",
+      "estimated_views": "high",
+      "tags": ["S&P 500", "index investing", "market basics", "investing for beginners"]
+    },
+    {
+      "id": "short_selling",
+      "title": "Short Selling Explained: How Traders Profit When Stocks Crash",
+      "subtopics": ["short interest", "short squeeze", "margin calls", "borrow fees", "GameStop saga"],
+      "key_concepts": ["mechanics of shorting", "unlimited risk", "short interest ratio", "days to cover"],
+      "current_relevance": "Short sellers made $300B in 2025 bear run; meme stocks still squeezing",
+      "target_audience": "intermediate",
+      "estimated_views": "high",
+      "tags": ["short selling", "short squeeze", "GameStop", "stock market explained"]
+    },
+    {
+      "id": "dividend_investing",
+      "title": "Dividend Investing: How to Build a Passive Income Machine",
+      "subtopics": ["dividend yield", "payout ratio", "dividend growth", "DRIP", "ex-dividend date"],
+      "key_concepts": ["total return vs income", "dividend traps", "aristocrats vs kings", "tax on dividends"],
+      "current_relevance": "High-yield dividend stocks surging as rates stabilize in 2026",
+      "target_audience": "beginner-intermediate",
+      "estimated_views": "very_high",
+      "tags": ["dividend investing", "passive income", "income stocks", "dividend growth"]
+    },
+    {
+      "id": "crypto_market_cycles",
+      "title": "Bitcoin Market Cycles: The 4-Year Halving Pattern Explained",
+      "subtopics": ["halving events", "bull vs bear cycles", "institutional adoption", "Bitcoin ETFs", "alt season"],
+      "key_concepts": ["supply shock", "halving mechanics", "on-chain metrics", "correlation with stocks"],
+      "current_relevance": "Post-halving cycle in progress; Bitcoin ETF AUM surpassed gold ETFs",
+      "target_audience": "intermediate",
+      "estimated_views": "very_high",
+      "tags": ["bitcoin halving", "crypto investing", "BTC price prediction", "crypto market cycle"]
+    },
+    {
+      "id": "ai_stocks_investing",
+      "title": "AI Stocks in 2026: Who's Actually Making Money (And Who's Hype)",
+      "subtopics": ["NVIDIA moat", "AI infrastructure plays", "software vs hardware", "AI revenue models", "valuation concerns"],
+      "key_concepts": ["CAPEX cycles", "GPU demand", "inference vs training", "winner-take-most dynamics"],
+      "current_relevance": "AI CAPEX spending reaches $1T annually; NVIDIA revenue surpasses $200B",
+      "target_audience": "intermediate-advanced",
+      "estimated_views": "very_high",
+      "tags": ["AI stocks", "NVIDIA", "artificial intelligence investing", "tech stocks 2026"]
+    },
+    {
+      "id": "bond_market_basics",
+      "title": "The Bond Market: The $130 Trillion Giant That Controls Everything",
+      "subtopics": ["Treasury bonds", "yield curve", "duration", "credit ratings", "bond vs stock correlation"],
+      "key_concepts": ["price-yield relationship", "term premium", "flight to safety", "junk bonds"],
+      "current_relevance": "Bond vigilantes back in 2026; 10-year yield movements moving stock markets",
+      "target_audience": "intermediate",
+      "estimated_views": "high",
+      "tags": ["bond market", "Treasury bonds", "interest rates", "fixed income investing"]
+    },
+    {
+      "id": "roth_ira_explained",
+      "title": "Roth IRA in 2026: The Best Tax-Free Wealth Building Account Explained",
+      "subtopics": ["contribution limits", "income limits", "backdoor Roth", "Roth conversion", "withdrawal rules"],
+      "key_concepts": ["tax-free growth", "tax diversification", "5-year rule", "estate planning benefits"],
+      "current_relevance": "2026 contribution limits raised; high earners using backdoor Roth more than ever",
+      "target_audience": "beginner-intermediate",
+      "estimated_views": "very_high",
+      "tags": ["Roth IRA", "retirement investing", "tax-free investing", "401k vs Roth IRA"]
+    }
+  ],
+  "rotation_schedule": {
+    "strategy": "weighted_random",
+    "weights": {
+      "very_high": 3,
+      "high": 2,
+      "medium": 1
+    },
+    "cooldown_weeks": 12
+  },
+  "last_used": {}
+}
