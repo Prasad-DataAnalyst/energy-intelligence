@@ -1,0 +1,1174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DriftWire326 — YouTube Automation Command Center</title>
+<style>
+:root {
+  --bg: #0a0a0f;
+  --surface: #12121a;
+  --surface2: #1a1a26;
+  --surface3: #22223a;
+  --border: #2a2a40;
+  --accent: #ff0033;
+  --accent2: #ff4466;
+  --accent3: #cc0022;
+  --gold: #ffaa00;
+  --green: #00cc66;
+  --blue: #0088ff;
+  --purple: #8844ff;
+  --text: #e8e8f0;
+  --text2: #9999bb;
+  --text3: #6666888;
+  --glow: rgba(255,0,51,0.15);
+  --glowb: rgba(0,136,255,0.12);
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:var(--bg); color:var(--text); font-family:'Segoe UI',system-ui,sans-serif; min-height:100vh; overflow-x:hidden; }
+
+/* SCROLLBAR */
+::-webkit-scrollbar { width:6px; }
+::-webkit-scrollbar-track { background:var(--surface); }
+::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+
+/* LAYOUT */
+.shell { display:flex; min-height:100vh; }
+.sidebar { width:240px; background:var(--surface); border-right:1px solid var(--border); display:flex; flex-direction:column; position:fixed; top:0; left:0; height:100vh; z-index:100; transition:width .3s; }
+.main { margin-left:240px; flex:1; display:flex; flex-direction:column; min-height:100vh; }
+
+/* LOGO */
+.logo { padding:20px 16px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; }
+.logo-icon { width:36px; height:36px; background:var(--accent); border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:18px; box-shadow:0 0 20px var(--glow); flex-shrink:0; }
+.logo-text { font-size:15px; font-weight:700; line-height:1.2; }
+.logo-text span { display:block; font-size:10px; font-weight:400; color:var(--text2); letter-spacing:2px; text-transform:uppercase; }
+
+/* NAV */
+.nav { flex:1; padding:12px 8px; overflow-y:auto; }
+.nav-section { margin-bottom:20px; }
+.nav-label { font-size:9px; font-weight:700; color:var(--text3); letter-spacing:2px; text-transform:uppercase; padding:0 8px 6px; }
+.nav-item { display:flex; align-items:center; gap:10px; padding:9px 10px; border-radius:8px; cursor:pointer; color:var(--text2); font-size:13px; transition:all .2s; margin-bottom:2px; border:1px solid transparent; }
+.nav-item:hover { background:var(--surface2); color:var(--text); }
+.nav-item.active { background:var(--glow); border-color:rgba(255,0,51,.3); color:var(--accent2); }
+.nav-item .icon { width:18px; text-align:center; font-size:15px; flex-shrink:0; }
+.nav-badge { margin-left:auto; background:var(--accent); color:#fff; font-size:9px; font-weight:700; padding:2px 6px; border-radius:20px; }
+
+/* TOPBAR */
+.topbar { background:var(--surface); border-bottom:1px solid var(--border); padding:0 24px; height:60px; display:flex; align-items:center; gap:16px; position:sticky; top:0; z-index:90; }
+.topbar-title { font-size:16px; font-weight:700; flex:1; }
+.topbar-title span { color:var(--text2); font-weight:400; font-size:13px; margin-left:8px; }
+.tb-btn { background:var(--surface2); border:1px solid var(--border); color:var(--text2); padding:7px 14px; border-radius:8px; cursor:pointer; font-size:12px; transition:all .2s; white-space:nowrap; }
+.tb-btn:hover { border-color:var(--accent); color:var(--accent); }
+.tb-btn.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+.tb-btn.primary:hover { background:var(--accent2); }
+.topbar-avatar { width:34px; height:34px; border-radius:50%; background:linear-gradient(135deg,var(--accent),var(--purple)); display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:700; cursor:pointer; }
+
+/* PAGE CONTENT */
+.page { display:none; padding:24px; flex:1; }
+.page.active { display:block; }
+
+/* CARDS */
+.card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:20px; }
+.card-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
+.card-title { font-size:13px; font-weight:700; color:var(--text2); text-transform:uppercase; letter-spacing:1px; }
+.card-action { font-size:11px; color:var(--accent); cursor:pointer; }
+
+/* STATS ROW */
+.stats-row { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:24px; }
+.stat-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:18px; position:relative; overflow:hidden; transition:border-color .2s; }
+.stat-card:hover { border-color:rgba(255,0,51,.3); }
+.stat-card::before { content:''; position:absolute; top:0; right:0; width:60px; height:60px; border-radius:50%; opacity:.06; }
+.stat-card.red::before { background:var(--accent); }
+.stat-card.blue::before { background:var(--blue); }
+.stat-card.gold::before { background:var(--gold); }
+.stat-card.green::before { background:var(--green); }
+.stat-label { font-size:10px; color:var(--text2); text-transform:uppercase; letter-spacing:1px; margin-bottom:8px; }
+.stat-value { font-size:26px; font-weight:800; line-height:1; margin-bottom:6px; }
+.stat-card.red .stat-value { color:var(--accent2); }
+.stat-card.blue .stat-value { color:var(--blue); }
+.stat-card.gold .stat-value { color:var(--gold); }
+.stat-card.green .stat-value { color:var(--green); }
+.stat-change { font-size:11px; }
+.stat-change.up { color:var(--green); }
+.stat-change.down { color:var(--accent); }
+.stat-icon { position:absolute; top:16px; right:16px; font-size:22px; opacity:.6; }
+
+/* GRID LAYOUTS */
+.grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:24px; }
+.grid-3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; margin-bottom:24px; }
+.grid-7-5 { display:grid; grid-template-columns:1.4fr 1fr; gap:16px; margin-bottom:24px; }
+
+/* CHARTS */
+.chart-bar { display:flex; align-items:end; gap:4px; height:80px; }
+.bar { background:var(--surface3); border-radius:4px 4px 0 0; flex:1; transition:background .2s; cursor:pointer; position:relative; }
+.bar:hover { background:var(--accent); }
+.bar.active { background:var(--accent); }
+.bar .bar-tip { position:absolute; bottom:calc(100% + 4px); left:50%; transform:translateX(-50%); background:var(--surface3); color:var(--text); font-size:9px; padding:2px 5px; border-radius:3px; white-space:nowrap; opacity:0; pointer-events:none; transition:opacity .2s; }
+.bar:hover .bar-tip { opacity:1; }
+.chart-labels { display:flex; gap:4px; margin-top:6px; }
+.chart-label { flex:1; text-align:center; font-size:9px; color:var(--text2); }
+
+/* SPARKLINE */
+.sparkline { height:40px; width:100%; }
+
+/* TABLES */
+.table-wrap { overflow-x:auto; }
+table { width:100%; border-collapse:collapse; font-size:12px; }
+th { text-align:left; padding:8px 12px; color:var(--text2); font-size:10px; text-transform:uppercase; letter-spacing:1px; border-bottom:1px solid var(--border); font-weight:600; }
+td { padding:10px 12px; border-bottom:1px solid rgba(42,42,64,.5); vertical-align:middle; }
+tr:last-child td { border-bottom:none; }
+tr:hover td { background:rgba(255,255,255,.02); }
+.thumb { width:52px; height:30px; border-radius:4px; object-fit:cover; background:var(--surface3); display:flex; align-items:center; justify-content:center; font-size:16px; }
+.status-pill { display:inline-flex; align-items:center; gap:4px; padding:3px 8px; border-radius:20px; font-size:10px; font-weight:600; }
+.status-pill.live { background:rgba(255,0,51,.15); color:var(--accent); }
+.status-pill.sched { background:rgba(0,136,255,.15); color:var(--blue); }
+.status-pill.pub { background:rgba(0,204,102,.15); color:var(--green); }
+.status-pill.draft { background:rgba(102,102,136,.15); color:var(--text2); }
+.dot { width:6px; height:6px; border-radius:50%; background:currentColor; display:inline-block; }
+
+/* FORMS */
+.form-group { margin-bottom:16px; }
+.form-label { font-size:11px; color:var(--text2); margin-bottom:6px; display:block; font-weight:600; text-transform:uppercase; letter-spacing:.5px; }
+.form-input, .form-select, .form-textarea { width:100%; background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:10px 12px; color:var(--text); font-size:13px; outline:none; transition:border-color .2s; font-family:inherit; }
+.form-input:focus, .form-select:focus, .form-textarea:focus { border-color:var(--accent); box-shadow:0 0 0 3px var(--glow); }
+.form-textarea { resize:vertical; min-height:100px; }
+.form-select { appearance:none; cursor:pointer; }
+.input-row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.char-count { font-size:10px; color:var(--text2); text-align:right; margin-top:4px; }
+
+/* TAGS */
+.tags-wrap { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+.tag { background:var(--surface3); border:1px solid var(--border); border-radius:20px; padding:3px 10px; font-size:11px; color:var(--text2); display:flex; align-items:center; gap:5px; cursor:pointer; }
+.tag:hover { border-color:var(--accent); color:var(--accent); }
+.tag .tag-remove { color:var(--text3); font-size:13px; line-height:1; }
+
+/* BUTTONS */
+.btn { padding:9px 18px; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; border:none; transition:all .2s; display:inline-flex; align-items:center; gap:8px; }
+.btn-primary { background:var(--accent); color:#fff; }
+.btn-primary:hover { background:var(--accent2); box-shadow:0 4px 16px var(--glow); }
+.btn-secondary { background:var(--surface2); color:var(--text); border:1px solid var(--border); }
+.btn-secondary:hover { border-color:var(--accent); color:var(--accent); }
+.btn-ghost { background:transparent; color:var(--text2); border:1px solid var(--border); }
+.btn-ghost:hover { background:var(--surface2); color:var(--text); }
+.btn-green { background:var(--green); color:#000; font-weight:700; }
+.btn-green:hover { opacity:.9; box-shadow:0 4px 16px rgba(0,204,102,.25); }
+.btn-row { display:flex; gap:10px; flex-wrap:wrap; }
+
+/* PROGRESS */
+.progress-bar { background:var(--surface3); border-radius:4px; height:6px; overflow:hidden; margin-top:6px; }
+.progress-fill { height:100%; border-radius:4px; transition:width .5s; }
+.pf-red { background:var(--accent); }
+.pf-blue { background:var(--blue); }
+.pf-green { background:var(--green); }
+.pf-gold { background:var(--gold); }
+
+/* TOGGLE */
+.toggle-wrap { display:flex; align-items:center; gap:10px; }
+.toggle { width:40px; height:22px; background:var(--surface3); border-radius:11px; cursor:pointer; position:relative; transition:background .2s; border:1px solid var(--border); }
+.toggle.on { background:var(--accent); border-color:var(--accent); }
+.toggle::after { content:''; width:16px; height:16px; background:#fff; border-radius:50%; position:absolute; top:2px; left:2px; transition:left .2s; box-shadow:0 1px 3px rgba(0,0,0,.3); }
+.toggle.on::after { left:20px; }
+.toggle-label { font-size:12px; color:var(--text2); }
+
+/* SECTION HEADERS */
+.section-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; }
+.section-title { font-size:18px; font-weight:800; }
+.section-sub { font-size:12px; color:var(--text2); margin-top:2px; }
+
+/* UPLOAD ZONE */
+.upload-zone { border:2px dashed var(--border); border-radius:12px; padding:40px; text-align:center; cursor:pointer; transition:all .2s; }
+.upload-zone:hover { border-color:var(--accent); background:var(--glow); }
+.upload-icon { font-size:40px; margin-bottom:12px; }
+.upload-text { font-size:14px; color:var(--text2); }
+.upload-text strong { color:var(--accent); }
+
+/* SCHEDULER */
+.schedule-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:6px; }
+.sched-day { text-align:center; }
+.sched-day-label { font-size:9px; color:var(--text2); margin-bottom:6px; text-transform:uppercase; }
+.sched-slot { height:36px; background:var(--surface2); border:1px solid var(--border); border-radius:6px; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:9px; color:var(--text3); transition:all .2s; margin-bottom:4px; }
+.sched-slot:hover { border-color:var(--accent); background:var(--glow); color:var(--accent); }
+.sched-slot.has-video { background:rgba(255,0,51,.15); border-color:var(--accent); color:var(--accent); font-size:10px; font-weight:600; }
+.sched-slot.has-video-blue { background:rgba(0,136,255,.15); border-color:var(--blue); color:var(--blue); font-size:10px; font-weight:600; }
+
+/* ANALYTICS */
+.metric-row { display:flex; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid rgba(42,42,64,.5); }
+.metric-row:last-child { border-bottom:none; }
+.metric-rank { width:20px; font-size:11px; color:var(--text3); text-align:center; }
+.metric-thumb { width:40px; height:24px; background:var(--surface3); border-radius:3px; display:flex; align-items:center; justify-content:center; font-size:12px; }
+.metric-title { flex:1; font-size:12px; }
+.metric-title small { display:block; font-size:10px; color:var(--text2); margin-top:1px; }
+.metric-val { font-size:12px; font-weight:700; text-align:right; }
+.metric-val small { display:block; font-size:10px; color:var(--text2); font-weight:400; }
+
+/* SCORE RING */
+.score-ring { width:90px; height:90px; position:relative; margin:0 auto 12px; }
+.score-ring svg { transform:rotate(-90deg); }
+.score-ring .ring-val { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); font-size:22px; font-weight:800; }
+
+/* THUMBNAIL GRID */
+.thumb-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
+.thumb-card { border-radius:8px; overflow:hidden; border:1px solid var(--border); cursor:pointer; transition:all .2s; position:relative; }
+.thumb-card:hover { border-color:var(--accent); transform:translateY(-2px); }
+.thumb-preview { height:100px; display:flex; align-items:center; justify-content:center; font-size:32px; position:relative; overflow:hidden; }
+.thumb-card .thumb-label { padding:8px 10px; font-size:11px; background:var(--surface2); }
+.thumb-card .thumb-use { position:absolute; top:6px; right:6px; background:var(--accent); color:#fff; font-size:9px; font-weight:700; padding:3px 7px; border-radius:4px; opacity:0; transition:opacity .2s; }
+.thumb-card:hover .thumb-use { opacity:1; }
+
+/* SEO METER */
+.seo-items { display:flex; flex-direction:column; gap:10px; }
+.seo-item { display:flex; align-items:center; gap:10px; font-size:12px; }
+.seo-check { width:18px; height:18px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:10px; flex-shrink:0; }
+.seo-check.pass { background:rgba(0,204,102,.2); color:var(--green); }
+.seo-check.fail { background:rgba(255,0,51,.2); color:var(--accent); }
+.seo-check.warn { background:rgba(255,170,0,.2); color:var(--gold); }
+.seo-text { flex:1; color:var(--text2); }
+.seo-score { font-size:10px; font-weight:700; }
+
+/* NOTIFICATION */
+.notif { display:flex; align-items:flex-start; gap:10px; padding:12px; background:var(--surface2); border-radius:8px; border-left:3px solid var(--accent); margin-bottom:8px; }
+.notif.blue { border-left-color:var(--blue); }
+.notif.green { border-left-color:var(--green); }
+.notif.gold { border-left-color:var(--gold); }
+.notif-icon { font-size:16px; margin-top:1px; }
+.notif-body { flex:1; font-size:12px; }
+.notif-body strong { display:block; margin-bottom:2px; }
+.notif-body span { color:var(--text2); }
+.notif-time { font-size:10px; color:var(--text3); white-space:nowrap; }
+
+/* COMMENT CARDS */
+.comment-item { padding:12px; background:var(--surface2); border-radius:8px; border:1px solid var(--border); margin-bottom:8px; }
+.comment-head { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+.comment-avatar { width:28px; height:28px; border-radius:50%; background:linear-gradient(135deg,var(--blue),var(--purple)); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; flex-shrink:0; }
+.comment-meta { flex:1; }
+.comment-meta strong { font-size:12px; display:block; }
+.comment-meta span { font-size:10px; color:var(--text2); }
+.comment-text { font-size:12px; color:var(--text2); line-height:1.5; margin-bottom:8px; }
+.comment-actions { display:flex; gap:6px; }
+.ca-btn { font-size:10px; padding:4px 10px; border-radius:4px; border:1px solid var(--border); background:var(--surface3); cursor:pointer; color:var(--text2); transition:all .2s; }
+.ca-btn:hover { background:var(--surface2); }
+.ca-btn.pin { border-color:var(--gold); color:var(--gold); }
+.ca-btn.del { border-color:var(--accent); color:var(--accent); }
+.ca-btn.reply { border-color:var(--blue); color:var(--blue); }
+
+/* MODAL */
+.modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.7); z-index:200; align-items:center; justify-content:center; }
+.modal-overlay.show { display:flex; }
+.modal { background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:28px; width:520px; max-width:90vw; max-height:85vh; overflow-y:auto; }
+.modal-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; }
+.modal-title { font-size:17px; font-weight:800; }
+.modal-close { width:28px; height:28px; border-radius:6px; background:var(--surface2); border:none; color:var(--text2); cursor:pointer; font-size:16px; display:flex; align-items:center; justify-content:center; }
+.modal-close:hover { color:var(--text); }
+
+/* AI PANEL */
+.ai-output { background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:14px; font-size:12px; line-height:1.7; color:var(--text); min-height:80px; }
+.ai-chip { display:inline-flex; align-items:center; gap:6px; background:rgba(136,68,255,.15); border:1px solid rgba(136,68,255,.3); border-radius:20px; padding:4px 12px; font-size:11px; color:#aa77ff; margin-bottom:12px; }
+
+/* TABS */
+.tabs { display:flex; gap:2px; background:var(--surface2); border-radius:8px; padding:3px; margin-bottom:20px; }
+.tab { flex:1; padding:7px 12px; text-align:center; font-size:12px; font-weight:600; border-radius:6px; cursor:pointer; color:var(--text2); transition:all .2s; }
+.tab.active { background:var(--accent); color:#fff; }
+
+/* MINI CHART */
+.mini-line { height:32px; position:relative; overflow:hidden; }
+.mini-line svg { width:100%; height:100%; }
+
+/* CHANNEL CARD */
+.channel-card { display:flex; align-items:center; gap:12px; padding:12px; background:var(--surface2); border-radius:8px; border:1px solid var(--border); margin-bottom:8px; }
+.channel-img { width:44px; height:44px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:20px; flex-shrink:0; }
+.channel-info { flex:1; }
+.channel-info strong { font-size:13px; display:block; margin-bottom:2px; }
+.channel-info span { font-size:11px; color:var(--text2); }
+.channel-stats { text-align:right; font-size:11px; }
+.channel-stats strong { display:block; color:var(--green); }
+
+/* KEYWORD TABLE */
+.kw-score { display:flex; align-items:center; gap:6px; }
+.kw-bar { height:4px; border-radius:2px; background:var(--surface3); flex:1; overflow:hidden; }
+.kw-fill { height:100%; border-radius:2px; }
+
+/* AUTOMATION RULES */
+.rule-card { padding:14px; background:var(--surface2); border:1px solid var(--border); border-radius:8px; margin-bottom:8px; display:flex; align-items:center; gap:12px; }
+.rule-icon { width:36px; height:36px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0; }
+.rule-icon.r { background:rgba(255,0,51,.15); }
+.rule-icon.b { background:rgba(0,136,255,.15); }
+.rule-icon.g { background:rgba(0,204,102,.15); }
+.rule-icon.p { background:rgba(136,68,255,.15); }
+.rule-info { flex:1; }
+.rule-info strong { font-size:13px; display:block; margin-bottom:2px; }
+.rule-info span { font-size:11px; color:var(--text2); }
+.rule-right { display:flex; align-items:center; gap:10px; }
+
+/* LIVE DOT */
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(1.3)} }
+.live-dot { width:8px; height:8px; background:var(--accent); border-radius:50%; animation:pulse 1.5s infinite; display:inline-block; margin-right:4px; }
+
+/* RESPONSIVE */
+@media(max-width:900px){
+  .stats-row{grid-template-columns:repeat(2,1fr)}
+  .grid-2,.grid-3,.grid-7-5{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<div class="shell">
+
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="logo">
+    <div class="logo-icon">▶</div>
+    <div class="logo-text">DriftWire326<span>YouTube Automation</span></div>
+  </div>
+  <nav class="nav">
+    <div class="nav-section">
+      <div class="nav-label">Overview</div>
+      <div class="nav-item active" onclick="showPage('dashboard',this)"><span class="icon">📊</span>Dashboard</div>
+      <div class="nav-item" onclick="showPage('analytics',this)"><span class="icon">📈</span>Analytics</div>
+    </div>
+    <div class="nav-section">
+      <div class="nav-label">Content</div>
+      <div class="nav-item" onclick="showPage('videos',this)"><span class="icon">🎬</span>Video Manager<span class="nav-badge">12</span></div>
+      <div class="nav-item" onclick="showPage('upload',this)"><span class="icon">⬆️</span>Upload &amp; Publish</div>
+      <div class="nav-item" onclick="showPage('scheduler',this)"><span class="icon">📅</span>Scheduler</div>
+      <div class="nav-item" onclick="showPage('thumbnails',this)"><span class="icon">🖼️</span>Thumbnail Studio</div>
+    </div>
+    <div class="nav-section">
+      <div class="nav-label">AI Tools</div>
+      <div class="nav-item" onclick="showPage('generator',this)"><span class="icon">✨</span>AI Generator</div>
+      <div class="nav-item" onclick="showPage('seo',this)"><span class="icon">🔍</span>SEO Optimizer</div>
+      <div class="nav-item" onclick="showPage('keywords',this)"><span class="icon">🗝️</span>Keyword Research</div>
+    </div>
+    <div class="nav-section">
+      <div class="nav-label">Engagement</div>
+      <div class="nav-item" onclick="showPage('comments',this)"><span class="icon">💬</span>Comment Manager<span class="nav-badge">47</span></div>
+      <div class="nav-item" onclick="showPage('playlists',this)"><span class="icon">📋</span>Playlists</div>
+    </div>
+    <div class="nav-section">
+      <div class="nav-label">Automation</div>
+      <div class="nav-item" onclick="showPage('rules',this)"><span class="icon">⚡</span>Automation Rules</div>
+      <div class="nav-item" onclick="showPage('channels',this)"><span class="icon">📡</span>Channels</div>
+      <div class="nav-item" onclick="showPage('settings',this)"><span class="icon">⚙️</span>Settings</div>
+    </div>
+  </nav>
+</aside>
+
+<!-- MAIN -->
+<div class="main">
+  <!-- TOPBAR -->
+  <div class="topbar">
+    <div class="topbar-title" id="topbar-title">Dashboard <span>Overview</span></div>
+    <button class="tb-btn" onclick="showPage('upload',document.querySelector('.nav-item:nth-child(3)'))">+ New Video</button>
+    <button class="tb-btn primary" onclick="openModal('autoModal')">⚡ Run Automation</button>
+    <div style="width:1px;height:28px;background:var(--border)"></div>
+    <div class="topbar-avatar" title="DriftWire326">DW</div>
+  </div>
+
+  <!-- ===== DASHBOARD ===== -->
+  <div class="page active" id="page-dashboard">
+    <div class="stats-row">
+      <div class="stat-card red">
+        <div class="stat-label">Total Subscribers</div>
+        <div class="stat-value">284K</div>
+        <div class="stat-change up">↑ +3,241 this week</div>
+        <div class="stat-icon">👥</div>
+      </div>
+      <div class="stat-card blue">
+        <div class="stat-label">Monthly Views</div>
+        <div class="stat-value">1.8M</div>
+        <div class="stat-change up">↑ +12.4% vs last mo</div>
+        <div class="stat-icon">👁️</div>
+      </div>
+      <div class="stat-card gold">
+        <div class="stat-label">Est. Revenue</div>
+        <div class="stat-value">$4,820</div>
+        <div class="stat-change up">↑ +$680 this month</div>
+        <div class="stat-icon">💰</div>
+      </div>
+      <div class="stat-card green">
+        <div class="stat-label">Watch Time (hrs)</div>
+        <div class="stat-value">92K</div>
+        <div class="stat-change up">↑ +8.7% this month</div>
+        <div class="stat-icon">⏱️</div>
+      </div>
+    </div>
+
+    <div class="grid-7-5">
+      <div class="card">
+        <div class="card-header"><span class="card-title">Views — Last 30 Days</span><span class="card-action">Export</span></div>
+        <div class="chart-bar" id="views-chart"></div>
+        <div class="chart-labels" id="views-labels"></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><span class="card-title">Notifications</span><span class="card-action">Clear All</span></div>
+        <div class="notif">
+          <div class="notif-icon">🚀</div>
+          <div class="notif-body"><strong>"Top 10 AI Tools 2026" hit 100K views</strong><span>Congrats! Milestone reached.</span></div>
+          <div class="notif-time">2m ago</div>
+        </div>
+        <div class="notif blue">
+          <div class="notif-icon">📅</div>
+          <div class="notif-body"><strong>3 videos scheduled for this week</strong><span>Mon, Wed, Fri — all optimized</span></div>
+          <div class="notif-time">1h ago</div>
+        </div>
+        <div class="notif green">
+          <div class="notif-icon">⚡</div>
+          <div class="notif-body"><strong>Auto-reply rule triggered 23× today</strong><span>Comment engagement +18%</span></div>
+          <div class="notif-time">3h ago</div>
+        </div>
+        <div class="notif gold">
+          <div class="notif-icon">🔑</div>
+          <div class="notif-body"><strong>New trending keyword detected</strong><span>"ai automation 2026" — volume spike 340%</span></div>
+          <div class="notif-time">6h ago</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-header"><span class="card-title">Top Performing Videos</span><span class="card-action">See all</span></div>
+        <div class="metric-row">
+          <div class="metric-rank">1</div>
+          <div class="metric-thumb">🤖</div>
+          <div class="metric-title">Top 10 AI Tools You Need in 2026<small>Published 14 days ago</small></div>
+          <div class="metric-val" style="color:var(--blue)">183K<small>views</small></div>
+        </div>
+        <div class="metric-row">
+          <div class="metric-rank">2</div>
+          <div class="metric-thumb">💡</div>
+          <div class="metric-title">How I Automate My Entire YouTube Channel<small>Published 21 days ago</small></div>
+          <div class="metric-val" style="color:var(--blue)">97K<small>views</small></div>
+        </div>
+        <div class="metric-row">
+          <div class="metric-rank">3</div>
+          <div class="metric-thumb">📱</div>
+          <div class="metric-title">5 Apps That Changed My Content Game<small>Published 7 days ago</small></div>
+          <div class="metric-val" style="color:var(--blue)">54K<small>views</small></div>
+        </div>
+        <div class="metric-row">
+          <div class="metric-rank">4</div>
+          <div class="metric-thumb">🎯</div>
+          <div class="metric-title">YouTube Algorithm Secrets 2026<small>Published 30 days ago</small></div>
+          <div class="metric-val" style="color:var(--blue)">41K<small>views</small></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><span class="card-title">Subscriber Growth</span><span class="card-action">7d / 30d / 90d</span></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+          <div style="background:var(--surface2);border-radius:8px;padding:12px;text-align:center">
+            <div style="font-size:11px;color:var(--text2);margin-bottom:4px">This Week</div>
+            <div style="font-size:20px;font-weight:800;color:var(--green)">+3,241</div>
+          </div>
+          <div style="background:var(--surface2);border-radius:8px;padding:12px;text-align:center">
+            <div style="font-size:11px;color:var(--text2);margin-bottom:4px">This Month</div>
+            <div style="font-size:20px;font-weight:800;color:var(--green)">+11,820</div>
+          </div>
+        </div>
+        <div class="card-title" style="margin-bottom:10px">Traffic Sources</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div><div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px"><span>YouTube Search</span><span style="color:var(--blue)">38%</span></div><div class="progress-bar"><div class="progress-fill pf-blue" style="width:38%"></div></div></div>
+          <div><div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px"><span>Suggested Videos</span><span style="color:var(--accent)">29%</span></div><div class="progress-bar"><div class="progress-fill pf-red" style="width:29%"></div></div></div>
+          <div><div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px"><span>External / Social</span><span style="color:var(--gold)">18%</span></div><div class="progress-bar"><div class="progress-fill pf-gold" style="width:18%"></div></div></div>
+          <div><div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px"><span>Browse Features</span><span style="color:var(--green)">15%</span></div><div class="progress-bar"><div class="progress-fill pf-green" style="width:15%"></div></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== VIDEOS ===== -->
+  <div class="page" id="page-videos">
+    <div class="section-head">
+      <div><div class="section-title">Video Manager</div><div class="section-sub">12 videos • 3 scheduled • 2 drafts</div></div>
+      <div class="btn-row">
+        <button class="btn btn-secondary">Filter ▾</button>
+        <button class="btn btn-primary" onclick="showPage('upload',null)">+ Upload Video</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th></th><th>Title</th><th>Status</th><th>Views</th><th>Likes</th><th>CTR</th><th>Published</th><th>Actions</th></tr></thead>
+          <tbody>
+            <tr><td><div class="thumb">🤖</div></td><td style="font-size:12px;font-weight:600;max-width:200px">Top 10 AI Tools You Need in 2026</td><td><span class="status-pill pub"><span class="dot"></span>Published</span></td><td>183,241</td><td>9,412</td><td style="color:var(--green)">8.4%</td><td>Jun 8</td><td><button class="ca-btn">Edit</button> <button class="ca-btn reply">SEO</button></td></tr>
+            <tr><td><div class="thumb">💡</div></td><td style="font-size:12px;font-weight:600;max-width:200px">How I Automate My Entire YouTube Channel</td><td><span class="status-pill pub"><span class="dot"></span>Published</span></td><td>97,033</td><td>5,217</td><td style="color:var(--green)">6.9%</td><td>Jun 1</td><td><button class="ca-btn">Edit</button> <button class="ca-btn reply">SEO</button></td></tr>
+            <tr><td><div class="thumb">📱</div></td><td style="font-size:12px;font-weight:600;max-width:200px">5 Apps That Changed My Content Game</td><td><span class="status-pill pub"><span class="dot"></span>Published</span></td><td>54,811</td><td>2,901</td><td style="color:var(--gold)">5.2%</td><td>Jun 15</td><td><button class="ca-btn">Edit</button> <button class="ca-btn reply">SEO</button></td></tr>
+            <tr><td><div class="thumb">🎯</div></td><td style="font-size:12px;font-weight:600;max-width:200px">YouTube Algorithm Secrets 2026</td><td><span class="status-pill pub"><span class="dot"></span>Published</span></td><td>41,029</td><td>2,144</td><td style="color:var(--gold)">4.8%</td><td>May 23</td><td><button class="ca-btn">Edit</button> <button class="ca-btn reply">SEO</button></td></tr>
+            <tr><td><div class="thumb">🧠</div></td><td style="font-size:12px;font-weight:600;max-width:200px">Claude AI vs ChatGPT: Full Comparison</td><td><span class="status-pill sched"><span class="dot"></span>Scheduled</span></td><td>—</td><td>—</td><td>—</td><td>Jun 24</td><td><button class="ca-btn">Edit</button> <button class="ca-btn del">Cancel</button></td></tr>
+            <tr><td><div class="thumb">🔥</div></td><td style="font-size:12px;font-weight:600;max-width:200px">Make $10K/Month with YouTube Automation</td><td><span class="status-pill sched"><span class="dot"></span>Scheduled</span></td><td>—</td><td>—</td><td>—</td><td>Jun 26</td><td><button class="ca-btn">Edit</button> <button class="ca-btn del">Cancel</button></td></tr>
+            <tr><td><div class="thumb">⚡</div></td><td style="font-size:12px;font-weight:600;max-width:200px">Best AI Video Tools for Beginners</td><td><span class="status-pill draft"><span class="dot"></span>Draft</span></td><td>—</td><td>—</td><td>—</td><td>—</td><td><button class="ca-btn reply">Edit</button> <button class="ca-btn">Publish</button></td></tr>
+            <tr><td><div class="thumb">🎬</div></td><td style="font-size:12px;font-weight:600;max-width:200px">How to Use DriftWire326 Automation</td><td><span class="status-pill draft"><span class="dot"></span>Draft</span></td><td>—</td><td>—</td><td>—</td><td>—</td><td><button class="ca-btn reply">Edit</button> <button class="ca-btn">Publish</button></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== UPLOAD ===== -->
+  <div class="page" id="page-upload">
+    <div class="section-head">
+      <div><div class="section-title">Upload &amp; Publish</div><div class="section-sub">Drag, optimize, and schedule your video</div></div>
+    </div>
+    <div class="grid-7-5">
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div class="card">
+          <div class="card-header"><span class="card-title">Video File</span></div>
+          <div class="upload-zone" onclick="alert('File picker would open here')">
+            <div class="upload-icon">🎬</div>
+            <div class="upload-text">Drop your video here or <strong>browse</strong></div>
+            <div style="font-size:11px;color:var(--text3);margin-top:6px">MP4, MOV, AVI — up to 256GB</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">Video Details</span><span class="ai-chip">✨ AI Assist</span></div>
+          <div class="form-group">
+            <label class="form-label">Title</label>
+            <input class="form-input" id="vid-title" placeholder="Enter video title…" value="Top 10 AI Automation Tools That Will Change Your Life in 2026" oninput="updateCharCount('vid-title','title-count',100)">
+            <div class="char-count"><span id="title-count">57</span>/100 characters</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Description</label>
+            <textarea class="form-textarea" id="vid-desc" style="min-height:130px" placeholder="Write your video description…">In this video, I reveal the TOP 10 AI automation tools that are completely changing the game for content creators in 2026. These tools will save you hours every week and skyrocket your channel growth.
+
+⏱️ TIMESTAMPS:
+00:00 - Introduction
+01:30 - Tool #1: AI Script Writer
+03:15 - Tool #2: Auto Thumbnail Generator
+…
+
+🔔 Subscribe for weekly automation tips!
+🔗 Free Automation Checklist: [link]
+
+#YouTubeAutomation #AITools #ContentCreator #DriftWire326</textarea>
+            <div class="char-count"><span id="desc-count">390</span>/5000 characters</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Tags</label>
+            <input class="form-input" placeholder="Type a tag and press Enter…" onkeydown="addTag(event,this)">
+            <div class="tags-wrap" id="tags-wrap">
+              <div class="tag">youtube automation <span class="tag-remove" onclick="this.parentElement.remove()">×</span></div>
+              <div class="tag">ai tools 2026 <span class="tag-remove" onclick="this.parentElement.remove()">×</span></div>
+              <div class="tag">content creator <span class="tag-remove" onclick="this.parentElement.remove()">×</span></div>
+              <div class="tag">automation <span class="tag-remove" onclick="this.parentElement.remove()">×</span></div>
+              <div class="tag">make money youtube <span class="tag-remove" onclick="this.parentElement.remove()">×</span></div>
+            </div>
+          </div>
+          <div class="input-row">
+            <div class="form-group">
+              <label class="form-label">Category</label>
+              <select class="form-select"><option>Science &amp; Technology</option><option>Education</option><option>How-to &amp; Style</option><option>Entertainment</option><option>People &amp; Blogs</option></select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Language</label>
+              <select class="form-select"><option>English</option><option>Arabic</option><option>Spanish</option><option>French</option><option>German</option></select>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div class="card">
+          <div class="card-header"><span class="card-title">Publish Settings</span></div>
+          <div class="form-group">
+            <label class="form-label">Visibility</label>
+            <select class="form-select"><option>Public</option><option>Unlisted</option><option>Private</option><option>Scheduled</option></select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Schedule Date &amp; Time</label>
+            <input class="form-input" type="datetime-local" value="2026-06-24T15:00">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Made for Kids</label>
+            <div class="toggle-wrap"><div class="toggle" onclick="this.classList.toggle('on')"></div><span class="toggle-label">No — not for kids</span></div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Auto-add to Playlist</label>
+            <select class="form-select"><option>AI &amp; Automation</option><option>Best of DriftWire326</option><option>Tutorials</option><option>None</option></select>
+          </div>
+          <div class="btn-row" style="margin-top:4px">
+            <button class="btn btn-primary" style="flex:1">📤 Schedule Upload</button>
+          </div>
+          <div style="margin-top:8px">
+            <button class="btn btn-secondary" style="width:100%">💾 Save as Draft</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">SEO Quick Score</span></div>
+          <div class="seo-items">
+            <div class="seo-item"><div class="seo-check pass">✓</div><div class="seo-text">Title has primary keyword</div><div class="seo-score" style="color:var(--green)">+20</div></div>
+            <div class="seo-item"><div class="seo-check pass">✓</div><div class="seo-text">Title length optimal (57 chars)</div><div class="seo-score" style="color:var(--green)">+15</div></div>
+            <div class="seo-item"><div class="seo-check pass">✓</div><div class="seo-text">Description has timestamps</div><div class="seo-score" style="color:var(--green)">+10</div></div>
+            <div class="seo-item"><div class="seo-check warn">!</div><div class="seo-text">Add 5+ more tags (5/15)</div><div class="seo-score" style="color:var(--gold)">+8</div></div>
+            <div class="seo-item"><div class="seo-check fail">✗</div><div class="seo-text">Upload custom thumbnail</div><div class="seo-score" style="color:var(--text2)">+15</div></div>
+          </div>
+          <div style="margin-top:14px">
+            <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:6px"><span>SEO Score</span><span style="color:var(--gold);font-weight:700">72 / 100</span></div>
+            <div class="progress-bar" style="height:8px"><div class="progress-fill pf-gold" style="width:72%"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== ANALYTICS ===== -->
+  <div class="page" id="page-analytics">
+    <div class="section-head">
+      <div><div class="section-title">Analytics</div><div class="section-sub">Last 30 days • Updated 2 minutes ago</div></div>
+      <div class="btn-row">
+        <button class="tb-btn">Last 7 Days</button>
+        <button class="tb-btn" style="border-color:var(--accent);color:var(--accent)">Last 30 Days</button>
+        <button class="tb-btn">Last 90 Days</button>
+      </div>
+    </div>
+    <div class="stats-row">
+      <div class="stat-card blue"><div class="stat-label">Avg View Duration</div><div class="stat-value" style="font-size:22px">6:42</div><div class="stat-change up">↑ +0:18 vs last period</div><div class="stat-icon">⏱️</div></div>
+      <div class="stat-card red"><div class="stat-label">Click-Through Rate</div><div class="stat-value" style="font-size:22px">6.1%</div><div class="stat-change up">↑ +0.8pp this month</div><div class="stat-icon">🖱️</div></div>
+      <div class="stat-card green"><div class="stat-label">Impressions</div><div class="stat-value">29.4M</div><div class="stat-change up">↑ +22% this month</div><div class="stat-icon">📢</div></div>
+      <div class="stat-card gold"><div class="stat-label">Engagement Rate</div><div class="stat-value" style="font-size:22px">4.8%</div><div class="stat-change up">↑ +0.4pp this month</div><div class="stat-icon">❤️</div></div>
+    </div>
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-header"><span class="card-title">Views by Day</span></div>
+        <div class="chart-bar" id="analytics-chart"></div>
+        <div class="chart-labels" id="analytics-labels"></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><span class="card-title">Audience Demographics</span></div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div><div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px"><span>18–24 yrs</span><span style="color:var(--blue)">34%</span></div><div class="progress-bar"><div class="progress-fill pf-blue" style="width:34%"></div></div></div>
+          <div><div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px"><span>25–34 yrs</span><span style="color:var(--accent)">41%</span></div><div class="progress-bar"><div class="progress-fill pf-red" style="width:41%"></div></div></div>
+          <div><div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px"><span>35–44 yrs</span><span style="color:var(--gold)">16%</span></div><div class="progress-bar"><div class="progress-fill pf-gold" style="width:16%"></div></div></div>
+          <div><div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px"><span>45+ yrs</span><span style="color:var(--green)">9%</span></div><div class="progress-bar"><div class="progress-fill pf-green" style="width:9%"></div></div></div>
+        </div>
+        <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border)">
+          <div class="card-title" style="margin-bottom:10px">Top Countries</div>
+          <div style="display:flex;flex-direction:column;gap:8px;font-size:12px">
+            <div style="display:flex;justify-content:space-between"><span>🇺🇸 United States</span><span style="color:var(--text2)">28%</span></div>
+            <div style="display:flex;justify-content:space-between"><span>🇬🇧 United Kingdom</span><span style="color:var(--text2)">11%</span></div>
+            <div style="display:flex;justify-content:space-between"><span>🇦🇪 UAE</span><span style="color:var(--text2)">8%</span></div>
+            <div style="display:flex;justify-content:space-between"><span>🇮🇳 India</span><span style="color:var(--text2)">14%</span></div>
+            <div style="display:flex;justify-content:space-between"><span>🌍 Others</span><span style="color:var(--text2)">39%</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== AI GENERATOR ===== -->
+  <div class="page" id="page-generator">
+    <div class="section-head">
+      <div><div class="section-title">AI Content Generator</div><div class="section-sub">Generate titles, descriptions, scripts, and hooks with AI</div></div>
+    </div>
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab(this,'gen-titles')">Titles</div>
+      <div class="tab" onclick="switchTab(this,'gen-desc')">Description</div>
+      <div class="tab" onclick="switchTab(this,'gen-script')">Script</div>
+      <div class="tab" onclick="switchTab(this,'gen-hooks')">Hooks</div>
+      <div class="tab" onclick="switchTab(this,'gen-hashtags')">Hashtags</div>
+    </div>
+    <div class="grid-7-5">
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div class="card" id="gen-titles">
+          <div class="card-header"><span class="card-title">Generate Titles</span><div class="ai-chip">✨ AI Powered</div></div>
+          <div class="form-group">
+            <label class="form-label">Topic / Niche</label>
+            <input class="form-input" id="gen-topic" placeholder="e.g. YouTube automation, AI tools, passive income…" value="YouTube automation tools for beginners">
+          </div>
+          <div class="input-row">
+            <div class="form-group">
+              <label class="form-label">Tone</label>
+              <select class="form-select"><option>Curiosity-driven</option><option>Educational</option><option>Clickbait</option><option>Professional</option><option>Inspiring</option></select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Style</label>
+              <select class="form-select"><option>Listicle (Top 10…)</option><option>How-to</option><option>Question-based</option><option>Shocking Reveal</option></select>
+            </div>
+          </div>
+          <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="generateTitles()">✨ Generate 10 Titles</button>
+          <div id="gen-output" style="margin-top:16px;display:none">
+            <div class="card-title" style="margin-bottom:10px">Generated Titles — Click to copy</div>
+            <div id="gen-titles-list" style="display:flex;flex-direction:column;gap:6px"></div>
+          </div>
+        </div>
+        <div class="card" id="gen-desc" style="display:none">
+          <div class="card-header"><span class="card-title">Generate Description</span><div class="ai-chip">✨ AI Powered</div></div>
+          <div class="form-group"><label class="form-label">Video Title</label><input class="form-input" placeholder="Paste your video title…"></div>
+          <div class="form-group"><label class="form-label">Key Points (one per line)</label><textarea class="form-textarea" placeholder="- Tool #1: DriftWire326&#10;- How to schedule posts&#10;- Monetization tips"></textarea></div>
+          <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="generateDesc()">✨ Generate Description</button>
+          <div id="desc-output" style="margin-top:16px;display:none"><div class="ai-output" id="desc-text"></div><button class="btn btn-secondary" style="margin-top:8px" onclick="copyText('desc-text')">Copy</button></div>
+        </div>
+        <div class="card" id="gen-script" style="display:none">
+          <div class="card-header"><span class="card-title">Script Generator</span><div class="ai-chip">✨ AI Powered</div></div>
+          <div class="form-group"><label class="form-label">Video Title</label><input class="form-input" placeholder="Your video title…"></div>
+          <div class="input-row"><div class="form-group"><label class="form-label">Duration</label><select class="form-select"><option>3-5 min</option><option>8-10 min</option><option>12-15 min</option><option>20+ min</option></select></div><div class="form-group"><label class="form-label">Format</label><select class="form-select"><option>Tutorial</option><option>Listicle</option><option>Vlog</option><option>Review</option></select></div></div>
+          <button class="btn btn-primary" style="width:100%;justify-content:center">✨ Generate Full Script</button>
+        </div>
+        <div class="card" id="gen-hooks" style="display:none">
+          <div class="card-header"><span class="card-title">Hook Generator</span><div class="ai-chip">✨ AI Powered</div></div>
+          <div class="form-group"><label class="form-label">Video Topic</label><input class="form-input" placeholder="What is your video about?"></div>
+          <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="generateHooks()">✨ Generate 5 Hooks</button>
+          <div id="hooks-output" style="margin-top:16px;display:none"><div id="hooks-list" style="display:flex;flex-direction:column;gap:10px"></div></div>
+        </div>
+        <div class="card" id="gen-hashtags" style="display:none">
+          <div class="card-header"><span class="card-title">Hashtag Generator</span><div class="ai-chip">✨ AI Powered</div></div>
+          <div class="form-group"><label class="form-label">Topic</label><input class="form-input" placeholder="e.g. YouTube automation…"></div>
+          <button class="btn btn-primary" style="width:100%;justify-content:center">✨ Generate Hashtags</button>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div class="card">
+          <div class="card-header"><span class="card-title">AI Tips</span></div>
+          <div style="display:flex;flex-direction:column;gap:10px;font-size:12px;color:var(--text2)">
+            <div style="display:flex;gap:8px"><span style="color:var(--accent)">▶</span><span>Use numbers in titles — "Top 10" gets 3x more clicks than generic titles</span></div>
+            <div style="display:flex;gap:8px"><span style="color:var(--accent)">▶</span><span>Start hooks with "Did you know" or "What if I told you" for higher retention</span></div>
+            <div style="display:flex;gap:8px"><span style="color:var(--accent)">▶</span><span>Keep descriptions under 150 chars before the fold — first line is critical</span></div>
+            <div style="display:flex;gap:8px"><span style="color:var(--accent)">▶</span><span>Use 3–5 hashtags maximum — YouTube recommends quality over quantity</span></div>
+            <div style="display:flex;gap:8px"><span style="color:var(--accent)">▶</span><span>Include year (2026) in titles to signal freshness to the algorithm</span></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">Recent Generations</span></div>
+          <div style="display:flex;flex-direction:column;gap:8px;font-size:12px">
+            <div style="padding:8px;background:var(--surface2);border-radius:6px;cursor:pointer" onclick="copyThis(this)">🏆 Top 10 AI Tools That Will 10X Your Channel in 2026</div>
+            <div style="padding:8px;background:var(--surface2);border-radius:6px;cursor:pointer" onclick="copyThis(this)">🤫 The YouTube Secret Algorithm Nobody Talks About</div>
+            <div style="padding:8px;background:var(--surface2);border-radius:6px;cursor:pointer" onclick="copyThis(this)">⚡ I Automated My Whole Channel (Here's What Happened)</div>
+            <div style="padding:8px;background:var(--surface2);border-radius:6px;cursor:pointer" onclick="copyThis(this)">💰 How to Make $5K/Month with YouTube Automation (Step by Step)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== SEO OPTIMIZER ===== -->
+  <div class="page" id="page-seo">
+    <div class="section-head"><div><div class="section-title">SEO Optimizer</div><div class="section-sub">Optimize your video for maximum discoverability</div></div></div>
+    <div class="grid-7-5">
+      <div class="card">
+        <div class="card-header"><span class="card-title">Analyze &amp; Optimize</span></div>
+        <div class="form-group"><label class="form-label">Video Title</label><input class="form-input" id="seo-title" value="Top 10 AI Automation Tools That Will Change Your Life in 2026"></div>
+        <div class="form-group"><label class="form-label">Video Description (first 150 chars are critical)</label><textarea class="form-textarea" id="seo-desc" style="min-height:80px">In this video, I reveal the TOP 10 AI automation tools that are completely changing the game for content creators in 2026. Save hours every week!</textarea></div>
+        <div class="form-group"><label class="form-label">Tags (comma separated)</label><input class="form-input" value="youtube automation, ai tools, content creator, automation 2026, make money youtube"></div>
+        <button class="btn btn-primary" onclick="runSEO()">🔍 Run SEO Analysis</button>
+      </div>
+      <div class="card">
+        <div class="card-header"><span class="card-title">SEO Score</span></div>
+        <div class="score-ring">
+          <svg viewBox="0 0 90 90" width="90" height="90">
+            <circle cx="45" cy="45" r="38" fill="none" stroke="var(--surface3)" stroke-width="8"/>
+            <circle cx="45" cy="45" r="38" fill="none" stroke="var(--gold)" stroke-width="8" stroke-dasharray="239" stroke-dashoffset="67" stroke-linecap="round"/>
+          </svg>
+          <div class="ring-val" style="color:var(--gold)" id="seo-score-val">72</div>
+        </div>
+        <div style="text-align:center;font-size:11px;color:var(--text2);margin-bottom:16px">Good — room to improve</div>
+        <div class="seo-items" id="seo-checklist">
+          <div class="seo-item"><div class="seo-check pass">✓</div><div class="seo-text">Primary keyword in title</div><div class="seo-score" style="color:var(--green)">+20</div></div>
+          <div class="seo-item"><div class="seo-check pass">✓</div><div class="seo-text">Title length 40–70 chars</div><div class="seo-score" style="color:var(--green)">+15</div></div>
+          <div class="seo-item"><div class="seo-check pass">✓</div><div class="seo-text">Description ≥ 200 chars</div><div class="seo-score" style="color:var(--green)">+10</div></div>
+          <div class="seo-item"><div class="seo-check warn">!</div><div class="seo-text">Add keyword to first 25 chars of description</div><div class="seo-score" style="color:var(--gold)">+8</div></div>
+          <div class="seo-item"><div class="seo-check fail">✗</div><div class="seo-text">Missing timestamps in description</div><div class="seo-score" style="color:var(--text2)">+12</div></div>
+          <div class="seo-item"><div class="seo-check fail">✗</div><div class="seo-text">Need 10+ tags (5 currently)</div><div class="seo-score" style="color:var(--text2)">+10</div></div>
+          <div class="seo-item"><div class="seo-check pass">✓</div><div class="seo-text">Year included in title (2026)</div><div class="seo-score" style="color:var(--green)">+5</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== KEYWORDS ===== -->
+  <div class="page" id="page-keywords">
+    <div class="section-head"><div><div class="section-title">Keyword Research</div><div class="section-sub">Discover high-traffic, low-competition keywords</div></div></div>
+    <div class="grid-7-5">
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div class="card">
+          <div class="card-header"><span class="card-title">Search Keywords</span></div>
+          <div style="display:flex;gap:10px">
+            <input class="form-input" placeholder="Enter seed keyword…" value="youtube automation" style="flex:1">
+            <button class="btn btn-primary">🔍 Research</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">Keyword Results</span><span class="card-action">Export CSV</span></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Keyword</th><th>Monthly Volume</th><th>Competition</th><th>Opportunity</th><th>Action</th></tr></thead>
+              <tbody id="kw-table">
+                <tr><td>youtube automation</td><td>110K</td><td><div class="kw-score"><div class="kw-bar"><div class="kw-fill" style="width:65%;background:var(--gold)"></div></div><span style="font-size:10px;color:var(--gold)">Med</span></div></td><td style="color:var(--green);font-weight:700">★★★★</td><td><button class="ca-btn reply">+ Add</button></td></tr>
+                <tr><td>youtube automation 2026</td><td>49K</td><td><div class="kw-score"><div class="kw-bar"><div class="kw-fill" style="width:30%;background:var(--green)"></div></div><span style="font-size:10px;color:var(--green)">Low</span></div></td><td style="color:var(--green);font-weight:700">★★★★★</td><td><button class="ca-btn reply">+ Add</button></td></tr>
+                <tr><td>ai automation tools</td><td>88K</td><td><div class="kw-score"><div class="kw-bar"><div class="kw-fill" style="width:70%;background:var(--accent)"></div></div><span style="font-size:10px;color:var(--accent)">High</span></div></td><td style="color:var(--gold);font-weight:700">★★★</td><td><button class="ca-btn reply">+ Add</button></td></tr>
+                <tr><td>how to automate youtube channel</td><td>33K</td><td><div class="kw-score"><div class="kw-bar"><div class="kw-fill" style="width:25%;background:var(--green)"></div></div><span style="font-size:10px;color:var(--green)">Low</span></div></td><td style="color:var(--green);font-weight:700">★★★★★</td><td><button class="ca-btn reply">+ Add</button></td></tr>
+                <tr><td>youtube channel automation software</td><td>18K</td><td><div class="kw-score"><div class="kw-bar"><div class="kw-fill" style="width:20%;background:var(--green)"></div></div><span style="font-size:10px;color:var(--green)">Low</span></div></td><td style="color:var(--green);font-weight:700">★★★★★</td><td><button class="ca-btn reply">+ Add</button></td></tr>
+                <tr><td>faceless youtube automation</td><td>41K</td><td><div class="kw-score"><div class="kw-bar"><div class="kw-fill" style="width:40%;background:var(--gold)"></div></div><span style="font-size:10px;color:var(--gold)">Med</span></div></td><td style="color:var(--green);font-weight:700">★★★★</td><td><button class="ca-btn reply">+ Add</button></td></tr>
+                <tr><td>ai video creation tool</td><td>67K</td><td><div class="kw-score"><div class="kw-bar"><div class="kw-fill" style="width:55%;background:var(--gold)"></div></div><span style="font-size:10px;color:var(--gold)">Med</span></div></td><td style="color:var(--gold);font-weight:700">★★★</td><td><button class="ca-btn reply">+ Add</button></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><span class="card-title">Trending Now 🔥</span></div>
+        <div style="display:flex;flex-direction:column;gap:8px;font-size:12px">
+          <div class="notif gold"><div class="notif-icon">📈</div><div class="notif-body"><strong>ai automation 2026</strong><span>+340% search spike this week</span></div></div>
+          <div class="notif green"><div class="notif-icon">🚀</div><div class="notif-body"><strong>faceless youtube channel</strong><span>+180% — evergreen trend</span></div></div>
+          <div class="notif blue"><div class="notif-icon">💡</div><div class="notif-body"><strong>claude ai tutorial</strong><span>+250% — new tool interest</span></div></div>
+          <div class="notif"><div class="notif-icon">⚡</div><div class="notif-body"><strong>passive income youtube</strong><span>+120% — consistent trend</span></div></div>
+        </div>
+        <div style="margin-top:16px"><div class="card-title" style="margin-bottom:10px">My Keyword Lists</div>
+          <div style="background:var(--surface2);border-radius:8px;padding:10px;font-size:12px;margin-bottom:6px;cursor:pointer;display:flex;justify-content:space-between"><span>📁 Automation Niche</span><span style="color:var(--text2)">14 keywords</span></div>
+          <div style="background:var(--surface2);border-radius:8px;padding:10px;font-size:12px;margin-bottom:6px;cursor:pointer;display:flex;justify-content:space-between"><span>📁 AI Tools</span><span style="color:var(--text2)">9 keywords</span></div>
+          <div style="background:var(--surface2);border-radius:8px;padding:10px;font-size:12px;cursor:pointer;display:flex;justify-content:space-between"><span>📁 Monetization</span><span style="color:var(--text2)">7 keywords</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== SCHEDULER ===== -->
+  <div class="page" id="page-scheduler">
+    <div class="section-head"><div><div class="section-title">Content Scheduler</div><div class="section-sub">Week of Jun 22–28, 2026</div></div><div class="btn-row"><button class="tb-btn">← Prev Week</button><button class="tb-btn">Next Week →</button><button class="btn btn-primary">+ Schedule Video</button></div></div>
+    <div class="card" style="margin-bottom:20px">
+      <div class="schedule-grid">
+        <div class="sched-day"><div class="sched-day-label">Mon 23</div><div class="sched-slot has-video" title="AI Tools Video">9AM<br>AI Tools</div><div class="sched-slot" title="Empty slot">3PM</div><div class="sched-slot" title="Empty slot">7PM</div></div>
+        <div class="sched-day"><div class="sched-day-label">Tue 24</div><div class="sched-slot" title="Empty">9AM</div><div class="sched-slot has-video-blue" title="Claude vs ChatGPT">3PM<br>Claude AI</div><div class="sched-slot" title="Empty">7PM</div></div>
+        <div class="sched-day"><div class="sched-day-label">Wed 25</div><div class="sched-slot has-video" title="Automation Tips">9AM<br>Auto Tips</div><div class="sched-slot" title="Empty">3PM</div><div class="sched-slot" title="Empty">7PM</div></div>
+        <div class="sched-day"><div class="sched-day-label">Thu 26</div><div class="sched-slot" title="Empty">9AM</div><div class="sched-slot has-video-blue" title="Make $10K">3PM<br>$10K/Mo</div><div class="sched-slot" title="Empty">7PM</div></div>
+        <div class="sched-day"><div class="sched-day-label">Fri 27</div><div class="sched-slot has-video" title="Weekly Roundup">9AM<br>Roundup</div><div class="sched-slot" title="Empty">3PM</div><div class="sched-slot" title="Empty">7PM</div></div>
+        <div class="sched-day"><div class="sched-day-label">Sat 28</div><div class="sched-slot" title="Empty">9AM</div><div class="sched-slot" title="Empty">3PM</div><div class="sched-slot" title="Empty">7PM</div></div>
+        <div class="sched-day"><div class="sched-day-label">Sun 29</div><div class="sched-slot" title="Empty">9AM</div><div class="sched-slot" title="Empty">3PM</div><div class="sched-slot" title="Empty">7PM</div></div>
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-header"><span class="card-title">Upcoming Uploads</span></div>
+        <div class="metric-row"><div class="metric-thumb">🤖</div><div class="metric-title">AI Tools for Beginners 2026<small>Mon Jun 23 · 9:00 AM</small></div><div><span class="status-pill sched"><span class="dot"></span>Ready</span></div></div>
+        <div class="metric-row"><div class="metric-thumb">🧠</div><div class="metric-title">Claude AI vs ChatGPT Full Review<small>Tue Jun 24 · 3:00 PM</small></div><div><span class="status-pill sched"><span class="dot"></span>Ready</span></div></div>
+        <div class="metric-row"><div class="metric-thumb">🔥</div><div class="metric-title">Make $10K/Month YouTube Automation<small>Thu Jun 26 · 3:00 PM</small></div><div><span class="status-pill draft"><span class="dot"></span>Processing</span></div></div>
+        <div class="metric-row"><div class="metric-thumb">📊</div><div class="metric-title">Weekly AI News Roundup<small>Fri Jun 27 · 9:00 AM</small></div><div><span class="status-pill draft"><span class="dot"></span>Draft</span></div></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><span class="card-title">Best Posting Times</span></div>
+        <div style="font-size:12px;color:var(--text2);margin-bottom:12px">Based on your audience analytics (UTC+4)</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;align-items:center;gap:10px"><div style="width:60px;font-size:11px;color:var(--text2)">Mon–Wed</div><div style="flex:1"><div class="progress-bar"><div class="progress-fill pf-green" style="width:90%"></div></div></div><div style="font-size:11px;color:var(--green);width:50px">9AM, 3PM</div></div>
+          <div style="display:flex;align-items:center;gap:10px"><div style="width:60px;font-size:11px;color:var(--text2)">Thu–Fri</div><div style="flex:1"><div class="progress-bar"><div class="progress-fill pf-blue" style="width:75%"></div></div></div><div style="font-size:11px;color:var(--blue);width:50px">3PM, 7PM</div></div>
+          <div style="display:flex;align-items:center;gap:10px"><div style="width:60px;font-size:11px;color:var(--text2)">Weekend</div><div style="flex:1"><div class="progress-bar"><div class="progress-fill pf-gold" style="width:45%"></div></div></div><div style="font-size:11px;color:var(--gold);width:50px">11AM</div></div>
+        </div>
+        <div style="margin-top:14px;padding:10px;background:var(--surface2);border-radius:8px;font-size:12px"><span style="color:var(--green)">✓</span> Optimal: <strong>Monday 9AM &amp; Wednesday 3PM</strong> for your niche</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== THUMBNAILS ===== -->
+  <div class="page" id="page-thumbnails">
+    <div class="section-head"><div><div class="section-title">Thumbnail Studio</div><div class="section-sub">Create click-worthy thumbnails fast</div></div><button class="btn btn-primary">+ Create New</button></div>
+    <div class="grid-2" style="margin-bottom:16px">
+      <div class="card">
+        <div class="card-header"><span class="card-title">Template Library</span></div>
+        <div class="thumb-grid">
+          <div class="thumb-card"><div class="thumb-preview" style="background:linear-gradient(135deg,#ff0033,#880011)">🤖</div><div class="thumb-label">Tech / AI<br><span style="color:var(--text2);font-size:10px">Red gradient</span></div><div class="thumb-use">Use</div></div>
+          <div class="thumb-card"><div class="thumb-preview" style="background:linear-gradient(135deg,#0044ff,#004488)">💡</div><div class="thumb-label">Tutorial<br><span style="color:var(--text2);font-size:10px">Blue bold</span></div><div class="thumb-use">Use</div></div>
+          <div class="thumb-card"><div class="thumb-preview" style="background:linear-gradient(135deg,#ffaa00,#cc6600)">💰</div><div class="thumb-label">Money / Biz<br><span style="color:var(--text2);font-size:10px">Gold accent</span></div><div class="thumb-use">Use</div></div>
+          <div class="thumb-card"><div class="thumb-preview" style="background:linear-gradient(135deg,#00cc66,#006633)">📈</div><div class="thumb-label">Growth<br><span style="color:var(--text2);font-size:10px">Green clean</span></div><div class="thumb-use">Use</div></div>
+          <div class="thumb-card"><div class="thumb-preview" style="background:linear-gradient(135deg,#8844ff,#440088)">✨</div><div class="thumb-label">AI / Futuristic<br><span style="color:var(--text2);font-size:10px">Purple neon</span></div><div class="thumb-use">Use</div></div>
+          <div class="thumb-card"><div class="thumb-preview" style="background:linear-gradient(135deg,#222,#111)">🎬</div><div class="thumb-label">Minimal Dark<br><span style="color:var(--text2);font-size:10px">Sleek black</span></div><div class="thumb-use">Use</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><span class="card-title">AI Thumbnail Generator</span><div class="ai-chip">✨ AI Powered</div></div>
+        <div class="form-group"><label class="form-label">Describe your thumbnail</label><textarea class="form-textarea" style="min-height:80px" placeholder="e.g. Bold text 'TOP 10 AI TOOLS' on red background, shocked face on left, robot on right, arrow pointing up…">Bold text "TOP 10 AI TOOLS 2026" with red explosive background, futuristic robot, surprised expression, YouTube-style clickbait layout</textarea></div>
+        <div class="input-row"><div class="form-group"><label class="form-label">Style</label><select class="form-select"><option>Clickbait Bold</option><option>Clean Minimal</option><option>Gaming Style</option><option>Professional</option></select></div><div class="form-group"><label class="form-label">Color Scheme</label><select class="form-select"><option>Red &amp; Black</option><option>Blue &amp; White</option><option>Gold &amp; Dark</option><option>Custom</option></select></div></div>
+        <button class="btn btn-primary" style="width:100%;justify-content:center">✨ Generate Thumbnail</button>
+        <div style="margin-top:12px;padding:12px;background:var(--surface2);border-radius:8px;text-align:center;color:var(--text2);font-size:12px">Generated thumbnails appear here<br><span style="font-size:10px">1280×720px, PNG format</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== COMMENTS ===== -->
+  <div class="page" id="page-comments">
+    <div class="section-head"><div><div class="section-title">Comment Manager</div><div class="section-sub">47 unread comments across all videos</div></div><div class="btn-row"><button class="tb-btn">Filter ▾</button><button class="btn btn-primary">⚡ Auto-Reply All</button></div></div>
+    <div class="grid-7-5">
+      <div>
+        <div class="tabs"><div class="tab active" onclick="switchTab(this,'c-all')">All (47)</div><div class="tab" onclick="switchTab(this,'c-questions')">Questions (12)</div><div class="tab" onclick="switchTab(this,'c-spam')">Spam (3)</div></div>
+        <div id="c-all">
+          <div class="comment-item">
+            <div class="comment-head"><div class="comment-avatar">TC</div><div class="comment-meta"><strong>TechCreator99</strong><span>on "Top 10 AI Tools" · 2 hours ago</span></div></div>
+            <div class="comment-text">This video completely changed how I think about automation! What tool do you recommend for someone just starting out? 🚀</div>
+            <div class="comment-actions"><button class="ca-btn reply">Reply</button><button class="ca-btn pin">Pin</button><button class="ca-btn">❤️ Like</button><button class="ca-btn del">Hide</button></div>
+          </div>
+          <div class="comment-item">
+            <div class="comment-head"><div class="comment-avatar" style="background:linear-gradient(135deg,var(--green),var(--blue))">AM</div><div class="comment-meta"><strong>AutomationMike</strong><span>on "Top 10 AI Tools" · 5 hours ago</span></div></div>
+            <div class="comment-text">Finally someone explaining this properly. Been subscribed for 6 months and every video delivers. Keep it up!</div>
+            <div class="comment-actions"><button class="ca-btn reply">Reply</button><button class="ca-btn pin">Pin</button><button class="ca-btn">❤️ Like</button><button class="ca-btn del">Hide</button></div>
+          </div>
+          <div class="comment-item">
+            <div class="comment-head"><div class="comment-avatar" style="background:linear-gradient(135deg,var(--gold),#cc6600)">SJ</div><div class="comment-meta"><strong>StartupJane</strong><span>on "YouTube Algorithm Secrets" · 1 day ago</span></div></div>
+            <div class="comment-text">Is there a free version of any of these tools? I'm just starting my channel and budget is tight. Great content though!</div>
+            <div class="comment-actions"><button class="ca-btn reply">Reply</button><button class="ca-btn pin">Pin</button><button class="ca-btn">❤️ Like</button><button class="ca-btn del">Hide</button></div>
+          </div>
+          <div class="comment-item" style="border-color:rgba(255,0,51,.3)">
+            <div class="comment-head"><div class="comment-avatar" style="background:#333">SP</div><div class="comment-meta"><strong>SpamBot_3442</strong><span>on "Automate My Channel" · 3 hours ago · <span style="color:var(--accent)">Likely Spam</span></span></div></div>
+            <div class="comment-text">🔥 FREE SUBS CLICK HERE → bit.ly/xxxxx ← 100% REAL GUARANTEED GROWTH 🔥🔥🔥</div>
+            <div class="comment-actions"><button class="ca-btn del">Delete</button><button class="ca-btn">Report</button></div>
+          </div>
+        </div>
+        <div id="c-questions" style="display:none"><div style="padding:20px;text-align:center;color:var(--text2);font-size:13px">12 question-style comments filtered here</div></div>
+        <div id="c-spam" style="display:none"><div style="padding:20px;text-align:center;color:var(--text2);font-size:13px">3 flagged spam comments</div></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div class="card">
+          <div class="card-header"><span class="card-title">Auto-Reply Rules</span></div>
+          <div style="display:flex;flex-direction:column;gap:8px;font-size:12px">
+            <div style="padding:10px;background:var(--surface2);border-radius:8px;display:flex;justify-content:space-between;align-items:center"><span>Question → Helpful Reply</span><div class="toggle toggle on" onclick="this.classList.toggle('on')"></div></div>
+            <div style="padding:10px;background:var(--surface2);border-radius:8px;display:flex;justify-content:space-between;align-items:center"><span>Positive → Heart + Reply</span><div class="toggle toggle on" onclick="this.classList.toggle('on')"></div></div>
+            <div style="padding:10px;background:var(--surface2);border-radius:8px;display:flex;justify-content:space-between;align-items:center"><span>Spam → Auto Delete</span><div class="toggle toggle on" onclick="this.classList.toggle('on')"></div></div>
+            <div style="padding:10px;background:var(--surface2);border-radius:8px;display:flex;justify-content:space-between;align-items:center"><span>New Sub → Welcome DM</span><div class="toggle" onclick="this.classList.toggle('on')"></div></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">Quick Reply Templates</span></div>
+          <div style="display:flex;flex-direction:column;gap:6px;font-size:12px">
+            <div style="padding:8px;background:var(--surface2);border-radius:6px;cursor:pointer" onclick="copyThis(this)">Thanks for watching! Subscribe for weekly automation tips 🚀</div>
+            <div style="padding:8px;background:var(--surface2);border-radius:6px;cursor:pointer" onclick="copyThis(this)">Great question! Check out my full tutorial on this — link in bio 👆</div>
+            <div style="padding:8px;background:var(--surface2);border-radius:6px;cursor:pointer" onclick="copyThis(this)">I started with [Tool]. It's free to start and super beginner-friendly! 💡</div>
+            <div style="padding:8px;background:var(--surface2);border-radius:6px;cursor:pointer" onclick="copyThis(this)">Appreciate the support! More content coming every Mon, Wed & Fri 🔥</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== PLAYLISTS ===== -->
+  <div class="page" id="page-playlists">
+    <div class="section-head"><div><div class="section-title">Playlist Manager</div><div class="section-sub">4 playlists • 28 total videos</div></div><button class="btn btn-primary">+ New Playlist</button></div>
+    <div class="grid-3">
+      <div class="card"><div style="font-size:28px;margin-bottom:10px">🤖</div><div style="font-size:14px;font-weight:700;margin-bottom:4px">AI &amp; Automation</div><div style="font-size:11px;color:var(--text2);margin-bottom:14px">12 videos · 284K total views</div><div class="progress-bar" style="margin-bottom:8px"><div class="progress-fill pf-red" style="width:80%"></div></div><div style="font-size:10px;color:var(--text2)">80% capacity</div><div class="btn-row" style="margin-top:12px"><button class="btn btn-secondary" style="flex:1;font-size:11px">Manage</button><button class="btn btn-ghost" style="font-size:11px">Share</button></div></div>
+      <div class="card"><div style="font-size:28px;margin-bottom:10px">⭐</div><div style="font-size:14px;font-weight:700;margin-bottom:4px">Best of DriftWire326</div><div style="font-size:11px;color:var(--text2);margin-bottom:14px">8 videos · 192K total views</div><div class="progress-bar" style="margin-bottom:8px"><div class="progress-fill pf-gold" style="width:55%"></div></div><div style="font-size:10px;color:var(--text2)">55% capacity</div><div class="btn-row" style="margin-top:12px"><button class="btn btn-secondary" style="flex:1;font-size:11px">Manage</button><button class="btn btn-ghost" style="font-size:11px">Share</button></div></div>
+      <div class="card"><div style="font-size:28px;margin-bottom:10px">🎓</div><div style="font-size:14px;font-weight:700;margin-bottom:4px">Beginner Tutorials</div><div style="font-size:11px;color:var(--text2);margin-bottom:14px">5 videos · 74K total views</div><div class="progress-bar" style="margin-bottom:8px"><div class="progress-fill pf-blue" style="width:35%"></div></div><div style="font-size:10px;color:var(--text2)">35% capacity</div><div class="btn-row" style="margin-top:12px"><button class="btn btn-secondary" style="flex:1;font-size:11px">Manage</button><button class="btn btn-ghost" style="font-size:11px">Share</button></div></div>
+    </div>
+  </div>
+
+  <!-- ===== AUTOMATION RULES ===== -->
+  <div class="page" id="page-rules">
+    <div class="section-head"><div><div class="section-title">Automation Rules</div><div class="section-sub">8 active rules running 24/7</div></div><button class="btn btn-primary">+ New Rule</button></div>
+    <div class="rule-card"><div class="rule-icon r">💬</div><div class="rule-info"><strong>Auto-Reply to Comments</strong><span>Trigger: new comment → auto-generate &amp; post reply within 30 min</span></div><div class="rule-right"><span style="font-size:11px;color:var(--text2)">23× today</span><div class="toggle on" onclick="this.classList.toggle('on')"></div></div></div>
+    <div class="rule-card"><div class="rule-icon b">🗑️</div><div class="rule-info"><strong>Spam Comment Filter</strong><span>Trigger: spam keywords detected → auto-hide &amp; report</span></div><div class="rule-right"><span style="font-size:11px;color:var(--text2)">7× today</span><div class="toggle on" onclick="this.classList.toggle('on')"></div></div></div>
+    <div class="rule-card"><div class="rule-icon g">📧</div><div class="rule-info"><strong>Milestone Email Alert</strong><span>Trigger: 10K / 100K / 1M views → send email notification</span></div><div class="rule-right"><span style="font-size:11px;color:var(--text2)">1× today</span><div class="toggle on" onclick="this.classList.toggle('on')"></div></div></div>
+    <div class="rule-card"><div class="rule-icon p">📌</div><div class="rule-info"><strong>Auto-Pin Best Comment</strong><span>Trigger: video published → pin top positive comment after 2 hours</span></div><div class="rule-right"><span style="font-size:11px;color:var(--text2)">3× today</span><div class="toggle on" onclick="this.classList.toggle('on')"></div></div></div>
+    <div class="rule-card"><div class="rule-icon r">📊</div><div class="rule-info"><strong>Weekly Analytics Report</strong><span>Trigger: every Monday 8AM → email full channel analytics PDF</span></div><div class="rule-right"><span style="font-size:11px;color:var(--text2)">Sundays</span><div class="toggle on" onclick="this.classList.toggle('on')"></div></div></div>
+    <div class="rule-card"><div class="rule-icon b">🔁</div><div class="rule-info"><strong>Cross-Post to Social Media</strong><span>Trigger: video published → auto-post to Twitter, LinkedIn, Instagram</span></div><div class="rule-right"><span style="font-size:11px;color:var(--text2)">On publish</span><div class="toggle" onclick="this.classList.toggle('on')"></div></div></div>
+    <div class="rule-card"><div class="rule-icon g">🏷️</div><div class="rule-info"><strong>Auto-Add to Playlist</strong><span>Trigger: video tagged "ai" → add to "AI &amp; Automation" playlist</span></div><div class="rule-right"><span style="font-size:11px;color:var(--text2)">Always</span><div class="toggle on" onclick="this.classList.toggle('on')"></div></div></div>
+    <div class="rule-card"><div class="rule-icon p">🔔</div><div class="rule-info"><strong>Subscriber Milestone Alert</strong><span>Trigger: +1K new subs → post community update to channel</span></div><div class="rule-right"><span style="font-size:11px;color:var(--text2)">Watching</span><div class="toggle on" onclick="this.classList.toggle('on')"></div></div></div>
+  </div>
+
+  <!-- ===== CHANNELS ===== -->
+  <div class="page" id="page-channels">
+    <div class="section-head"><div><div class="section-title">Connected Channels</div><div class="section-sub">Manage multiple YouTube channels</div></div><button class="btn btn-primary">+ Connect Channel</button></div>
+    <div class="channel-card" style="border-color:rgba(255,0,51,.3)"><div class="channel-img" style="background:linear-gradient(135deg,var(--accent),var(--purple))">🎬</div><div class="channel-info"><strong>DriftWire326 <span style="color:var(--green);font-size:10px">● Active</span></strong><span>Main channel · Technology &amp; Automation</span></div><div class="channel-stats"><strong>284K subs</strong><span>1.8M views/mo</span></div><button class="btn btn-secondary" style="font-size:11px">Manage</button></div>
+    <div class="channel-card"><div class="channel-img" style="background:linear-gradient(135deg,var(--blue),var(--green))">💡</div><div class="channel-info"><strong>DriftWire Shorts</strong><span>Shorts-only channel · Clips &amp; Tips</span></div><div class="channel-stats"><strong>41K subs</strong><span>320K views/mo</span></div><button class="btn btn-secondary" style="font-size:11px">Manage</button></div>
+    <div class="channel-card" style="border-style:dashed"><div class="channel-img" style="background:var(--surface3)">+</div><div class="channel-info"><strong style="color:var(--text2)">Add another channel</strong><span>Connect via YouTube OAuth</span></div><div class="channel-stats"></div><button class="btn btn-primary" style="font-size:11px">Connect</button></div>
+  </div>
+
+  <!-- ===== SETTINGS ===== -->
+  <div class="page" id="page-settings">
+    <div class="section-head"><div><div class="section-title">Settings</div></div></div>
+    <div class="grid-2">
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div class="card"><div class="card-header"><span class="card-title">Account</span></div><div class="form-group"><label class="form-label">Channel Name</label><input class="form-input" value="DriftWire326"></div><div class="form-group"><label class="form-label">Email</label><input class="form-input" type="email" value="prasad2t@gmail.com"></div><div class="form-group"><label class="form-label">YouTube API Key</label><input class="form-input" type="password" value="••••••••••••••••••••"></div><button class="btn btn-primary">Save Changes</button></div>
+        <div class="card"><div class="card-header"><span class="card-title">Automation Preferences</span></div><div style="display:flex;flex-direction:column;gap:12px"><div class="toggle-wrap"><div class="toggle on" onclick="this.classList.toggle('on')"></div><span class="toggle-label">Enable auto-reply</span></div><div class="toggle-wrap"><div class="toggle on" onclick="this.classList.toggle('on')"></div><span class="toggle-label">Spam auto-delete</span></div><div class="toggle-wrap"><div class="toggle" onclick="this.classList.toggle('on')"></div><span class="toggle-label">Cross-post to social media</span></div><div class="toggle-wrap"><div class="toggle on" onclick="this.classList.toggle('on')"></div><span class="toggle-label">Weekly analytics email</span></div></div></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div class="card"><div class="card-header"><span class="card-title">Notifications</span></div><div style="display:flex;flex-direction:column;gap:12px"><div class="toggle-wrap"><div class="toggle on"></div><span class="toggle-label">Milestone alerts (100K views, etc.)</span></div><div class="toggle-wrap"><div class="toggle on"></div><span class="toggle-label">Subscriber milestones</span></div><div class="toggle-wrap"><div class="toggle on"></div><span class="toggle-label">Upload success / failure</span></div><div class="toggle-wrap"><div class="toggle"></div><span class="toggle-label">Daily summary email</span></div></div></div>
+        <div class="card"><div class="card-header"><span class="card-title">API &amp; Integrations</span></div><div style="display:flex;flex-direction:column;gap:8px;font-size:12px"><div style="display:flex;justify-content:space-between;padding:10px;background:var(--surface2);border-radius:8px"><span>YouTube Data API v3</span><span style="color:var(--green)">✓ Connected</span></div><div style="display:flex;justify-content:space-between;padding:10px;background:var(--surface2);border-radius:8px"><span>Claude AI</span><span style="color:var(--green)">✓ Connected</span></div><div style="display:flex;justify-content:space-between;padding:10px;background:var(--surface2);border-radius:8px"><span>Twitter / X API</span><span style="color:var(--text2)">Not connected</span></div><div style="display:flex;justify-content:space-between;padding:10px;background:var(--surface2);border-radius:8px"><span>Instagram Graph API</span><span style="color:var(--text2)">Not connected</span></div></div></div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /main -->
+</div><!-- /shell -->
+
+<!-- AUTOMATION MODAL -->
+<div class="modal-overlay" id="autoModal">
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title">⚡ Run Automation</div><button class="modal-close" onclick="closeModal('autoModal')">×</button></div>
+    <p style="font-size:12px;color:var(--text2);margin-bottom:16px">Select which automation tasks to run now across all your channels.</p>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:20px">
+      <label style="display:flex;align-items:center;gap:10px;font-size:13px;cursor:pointer"><input type="checkbox" checked> Scan &amp; auto-reply to new comments</label>
+      <label style="display:flex;align-items:center;gap:10px;font-size:13px;cursor:pointer"><input type="checkbox" checked> Delete spam comments</label>
+      <label style="display:flex;align-items:center;gap:10px;font-size:13px;cursor:pointer"><input type="checkbox"> Re-optimize titles &amp; descriptions</label>
+      <label style="display:flex;align-items:center;gap:10px;font-size:13px;cursor:pointer"><input type="checkbox"> Generate thumbnail variations</label>
+      <label style="display:flex;align-items:center;gap:10px;font-size:13px;cursor:pointer"><input type="checkbox" checked> Post scheduled videos</label>
+      <label style="display:flex;align-items:center;gap:10px;font-size:13px;cursor:pointer"><input type="checkbox"> Send weekly analytics email</label>
+    </div>
+    <div class="btn-row"><button class="btn btn-primary" style="flex:1;justify-content:center" onclick="closeModal('autoModal');alert('Automation started! Running 3 tasks in background…')">⚡ Run Selected Tasks</button><button class="btn btn-secondary" onclick="closeModal('autoModal')">Cancel</button></div>
+  </div>
+</div>
+
+<script>
+// PAGE NAV
+function showPage(id, navEl) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('page-' + id).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  if (navEl) navEl.classList.add('active');
+  const titles = {dashboard:'Dashboard',analytics:'Analytics',videos:'Video Manager',upload:'Upload & Publish',scheduler:'Content Scheduler',thumbnails:'Thumbnail Studio',generator:'AI Generator',seo:'SEO Optimizer',keywords:'Keyword Research',comments:'Comment Manager',playlists:'Playlists',rules:'Automation Rules',channels:'Channels',settings:'Settings'};
+  const subs = {dashboard:'Overview',analytics:'Last 30 days',videos:'All videos',upload:'New upload',scheduler:'Weekly view',thumbnails:'Design studio',generator:'AI content tools',seo:'Optimization',keywords:'Research',comments:'Manage engagement',playlists:'All playlists',rules:'Automations',channels:'Connected accounts',settings:'Configuration'};
+  document.getElementById('topbar-title').innerHTML = (titles[id]||id) + ' <span>' + (subs[id]||'') + '</span>';
+  renderChart();
+}
+
+// TABS
+function switchTab(el, targetId) {
+  const parent = el.closest('.tabs');
+  parent.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  const container = el.closest('.page') || document.body;
+  const allTabs = ['gen-titles','gen-desc','gen-script','gen-hooks','gen-hashtags','c-all','c-questions','c-spam'];
+  allTabs.forEach(id => { const el2 = document.getElementById(id); if (el2) el2.style.display = 'none'; });
+  const target = document.getElementById(targetId);
+  if (target) target.style.display = '';
+}
+
+// MODAL
+function openModal(id) { document.getElementById(id).classList.add('show'); }
+function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+
+// CHARTS
+function renderChart() {
+  const data = [42,68,55,90,73,110,85,98,120,105,88,132,95,140,118,105,90,155,130,145,120,168,142,158,130,175,160,185,195,210];
+  const days = ['Jun 1','','','','5','','','','9','','','','13','','','','17','','','','21','','','','25','','','','29','30'];
+  ['views-chart','analytics-chart'].forEach(cid => {
+    const chart = document.getElementById(cid);
+    const labels = document.getElementById(cid.replace('chart','labels'));
+    if (!chart) return;
+    chart.innerHTML = '';
+    if (labels) labels.innerHTML = '';
+    const max = Math.max(...data);
+    data.forEach((v, i) => {
+      const bar = document.createElement('div');
+      bar.className = 'bar' + (i === 29 ? ' active' : '');
+      bar.style.height = (v / max * 100) + '%';
+      const tip = document.createElement('div');
+      tip.className = 'bar-tip';
+      tip.textContent = (v * 6200).toLocaleString() + ' views';
+      bar.appendChild(tip);
+      chart.appendChild(bar);
+      if (labels) {
+        const lbl = document.createElement('div');
+        lbl.className = 'chart-label';
+        lbl.textContent = days[i] || '';
+        labels.appendChild(lbl);
+      }
+    });
+  });
+}
+
+// CHAR COUNT
+function updateCharCount(inputId, countId, max) {
+  const el = document.getElementById(inputId);
+  const count = document.getElementById(countId);
+  if (el && count) count.textContent = el.value.length;
+}
+
+// TAGS
+function addTag(e, input) {
+  if (e.key === 'Enter' && input.value.trim()) {
+    const wrap = document.getElementById('tags-wrap');
+    const tag = document.createElement('div');
+    tag.className = 'tag';
+    tag.innerHTML = input.value.trim() + ' <span class="tag-remove" onclick="this.parentElement.remove()">×</span>';
+    wrap.appendChild(tag);
+    input.value = '';
+    e.preventDefault();
+  }
+}
+
+// AI GENERATOR
+const sampleTitles = [
+  "🔥 Top 10 YouTube Automation Tools That Actually Work in 2026",
+  "⚡ I Automated My ENTIRE YouTube Channel (Step-by-Step)",
+  "💰 Make $5K/Month with These 10 AI Automation Tools",
+  "🤖 10 AI Tools That Will Explode Your YouTube Growth in 2026",
+  "🚀 YouTube Automation for Beginners: The Complete 2026 Guide",
+  "💡 10 Tools I Use to Run My Channel on Autopilot",
+  "🎯 The ONLY YouTube Automation Tools You'll Ever Need",
+  "📈 How I Grew to 284K Subscribers Using AI Automation",
+  "⏱️ Save 20 Hours/Week with These 10 YouTube Automation Hacks",
+  "🔑 YouTube Automation Secrets: 10 Tools the Pros Won't Share"
+];
+
+function generateTitles() {
+  const out = document.getElementById('gen-output');
+  const list = document.getElementById('gen-titles-list');
+  list.innerHTML = '';
+  sampleTitles.forEach(t => {
+    const div = document.createElement('div');
+    div.style.cssText = 'padding:10px;background:var(--surface2);border-radius:6px;cursor:pointer;font-size:12px;border:1px solid var(--border);transition:border-color .2s';
+    div.textContent = t;
+    div.onmouseenter = () => div.style.borderColor = 'var(--accent)';
+    div.onmouseleave = () => div.style.borderColor = 'var(--border)';
+    div.onclick = () => { navigator.clipboard?.writeText(t); div.style.background = 'var(--glow)'; setTimeout(() => div.style.background = 'var(--surface2)', 800); };
+    list.appendChild(div);
+  });
+  out.style.display = 'block';
+}
+
+function generateDesc() {
+  const text = `In this video, I break down the TOP 10 YouTube automation tools that are completely changing the game for content creators in 2026. Whether you're a beginner or a seasoned YouTuber, these tools will save you 20+ hours a week and dramatically accelerate your channel growth.
+
+⏱️ TIMESTAMPS:
+00:00 - Why Automation Changes Everything
+01:30 - Tool #1: AI Script Generator
+03:00 - Tool #2: Auto Thumbnail Creator
+04:45 - Tool #3: Scheduled Posting
+06:20 - Tool #4: Comment Auto-Responder
+08:00 - Tool #5: Keyword Research AI
+10:15 - Top 5 Bonus Tools
+13:00 - My Full Automation Workflow
+
+🔗 Free Automation Starter Pack: [link in bio]
+💬 Drop your questions below!
+
+#YouTubeAutomation #AITools #ContentCreator #DriftWire326 #ChannelGrowth`;
+  document.getElementById('desc-text').textContent = text;
+  document.getElementById('desc-output').style.display = 'block';
+}
+
+const hooks = [
+  "\"What if I told you that 90% of successful YouTubers don't actually do most of the work themselves?\"",
+  "\"I was about to quit YouTube… until I discovered these 10 automation tools that changed everything.\"",
+  "\"Most creators waste 30 hours a week on tasks that AI can handle in 30 seconds. Here's what they're missing.\"",
+  "\"In the next 10 minutes, I'm going to show you how I run a 284K subscriber channel — working just 2 hours a day.\"",
+  "\"The YouTube algorithm secretly rewards creators who use automation. Here's the proof.\""
+];
+
+function generateHooks() {
+  const out = document.getElementById('hooks-output');
+  const list = document.getElementById('hooks-list');
+  list.innerHTML = '';
+  hooks.forEach(h => {
+    const div = document.createElement('div');
+    div.style.cssText = 'padding:12px;background:var(--surface2);border-radius:8px;font-size:12px;border-left:3px solid var(--accent);cursor:pointer;line-height:1.6;color:var(--text2)';
+    div.textContent = h;
+    div.onclick = () => { navigator.clipboard?.writeText(h); div.style.borderColor = 'var(--green)'; setTimeout(() => div.style.borderColor = 'var(--accent)', 800); };
+    list.appendChild(div);
+  });
+  out.style.display = 'block';
+}
+
+function copyText(id) {
+  const el = document.getElementById(id);
+  if (el) navigator.clipboard?.writeText(el.textContent);
+}
+
+function copyThis(el) {
+  navigator.clipboard?.writeText(el.textContent);
+  const orig = el.style.background;
+  el.style.background = 'rgba(0,204,102,.15)';
+  el.style.borderColor = 'var(--green)';
+  setTimeout(() => { el.style.background = orig; el.style.borderColor = ''; }, 700);
+}
+
+// SEO
+function runSEO() {
+  document.getElementById('seo-score-val').textContent = '78';
+}
+
+// INIT
+renderChart();
+</script>
+</body>
+</html>
