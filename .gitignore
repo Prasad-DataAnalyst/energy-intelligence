@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Environment
+.env
+*.env.local
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Logs and output
+pipeline-finance/logs/
+pipeline-finance/output/
+
+# OAuth tokens (never commit)
+pipeline-finance/config/finance_oauth.json
+pipeline-finance/config/youtube_token.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
