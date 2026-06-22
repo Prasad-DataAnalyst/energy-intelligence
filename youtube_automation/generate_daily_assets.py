@@ -6,11 +6,12 @@ Output: daily_horoscope_YYYYMMDD.json
 
 Usage:
   python3 generate_daily_assets.py "June 2026"
+  python3 generate_daily_assets.py "June 2026" 20260621
 """
 import json
 import re
 import sys
-from datetime import date
+from datetime import date, datetime
 
 import anthropic
 from dotenv import load_dotenv
@@ -43,10 +44,13 @@ Style rules:
 Return ONLY valid raw JSON. No markdown. No explanation. No code fences."""
 
 
-def generate(period: str) -> str:
+def generate(period: str, date_tag: str = None) -> str:
     client   = anthropic.Anthropic()
-    today    = date.today().strftime("%B %d, %Y")
-    date_tag = date.today().strftime("%Y%m%d")
+    if date_tag:
+        today = datetime.strptime(date_tag, "%Y%m%d").strftime("%B %d, %Y")
+    else:
+        today    = date.today().strftime("%B %d, %Y")
+        date_tag = date.today().strftime("%Y%m%d")
 
     user_msg = f"""Generate today's horoscope for all 12 signs.
 Date: {today}
@@ -98,9 +102,11 @@ Return this EXACT JSON structure (fill in all 12 signs):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python3 generate_daily_assets.py 'June 2026'")
+        print("Usage: python3 generate_daily_assets.py 'June 2026' [YYYYMMDD]")
         sys.exit(1)
-    generate(" ".join(sys.argv[1:]))
+    period   = sys.argv[1]
+    date_tag = sys.argv[2] if len(sys.argv) > 2 else None
+    generate(period, date_tag)
 
 
 if __name__ == "__main__":

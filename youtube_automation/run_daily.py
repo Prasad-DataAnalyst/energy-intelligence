@@ -145,7 +145,7 @@ def run_all_signs_pipeline(args) -> int:
     else:
         print(f"[1/4] Assets   — generating all 12 signs via Claude...")
         ok, out = run_captured(
-            [PYTHON, "generate_daily_assets.py", args.period],
+            [PYTHON, "generate_daily_assets.py", args.period, args.date],
             timeout=120,
         )
         assets_ok = ok
@@ -224,7 +224,7 @@ def run_all_signs_pipeline(args) -> int:
         args.date,
         {"all_signs": {
             "assets": "✅" if assets_ok else "❌",
-            "video":  "✅" if ok else "❌",
+            "video":  "✅",          # we returned early if video failed
             "quality":"✅" if qc_ok else "❌",
             "upload": upload_result,
         }},
