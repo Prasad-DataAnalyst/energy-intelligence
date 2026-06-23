@@ -108,6 +108,150 @@ class TestMarketScraper:
         assert "SECTOR PERFORMANCE" in narrative
 
 
+class TestMarketScraperClass:
+    """Tests for the new MarketScraper class."""
+
+    def _make_snap(self, sym="SPY", price=540.0, pct=1.5):
+        from scrapers.market_scraper import TickerSnapshot
+        return TickerSnapshot(
+            symbol=sym, name=sym, price=price, change=price * pct / 100,
+            change_pct=pct, volume=1_000_000, avg_volume=900_000,
+            market_cap=None, day_high=price + 2, day_low=price - 2,
+            week_52_high=price + 50, week_52_low=price - 100, pe_ratio=None,
+        )
+
+    def test_get_market_status_holiday(self):
+        from scrapers.market_scraper import MarketScraper
+        scraper = MarketScraper()
+        # Patch datetime to a known 2026 holiday (New Year's Day)
+        with patch("scrapers.market_scraper.datetime") as mock_dt:
+            mock_now = MagicMock()
+            mock_now.strftime.return_value = "2026-01-01"
+            mock_now.weekday.return_value = 3   # Thursday (not weekend)
+            mock_dt.now.return_value = mock_now
+            status = scraper.get_market_status()
+        assert status == "holiday"
+
+    def test_get_market_status_weekend(self):
+        from scrapers.market_scraper import MarketScraper
+        import zoneinfo
+        scraper = MarketScraper()
+        with patch("scrapers.market_scraper.datetime") as mock_dt:
+            mock_now = MagicMock()
+            mock_now.strftime.return_value = "2026-06-27"  # Saturday, not a holiday
+            mock_now.weekday.return_value = 5              # Saturday
+            mock_dt.now.return_value = mock_now
+            status = scraper.get_market_status()
+        assert status == "closed"
+
+    def test_score_topic_from_snapshot_high(self):
+        """Tier-1 high-coverage ticker should score > 60."""
+        from scrapers.market_scraper import MarketScraper
+        scraper = MarketScraper()
+        snap = self._make_snap("NVDA", pct=6.5)   # tier1 move, high-coverage name
+        with patch.object(scraper, "get_market_status", return_value="open"):
+            score = scraper.score_topic(snap)
+        assert 0 <= score <= 100
+        assert score > 60
+
+    def test_score_topic_from_snapshot_low(self):
+        """Tiny move on unknown ticker should score < 40."""
+        from scrapers.market_scraper import MarketScraper
+        scraper = MarketScraper()
+        snap = self._make_snap("XYZ", pct=0.05)
+        snap.symbol = "XYZ"
+        with patch.object(scraper, "get_market_status", return_value="closed"):
+            score = scraper.score_topic(snap)
+        assert 0 <= score <= 100
+        assert score < 40
+
+    def test_score_topic_from_dict(self):
+        """score_topic accepts a plain dict, not just TickerSnapshot."""
+        from scrapers.market_scraper import MarketScraper
+        scraper = MarketScraper()
+        ticker_dict = {
+            "ticker": "AAPL",
+            "change_pct": 4.2,
+            "volume": 2_000_000,
+            "avg_volume": 1_000_000,
+        }
+        with patch.object(scraper, "get_market_status", return_value="open"):
+            score = scraper.score_topic(ticker_dict)
+        assert isinstance(score, float)
+        assert 0 <= score <= 100
+
+    def test_score_topic_formula_weights(self):
+        """Verify the four-component formula sums correctly."""
+        from scrapers.market_scraper import MarketScraper
+        scraper = MarketScraper()
+        # 10% move (change_pct_score=100), 5x vol (volume_ratio_score=100),
+        # high coverage ticker, open market
+        snap = self._make_snap("AAPL", pct=10.0)
+        snap.symbol = "AAPL"
+        snap.volume = 5_000_000
+        snap.avg_volume = 1_000_000
+
+        with patch.object(scraper, "get_market_status", return_value="open"):
+            score = scraper.score_topic(snap)
+        # All four components at (or near) max → score should be very high
+        assert score > 90
+
+    @patch("scrapers.market_scraper._fetch_ticker")
+    def test_get_market_close_data_structure(self, mock_fetch, tmp_path):
+        """get_market_close_data returns required keys and saves JSON."""
+        from scrapers.market_scraper import MarketScraper, TickerSnapshot
+
+        def _snap(sym, pct):
+            return TickerSnapshot(
+                symbol=sym, name=sym, price=100.0, change=pct,
+                change_pct=pct, volume=1_000_000, avg_volume=900_000,
+                market_cap=None, day_high=102.0, day_low=98.0,
+                week_52_high=120.0, week_52_low=80.0, pe_ratio=None,
+            )
+
+        mock_fetch.side_effect = lambda sym: _snap(sym, 1.2)
+
+        scraper = MarketScraper(output_dir=tmp_path)
+        with patch.object(scraper, "_fetch_one", side_effect=lambda sym: _snap(sym, 1.2)):
+            result = scraper.get_market_close_data()
+
+        assert "indices" in result
+        assert "sector_performance" in result
+        assert "market_tier" in result
+        assert "narrative" in result
+        assert "market_breadth" in result
+
+    @patch("scrapers.market_scraper.yf.download")
+    def test_get_ticker_history_returns_dataframe(self, mock_download, tmp_path):
+        """get_ticker_history returns a DataFrame with OHLCV columns."""
+        import pandas as pd
+        from scrapers.market_scraper import MarketScraper
+
+        mock_df = pd.DataFrame({
+            "Open":   [530.0, 535.0],
+            "High":   [540.0, 538.0],
+            "Low":    [528.0, 532.0],
+            "Close":  [537.0, 536.0],
+            "Volume": [70_000_000, 72_000_000],
+        })
+
+        with patch("scrapers.market_scraper.yf.Ticker") as mock_ticker:
+            mock_ticker.return_value.history.return_value = mock_df
+            scraper = MarketScraper(output_dir=tmp_path)
+            hist = scraper.get_ticker_history("SPY", days=2)
+
+        assert list(hist.columns) == ["Open", "High", "Low", "Close", "Volume"]
+        assert len(hist) == 2
+
+    def test_ticker_snapshot_to_dict(self):
+        """TickerSnapshot.to_dict() includes all required fields."""
+        snap = self._make_snap("TSLA", 250.0, 3.5)
+        d = snap.to_dict()
+        for key in ("symbol", "price", "change_pct", "volume", "volume_ratio",
+                    "sentiment", "story_tier"):
+            assert key in d
+
+
 class TestEconomicScraper:
     def test_indicator_narrative(self):
         from scrapers.economic_scraper import EconomicIndicator
