@@ -412,3 +412,143 @@ class TestEarningsScraper:
             surprise_pct=-7.5, guidance="lowered", after_hours_move=-8.0,
         )
         assert event.beat_miss == "strong_miss"
+
+
+class TestEarningsScraperClass:
+    """Tests for the new EarningsScraper class."""
+
+    def _make_event(self, sym="AAPL", surprise=12.0, ah_move=5.0):
+        from scrapers.earnings_scraper import EarningsEvent
+        return EarningsEvent(
+            symbol=sym, company="Apple Inc.", report_date="2026-07-30",
+            report_time="AMC", eps_estimate=1.50, eps_actual=1.68,
+            revenue_estimate=None, revenue_actual=None,
+            surprise_pct=surprise, guidance="raised", after_hours_move=ah_move,
+        )
+
+    def test_score_high_surprise_large_cap(self):
+        """50% EPS surprise + 20% AH move + $100B+ cap → score ~100."""
+        from scrapers.earnings_scraper import EarningsScraper
+        scraper = EarningsScraper(api_key="")
+        event = self._make_event("AAPL", surprise=50.0, ah_move=20.0)
+        with patch.object(scraper, "_market_cap_score", return_value=100):
+            score = scraper.score_earnings_event(event)
+        # eps_score=min(100,100)*0.40=40; mc=100*0.30=30; ah=min(100,100)*0.30=30 → 100
+        assert score == pytest.approx(100.0, abs=0.1)
+
+    def test_score_no_data_returns_mc_only(self):
+        """Event with no surprise or AH data scores only on market cap."""
+        from scrapers.earnings_scraper import EarningsScraper
+        scraper = EarningsScraper(api_key="")
+        event = self._make_event("XYZ", surprise=None, ah_move=None)
+        with patch.object(scraper, "_market_cap_score", return_value=20):
+            score = scraper.score_earnings_event(event)
+        # eps=0, mc=20*0.30=6, ah=0 → 6
+        assert score == pytest.approx(6.0, abs=0.1)
+
+    def test_score_mid_beat(self):
+        """Moderate beat (10% surprise, $10-100B cap, 5% AH) → mid-range score."""
+        from scrapers.earnings_scraper import EarningsScraper
+        scraper = EarningsScraper(api_key="")
+        event = self._make_event("JPM", surprise=10.0, ah_move=5.0)
+        with patch.object(scraper, "_market_cap_score", return_value=60):
+            score = scraper.score_earnings_event(event)
+        # eps=min(100,20)*0.40=8; mc=60*0.30=18; ah=min(100,25)*0.30=7.5 → 33.5
+        assert 25 <= score <= 50
+
+    def test_filter_sp500_only_keeps_known(self):
+        """AAPL and MSFT pass; XYZFAKE does not."""
+        from scrapers.earnings_scraper import EarningsScraper
+        scraper = EarningsScraper(api_key="")
+        scraper._sp500_cache = {"AAPL", "MSFT", "NVDA"}
+        events = [
+            self._make_event("AAPL"),
+            self._make_event("MSFT"),
+            self._make_event("XYZFAKE"),
+        ]
+        filtered = scraper.filter_sp500_only(events)
+        syms = [e.symbol for e in filtered]
+        assert "AAPL" in syms
+        assert "MSFT" in syms
+        assert "XYZFAKE" not in syms
+        assert len(filtered) == 2
+
+    def test_filter_sp500_only_empty_list(self):
+        from scrapers.earnings_scraper import EarningsScraper
+        scraper = EarningsScraper(api_key="")
+        scraper._sp500_cache = {"AAPL"}
+        assert scraper.filter_sp500_only([]) == []
+
+    def test_get_company_news_no_key_returns_empty(self):
+        """Without an API key, get_company_news returns []."""
+        from scrapers.earnings_scraper import EarningsScraper
+        scraper = EarningsScraper(api_key="fake_override")
+        scraper.api_key = ""   # force no-key path
+        result = scraper.get_company_news("AAPL")
+        assert result == []
+
+    @patch("scrapers.earnings_scraper.requests.get")
+    def test_get_todays_earnings_returns_calendar(self, mock_get, tmp_path):
+        """Without API key + empty EDGAR → returns empty EarningsCalendar."""
+        from scrapers.earnings_scraper import EarningsScraper, EarningsCalendar
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"hits": {"hits": []}}
+        mock_resp.raise_for_status.return_value = None
+        mock_get.return_value = mock_resp
+
+        scraper = EarningsScraper(api_key="", output_dir=tmp_path)
+        result = scraper.get_todays_earnings()
+        assert isinstance(result, EarningsCalendar)
+        assert isinstance(result.recent_beats, list)
+        assert isinstance(result.upcoming, list)
+        assert isinstance(result.recent_misses, list)
+
+    def test_get_earnings_week_returns_list(self, tmp_path):
+        """get_earnings_week returns a list even with no API key."""
+        from scrapers.earnings_scraper import EarningsScraper
+        scraper = EarningsScraper(api_key="", output_dir=tmp_path)
+        with patch.object(scraper, "_finnhub_get", return_value=None):
+            with patch("scrapers.earnings_scraper.yf.Ticker") as mock_ticker:
+                mock_ticker.return_value.calendar = MagicMock(empty=True)
+                result = scraper.get_earnings_week()
+        assert isinstance(result, list)
+
+    @patch("scrapers.earnings_scraper.requests.get")
+    @patch("scrapers.earnings_scraper.time.sleep")
+    def test_edgar_8k_retry_on_timeout(self, mock_sleep, mock_get):
+        """SEC EDGAR failure retries once after 60s, then returns []."""
+        import requests as req_module
+        from scrapers.earnings_scraper import EarningsScraper
+        mock_get.side_effect = req_module.exceptions.Timeout("timed out")
+        scraper = EarningsScraper(api_key="")
+        result = scraper._edgar_todays_8k("2026-06-23")
+        assert result == []
+        mock_sleep.assert_called_once_with(60)
+
+    @patch("scrapers.earnings_scraper.requests.get")
+    def test_edgar_8k_parses_hits(self, mock_get):
+        """_edgar_todays_8k extracts symbol/company from EDGAR response."""
+        from scrapers.earnings_scraper import EarningsScraper
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status.return_value = None
+        mock_resp.json.return_value = {
+            "hits": {
+                "hits": [
+                    {
+                        "_source": {
+                            "ticker": "AAPL",
+                            "entity_name": "Apple Inc.",
+                            "file_date": "2026-06-23",
+                            "form_type": "8-K",
+                            "period_of_report": "2026-06-23",
+                        }
+                    }
+                ]
+            }
+        }
+        mock_get.return_value = mock_resp
+        scraper = EarningsScraper(api_key="")
+        result = scraper._edgar_todays_8k("2026-06-23")
+        assert len(result) == 1
+        assert result[0]["symbol"] == "AAPL"
+        assert result[0]["company"] == "Apple Inc."
