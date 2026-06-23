@@ -23,7 +23,7 @@ pipeline-finance/
 │   ├── script_gen.py        Claude API — full scripts with [SECTION] markers
 │   ├── compliance_filter.py Rule engine + Claude semantic review + auto-fix
 │   ├── chart_generator.py   matplotlib/mplfinance — branded PNG charts
-│   ├── audio_gen.py         edge-tts primary / gTTS fallback, 120–180s range
+│   ├── audio_gen.py         edge-tts + SSML / gTTS fallback, 120–180s range
 │   ├── thumbnail_gen.py     Pillow — 1280×720 branded JPEG thumbnails
 │   └── title_gen.py         Claude API — scored titles, descriptions, tags
 ├── builders/        Video assembly (MoviePy/ffmpeg)
@@ -38,9 +38,18 @@ pipeline-finance/
 │   └── master_scheduler.py  Process-isolated runners + 30-min heartbeat
 ├── monitor/         Health checks, KPI tracking, alerts
 │   └── monitor.py           Pipeline health, quota, API status, email alerts
-├── tests/           pytest test suite — 206 tests, all passing
-├── assets/          Fonts, watermarks, music library
-├── logs/            Quota log, heartbeat log, daily JSONL summaries
+├── channel_manager/ Channel-level automation (Modules 21–24)
+│   ├── playlist_manager.py  Auto-creates & routes videos to 6 playlists
+│   ├── community_poster.py  Weekly watchlist post Sunday 09:00 ET (Claude-generated)
+│   ├── analytics_tracker.py YouTube Analytics daily pull + weekly report + CTR A/B swap
+│   └── comment_monitor.py   Daily comment pull, classify, reply, spam flagging
+├── tests/           pytest test suite — 246 tests, all passing
+├── assets/
+│   └── templates/           Thumbnail template PNGs (A–G, place before first run)
+├── logs/
+│   ├── analytics/           Daily analytics JSON + weekly reports
+│   ├── comments/            Daily classified comments with suggested replies
+│   └── community_posts/     Generated community post text + publish records
 ├── output/          Generated videos, audio, thumbnails, charts
 └── main.py          CLI entry point
 ```
@@ -202,7 +211,7 @@ Market-day check respects NYSE observed holidays (New Year's Day, MLK Day, Presi
 | `script_gen.py` | Claude `claude-sonnet-4-6` | Weekday/Sunday scripts with `[HOOK]`, `[DATA]`, `[ANALYSIS]`, `[CLOSE]` markers |
 | `compliance_filter.py` | Regex + Claude | ComplianceReport with auto-fixed script; blocks high-risk content |
 | `chart_generator.py` | matplotlib + mplfinance | `ChartFile` — price_line, candlestick, animated MP4, economic_bar, 4-panel indices |
-| `audio_gen.py` | edge-tts → gTTS fallback | `AudioTrack` — 120–180s validated MP3; weekday voice rotation (Mon=Guy, Tue=Christopher…) |
+| `audio_gen.py` | edge-tts + SSML → gTTS fallback | `AudioTrack` — 120–180s validated MP3; weekday voice rotation; SSML markup adds `<break>` after numbers, `<emphasis>` on %, `<prosody rate="slow">` on stat-heavy sentences |
 | `thumbnail_gen.py` | Pillow | `ThumbnailFile` — 1280×720 JPEG ≤2MB; weekday + Sunday templates; 15% opacity watermark |
 | `title_gen.py` | Claude API | `TitleSet` with 10 scored options; description auto-appends disclaimer + AI disclosure |
 
@@ -227,6 +236,37 @@ Market-day check respects NYSE observed holidays (New Year's Day, MLK Day, Presi
 | `weekday_scheduler.py` | Mon–Fri pipelines; `is_market_day()` with NYSE holiday list; morning/midday/afternoon slots |
 | `sunday_scheduler.py` | 4-week theme cycle (investment_banking → insurance → savings → rotating_bonus); `get_sunday_topic()` |
 | `master_scheduler.py` | APScheduler cron; each pipeline run in isolated child process with 2-hour hard timeout; 30-min heartbeat to `logs/heartbeat.log` |
+
+### Channel Manager (Modules 21–24)
+
+| Module | Purpose |
+|--------|---------|
+| `playlist_manager.py` | Auto-creates 6 canonical playlists on first run; caches IDs to `logs/playlist_ids.json`; `route_video_to_playlist(video_id, video_type, sunday_theme)` adds each video to the correct playlist automatically |
+| `community_poster.py` | Every Sunday 09:00 ET — Claude generates a weekly watchlist post from market data; attempts YouTube API post (Partner Program required); saves to `logs/community_posts/` for manual publish if API unavailable |
+| `analytics_tracker.py` | Daily analytics pull (YouTube Analytics API v2 — separate OAuth token `config/analytics_token.json`); weekly report every Monday; `flag_low_ctr_videos(threshold=0.02)` + `swap_title_ab(video_id, new_title)` for underperforming videos |
+| `comment_monitor.py` | Daily at 20:00 ET — fetches comments, classifies via regex + Claude, generates replies, auto-flags spam via `comments.setModerationStatus`; financial advice requests always get the legal disclaimer appended |
+
+**6 Managed Playlists:**
+
+| Playlist | Routes from |
+|----------|-------------|
+| Daily Market Recaps | `video_type="weekday"` |
+| Market Shorts | `video_type="shorts"` |
+| Sunday: Investing 101 | `sunday_theme="investment_banking"` |
+| Sunday: Insurance | `sunday_theme="insurance_protection"` |
+| Sunday: Savings & Wealth | `sunday_theme="savings_wealth"` |
+| Sunday: Special Topics | `sunday_theme="rotating_bonus"` |
+
+**Thumbnail Templates (assets/templates/):**
+
+Place PNG files named `template_a.png` through `template_g.png` (1280×720) in `assets/templates/` before the first run. These are the Canva-designed base templates. `thumbnail_gen.py` uses them as backgrounds when present; falls back to Pillow-generated templates otherwise. Suggested template variations:
+- A: Red/black breaking news (tier1 crash)
+- B: Green/black bullish breakout (tier1 surge)
+- C: Dark neutral with data (tier2 daily recap)
+- D: Purple educational (Sunday Investing 101)
+- E: Blue trustworthy (Sunday Insurance)
+- F: Gold wealth (Sunday Savings & Wealth)
+- G: Teal special topics (Sunday rotating)
 
 ### Monitor (Module 17)
 
@@ -330,7 +370,8 @@ pytest tests/test_chart_generator.py -v
 | `test_scheduler.py` | 18 | WeekdayScheduler + SundayScheduler |
 | `test_monitor.py` | 13 | PipelineMonitor + ChannelMonitor |
 | `test_youtube_uploader.py` | 20 | YouTubeUploader + QuotaTracker |
-| **Total** | **206** | All passing, no live API calls |
+| `test_channel_manager.py` | 40 | PlaylistManager + CommunityPoster + AnalyticsTracker + CommentMonitor |
+| **Total** | **246** | All passing, no live API calls |
 
 All tests run without API keys using `unittest.mock` patches.
 

@@ -30,11 +30,14 @@ moviepy>=1.0.3
 # Ubuntu: sudo apt install ffmpeg
 # Mac:    brew install ffmpeg
 
-# ── YouTube API ───────────────────────────────────────────────────────────
+# ── YouTube API (Data v3 + Analytics v2) ─────────────────────────────────
 google-api-python-client>=2.140.0
 google-auth>=2.30.0
 google-auth-oauthlib>=1.2.0
 google-auth-httplib2>=0.2.0
+# YouTube Analytics API uses the same google-api-python-client library
+# but requires an additional OAuth scope: yt-analytics.readonly
+# Auth token saved separately as config/analytics_token.json
 
 # ── Scheduling ────────────────────────────────────────────────────────────
 APScheduler>=3.10.4

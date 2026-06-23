@@ -224,11 +224,19 @@ LOG_FILE     = LOGS_DIR   / "driftwire326.log"
 QUOTA_FILE   = LOGS_DIR   / "quota_state.json"
 FAILED_QUEUE = LOGS_DIR   / "failed_queue.json"
 
+# Channel management paths
+PLAYLIST_IDS_FILE    = LOGS_DIR / "playlist_ids.json"
+ANALYTICS_DIR        = LOGS_DIR / "analytics"
+COMMENTS_DIR         = LOGS_DIR / "comments"
+COMMUNITY_POSTS_DIR  = LOGS_DIR / "community_posts"
+TEMPLATES_DIR        = ASSETS_DIR / "templates"
+
 # Ensure runtime directories exist
 for _dir in (OUTPUT_DIR, LOGS_DIR, ASSETS_DIR,
              OUTPUT_DIR / "videos", OUTPUT_DIR / "shorts",
              OUTPUT_DIR / "thumbnails", OUTPUT_DIR / "scripts",
-             OUTPUT_DIR / "charts",    OUTPUT_DIR / "audio"):
+             OUTPUT_DIR / "charts",    OUTPUT_DIR / "audio",
+             ANALYTICS_DIR, COMMENTS_DIR, COMMUNITY_POSTS_DIR, TEMPLATES_DIR):
     _dir.mkdir(parents=True, exist_ok=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -327,4 +335,9 @@ settings = SimpleNamespace(
     oauth_file             = OAUTH_FILE,
     tracked_tickers        = TRACKED_TICKERS,
     fred_series            = FRED_SERIES,
+    playlist_ids_file      = PLAYLIST_IDS_FILE,
+    analytics_dir          = ANALYTICS_DIR,
+    comments_dir           = COMMENTS_DIR,
+    community_posts_dir    = COMMUNITY_POSTS_DIR,
+    templates_dir          = TEMPLATES_DIR,
 )

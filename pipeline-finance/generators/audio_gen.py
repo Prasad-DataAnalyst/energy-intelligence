@@ -88,23 +88,73 @@ def _clean_for_tts(text: str) -> str:
     return text.strip()
 
 
-async def _edge_tts_async(text: str, voice: str, output_path: Path) -> None:
+def _apply_ssml_markup(text: str) -> str:
+    """
+    Wrap plain text in SSML for more natural edge-tts delivery:
+    - <break time="0.3s"/> after key numbers and statistics
+    - <emphasis level="strong"> around percentage figures
+    - rate="slow" prosody on sentences containing multiple statistics
+    """
+    # Wrap percentage figures with emphasis
+    text = re.sub(
+        r"(\d+\.?\d*\s*percent)",
+        r'<emphasis level="strong">\1</emphasis>',
+        text,
+        flags=re.IGNORECASE,
+    )
+    # Add pause after standalone numbers (e.g. "$3.2 billion", "145 points")
+    text = re.sub(
+        r"(\$\s*[\d,]+\.?\d*\s*(?:billion|million|trillion|thousand)?)",
+        r"\1<break time=\"0.3s\"/>",
+        text,
+        flags=re.IGNORECASE,
+    )
+    # Add pause after pure numbers followed by a space (standalone stats)
+    text = re.sub(
+        r"\b(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\b(\s)",
+        r"\1<break time=\"0.3s\"/>\2",
+        text,
+    )
+    # Wrap stat-heavy sentences (≥2 numbers) in slower prosody
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+    processed: list[str] = []
+    for sentence in sentences:
+        num_count = len(re.findall(r"\d+", sentence))
+        if num_count >= 3:
+            sentence = f'<prosody rate="slow">{sentence}</prosody>'
+        processed.append(sentence)
+    body = " ".join(processed)
+    return f'<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US">{body}</speak>'
+
+
+async def _edge_tts_async(text: str, voice: str, output_path: Path, use_ssml: bool = True) -> None:
     import edge_tts
-    communicate = edge_tts.Communicate(text, voice)
+    if use_ssml:
+        ssml = _apply_ssml_markup(text)
+        communicate = edge_tts.Communicate(ssml, voice)
+    else:
+        communicate = edge_tts.Communicate(text, voice)
     await communicate.save(str(output_path))
 
 
 def _edge_tts(text: str, output_path: Path) -> Optional[float]:
-    """Primary TTS engine — edge-tts (free, no API key required)."""
+    """Primary TTS engine — edge-tts with SSML markup for natural delivery."""
     try:
-        asyncio.run(_edge_tts_async(text, EDGE_TTS_VOICE, output_path))
+        asyncio.run(_edge_tts_async(text, EDGE_TTS_VOICE, output_path, use_ssml=True))
         word_count = len(text.split())
         duration = (word_count / 155) * 60
         logger.debug("edge-tts → %s (%.1fs)", output_path.name, duration)
         return duration
     except Exception as exc:
-        logger.warning("edge-tts failed: %s", exc)
-        return None
+        logger.warning("edge-tts SSML failed, retrying plain text: %s", exc)
+        # Retry without SSML (in case of malformed markup)
+        try:
+            asyncio.run(_edge_tts_async(text, EDGE_TTS_VOICE, output_path, use_ssml=False))
+            word_count = len(text.split())
+            return (word_count / 155) * 60
+        except Exception as exc2:
+            logger.warning("edge-tts plain text also failed: %s", exc2)
+            return None
 
 
 def _elevenlabs_tts(text: str, output_path: Path) -> Optional[float]:
