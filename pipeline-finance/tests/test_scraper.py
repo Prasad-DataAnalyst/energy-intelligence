@@ -285,6 +285,111 @@ class TestEconomicScraper:
         assert snapshot.indicators["FEDFUNDS"].source == "MOCK"
 
 
+class TestEconomicScraperClass:
+    """Tests for the new EconomicScraper class."""
+
+    def test_score_fed_decision(self):
+        """Fed decision should score 100."""
+        from scrapers.economic_scraper import EconomicScraper
+        scraper = EconomicScraper(api_key="")
+        event = {"title": "Federal Reserve issues FOMC statement", "series_id": "", "name": ""}
+        assert scraper.score_economic_event(event) == 100
+
+    def test_score_cpi_release(self):
+        """CPI release should score 90."""
+        from scrapers.economic_scraper import EconomicScraper
+        scraper = EconomicScraper(api_key="")
+        event = {"series_id": "CPIAUCSL", "name": "CPI Inflation", "title": ""}
+        assert scraper.score_economic_event(event) == 90
+
+    def test_score_gdp_release(self):
+        from scrapers.economic_scraper import EconomicScraper
+        scraper = EconomicScraper(api_key="")
+        assert scraper.score_economic_event({"series_id": "GDP", "name": "Real GDP", "title": ""}) == 85
+
+    def test_score_jobs_report(self):
+        from scrapers.economic_scraper import EconomicScraper
+        scraper = EconomicScraper(api_key="")
+        assert scraper.score_economic_event({"title": "Nonfarm Payrolls Rise", "series_id": "", "name": ""}) == 80
+
+    def test_score_housing_starts(self):
+        from scrapers.economic_scraper import EconomicScraper
+        scraper = EconomicScraper(api_key="")
+        assert scraper.score_economic_event({"series_id": "HOUST", "name": "Housing Starts", "title": ""}) == 50
+
+    def test_score_economic_release_object(self):
+        """score_economic_event accepts an EconomicRelease dataclass."""
+        from scrapers.economic_scraper import EconomicScraper, EconomicRelease
+        scraper = EconomicScraper(api_key="")
+        release = EconomicRelease(
+            series_id="UNRATE", name="Unemployment Rate",
+            latest_value=4.1, previous_value=4.0,
+            change=0.1, change_pct=2.5,
+            significance_score=80, release_date="2026-06-23", unit="Percent",
+        )
+        score = scraper.score_economic_event(release)
+        assert score == 80
+
+    def test_economic_release_dataclass(self):
+        from scrapers.economic_scraper import EconomicRelease
+        r = EconomicRelease(
+            series_id="CPIAUCSL", name="CPI Inflation",
+            latest_value=2.9, previous_value=2.7,
+            change=0.2, change_pct=7.4,
+            significance_score=90, release_date="2026-06-23", unit="Percent",
+        )
+        assert r.is_market_moving is True
+        d = r.to_dict()
+        for key in ("series_id", "name", "latest_value", "change", "significance_score",
+                    "release_date", "is_market_moving"):
+            assert key in d
+
+    def test_no_api_key_returns_empty_releases(self):
+        """get_todays_releases returns [] gracefully when no API key."""
+        from scrapers.economic_scraper import EconomicScraper
+        scraper = EconomicScraper(api_key="")
+        result = scraper.get_todays_releases()
+        assert result == []
+
+    @patch("scrapers.economic_scraper._fetch_rss", return_value=[])
+    def test_get_fed_statements_empty_on_failure(self, mock_rss):
+        """get_fed_statements returns [] without raising when RSS unavailable."""
+        from scrapers.economic_scraper import EconomicScraper
+        scraper = EconomicScraper(api_key="")
+        result = scraper.get_fed_statements()
+        assert result == []
+
+    @patch("scrapers.economic_scraper._fetch_rss", return_value=[])
+    def test_get_treasury_news_empty_on_failure(self, mock_rss):
+        from scrapers.economic_scraper import EconomicScraper
+        scraper = EconomicScraper(api_key="")
+        result = scraper.get_treasury_news()
+        assert result == []
+
+    def test_no_api_key_returns_estimated_calendar(self):
+        """get_economic_calendar_week falls back to frequency estimation."""
+        from scrapers.economic_scraper import EconomicScraper
+        scraper = EconomicScraper(api_key="")
+        # Mock _estimate_calendar to verify it's called
+        with patch.object(scraper, "_estimate_calendar", return_value=[]) as mock_est:
+            result = scraper.get_economic_calendar_week()
+        mock_est.assert_called_once()
+
+    def test_rss_date_parsing_valid(self):
+        """_parse_rss_date correctly parses RFC 2822 dates."""
+        from scrapers.economic_scraper import _parse_rss_date
+        dt = _parse_rss_date("Tue, 23 Jun 2026 14:30:00 +0000")
+        assert dt is not None
+        assert dt.year == 2026
+        assert dt.month == 6
+
+    def test_rss_date_parsing_invalid(self):
+        """_parse_rss_date returns None on garbage input."""
+        from scrapers.economic_scraper import _parse_rss_date
+        assert _parse_rss_date("not a date") is None
+        assert _parse_rss_date("") is None
+
+
 class TestEarningsScraper:
     def test_earnings_event_beat_miss(self):
         from scrapers.earnings_scraper import EarningsEvent
