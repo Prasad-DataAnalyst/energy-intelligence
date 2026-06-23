@@ -1,9 +1,12 @@
 """
-Audio generator — ElevenLabs TTS for voice synthesis.
-Falls back to pyttsx3 (offline) when ElevenLabs is unavailable.
+generators/audio_gen.py — DriftWire326
+TTS audio generation with three-tier engine priority:
+  1. edge-tts  (free, no API key, high quality)
+  2. ElevenLabs (premium, requires ELEVENLABS_API_KEY)
+  3. pyttsx3   (offline fallback)
 Produces per-segment audio files and a merged final track.
 """
-import io
+import asyncio
 import logging
 import re
 import time
@@ -21,11 +24,14 @@ logger = logging.getLogger(__name__)
 OUTPUT_DIR = settings.output_dir / "audio"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
+# edge-tts voice — energetic US male, credible for finance
+EDGE_TTS_VOICE = "en-US-GuyNeural"
+
 ELEVENLABS_TTS_URL = "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
 ELEVENLABS_VOICE_SETTINGS = {
     "stability": 0.60,
     "similarity_boost": 0.85,
-    "style": 0.35,          # slight expressiveness — energetic but credible
+    "style": 0.35,
     "use_speaker_boost": True,
 }
 
@@ -80,6 +86,25 @@ def _clean_for_tts(text: str) -> str:
     text = re.sub(r"#{1,4}\s", "", text)
     text = re.sub(r"\s{2,}", " ", text)
     return text.strip()
+
+
+async def _edge_tts_async(text: str, voice: str, output_path: Path) -> None:
+    import edge_tts
+    communicate = edge_tts.Communicate(text, voice)
+    await communicate.save(str(output_path))
+
+
+def _edge_tts(text: str, output_path: Path) -> Optional[float]:
+    """Primary TTS engine — edge-tts (free, no API key required)."""
+    try:
+        asyncio.run(_edge_tts_async(text, EDGE_TTS_VOICE, output_path))
+        word_count = len(text.split())
+        duration = (word_count / 155) * 60
+        logger.debug("edge-tts → %s (%.1fs)", output_path.name, duration)
+        return duration
+    except Exception as exc:
+        logger.warning("edge-tts failed: %s", exc)
+        return None
 
 
 def _elevenlabs_tts(text: str, output_path: Path) -> Optional[float]:
@@ -183,8 +208,7 @@ def generate_audio(script_segments: dict[str, str], video_type: str) -> AudioTra
     """
     logger.info("Generating audio for %s (%d segments)", video_type, len(script_segments))
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    use_elevenlabs = bool(settings.elevenlabs_api_key)
-    engine_name = "elevenlabs" if use_elevenlabs else "pyttsx3"
+    engine_name = "edge_tts"   # optimistic — updated per-segment if fallback used
 
     audio_segments: list[AudioSegment] = []
     total_duration = 0.0
@@ -197,26 +221,37 @@ def generate_audio(script_segments: dict[str, str], video_type: str) -> AudioTra
         seg_filename = f"{video_type}_{seg_name.lower().replace(' ', '_')}_{timestamp}.mp3"
         seg_path = OUTPUT_DIR / seg_filename
         duration = None
+        used_engine = "edge_tts"
 
-        if use_elevenlabs:
+        # Priority 1: edge-tts (free, no key needed)
+        duration = _edge_tts(clean_text, seg_path)
+
+        # Priority 2: ElevenLabs (premium quality)
+        if duration is None and settings.elevenlabs_api_key:
             duration = _elevenlabs_tts(clean_text, seg_path)
+            if duration:
+                used_engine = "elevenlabs"
 
+        # Priority 3: pyttsx3 (offline last resort)
         if duration is None:
             duration = _pyttsx3_tts(clean_text, seg_path)
             if duration:
-                engine_name = "pyttsx3"
+                used_engine = "pyttsx3"
 
         if duration is None:
             logger.error("All TTS engines failed for segment '%s'", seg_name)
             seg_path = None
+            used_engine = "none"
 
         audio_segments.append(AudioSegment(
             segment_name=seg_name,
             text=clean_text,
             audio_path=seg_path,
             duration_seconds=duration,
-            engine=engine_name,
+            engine=used_engine,
         ))
+        if used_engine != "edge_tts" and used_engine != "none":
+            engine_name = used_engine   # track dominant fallback for the track
         if duration:
             total_duration += duration
 

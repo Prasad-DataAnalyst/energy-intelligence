@@ -71,7 +71,7 @@ class TestMarketScraper:
         from scrapers.market_scraper import _fetch_ticker
         mock_ticker.return_value.fast_info = MagicMock(side_effect=Exception("API Error"))
         mock_ticker.return_value.history.return_value = MagicMock(empty=True)
-        result = _fetch_ticker("INVALID", retries=2)
+        result = _fetch_ticker("INVALID")
         assert result is None
 
     def test_market_summary_to_narrative(self):
@@ -121,7 +121,7 @@ class TestEconomicScraper:
         assert "2.8" in ind.narrative
 
     def test_surprise_detection(self):
-        from scrapers.economic_scraper import EconomicIndicator, _detect_surprises
+        from scrapers.economic_scraper import EconomicIndicator, _build_surprises
         indicators = {
             "CPIAUCSL": EconomicIndicator(
                 series_id="CPIAUCSL", name="CPI", value=2.5, previous_value=3.0,
@@ -129,7 +129,7 @@ class TestEconomicScraper:
                 unit="Percent", frequency="Monthly", source="TEST",
             )
         }
-        surprises = _detect_surprises(indicators)
+        surprises = _build_surprises(indicators)
         assert len(surprises) == 1
         assert "CPI" in surprises[0]
 

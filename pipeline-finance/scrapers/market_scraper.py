@@ -1,21 +1,40 @@
 """
-Market data scraper — yfinance primary, Alpha Vantage fallback.
-Fetches prices, movers, sector performance, and volume data.
+scrapers/market_scraper.py — DriftWire326
+Market data via yfinance with retry logic, tier classification,
+and breakout story detection for script generation.
 """
 import logging
 import time
 from dataclasses import dataclass, field, asdict
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional
-import json
 
 import yfinance as yf
-import requests
 
-from config.settings import settings
+from config.settings import (
+    STORY_TIERS, TRACKED_TICKERS,
+    MAX_RETRIES, RETRY_BACKOFF_BASE,
+)
 
 logger = logging.getLogger(__name__)
 
+# ── Sector ETF map ──────────────────────────────────────────────────────────
+SECTOR_ETFS = {
+    "Technology":       "XLK",
+    "Healthcare":       "XLV",
+    "Financials":       "XLF",
+    "Energy":           "XLE",
+    "Consumer Disc.":   "XLY",
+    "Industrials":      "XLI",
+    "Communication":    "XLC",
+    "Real Estate":      "XLRE",
+    "Utilities":        "XLU",
+    "Materials":        "XLB",
+    "Consumer Staples": "XLP",
+}
+
+
+# ── Data models ─────────────────────────────────────────────────────────────
 
 @dataclass
 class TickerSnapshot:
@@ -36,7 +55,6 @@ class TickerSnapshot:
 
     @property
     def volume_ratio(self) -> float:
-        """Volume vs average — >1.5 signals unusual activity."""
         if self.avg_volume == 0:
             return 0.0
         return round(self.volume / self.avg_volume, 2)
@@ -52,6 +70,22 @@ class TickerSnapshot:
         if self.change_pct <= -0.5:
             return "bearish"
         return "neutral"
+
+    @property
+    def story_tier(self) -> str:
+        """Classify this ticker as a tier1/tier2/tier3 story by absolute move."""
+        abs_move = abs(self.change_pct)
+        for tier_id in ("tier1", "tier2", "tier3"):
+            if abs_move >= STORY_TIERS[tier_id]["min_move_pct"]:
+                return tier_id
+        return "tier3"
+
+    def to_headline(self) -> str:
+        direction = "surged" if self.change_pct > 0 else "dropped"
+        return (
+            f"{self.name} ({self.symbol}) {direction} {abs(self.change_pct):.2f}% "
+            f"to ${self.price:,.2f} | Vol ratio: {self.volume_ratio:.1f}x avg"
+        )
 
 
 @dataclass
@@ -69,77 +103,82 @@ class MarketSummary:
     top_losers: list[TickerSnapshot]
     high_volume: list[TickerSnapshot]
     sector_performance: dict[str, float]
-    market_breadth: dict[str, int]  # advancing, declining, unchanged
+    market_breadth: dict[str, int]
 
     def to_dict(self) -> dict:
         return asdict(self)
 
+    @property
+    def market_tier(self) -> str:
+        """Overall market story tier based on S&P 500 move."""
+        return self.sp500.story_tier
+
+    @property
+    def top_story(self) -> TickerSnapshot:
+        """Single most newsworthy ticker today."""
+        candidates = self.top_gainers[:3] + self.top_losers[:3]
+        return max(candidates, key=lambda t: abs(t.change_pct)) if candidates else self.sp500
+
     def to_narrative(self) -> str:
-        """Human-readable summary for the script generator."""
         sp = self.sp500
         nq = self.nasdaq
         lines = [
             f"=== MARKET SUMMARY — {self.date} ===",
-            f"S&P 500: ${sp.price:,.2f} | {sp.change_pct:+.2f}% | Sentiment: {sp.sentiment.upper()}",
-            f"Nasdaq: ${nq.price:,.2f} | {nq.change_pct:+.2f}%",
-            f"Dow: ${self.dow.price:,.2f} | {self.dow.change_pct:+.2f}%",
-            f"Russell 2000: ${self.russell2000.price:,.2f} | {self.russell2000.change_pct:+.2f}%",
-            f"VIX (Fear Index): {self.vix.price:.2f} — {'Elevated fear' if self.vix.price > 20 else 'Calm market'}",
-            f"10-Year Treasury Yield: {self.ten_year_yield.price:.3f}%",
-            f"Gold: ${self.gold.price:,.2f} | {self.gold.change_pct:+.2f}%",
-            f"Bitcoin: ${self.bitcoin.price:,.2f} | {self.bitcoin.change_pct:+.2f}%",
+            f"Overall Tier: {self.market_tier.upper()} | Story: {self.top_story.to_headline()}",
+            "",
+            f"S&P 500:      ${sp.price:,.2f}  |  {sp.change_pct:+.2f}%  |  {sp.sentiment.upper()}",
+            f"Nasdaq:       ${nq.price:,.2f}  |  {nq.change_pct:+.2f}%",
+            f"Dow Jones:    ${self.dow.price:,.2f}  |  {self.dow.change_pct:+.2f}%",
+            f"Russell 2000: ${self.russell2000.price:,.2f}  |  {self.russell2000.change_pct:+.2f}%",
+            f"VIX:          {self.vix.price:.2f}  |  {'ELEVATED FEAR' if self.vix.price > 25 else 'Moderate' if self.vix.price > 18 else 'Calm'}",
+            f"10-Yr Yield:  {self.ten_year_yield.price:.3f}%",
+            f"Gold:         ${self.gold.price:,.2f}  |  {self.gold.change_pct:+.2f}%",
+            f"Bitcoin:      ${self.bitcoin.price:,.2f}  |  {self.bitcoin.change_pct:+.2f}%",
             "",
             "TOP GAINERS:",
         ]
-        for g in self.top_gainers[:3]:
-            lines.append(f"  {g.symbol}: +{g.change_pct:.2f}% (${g.price:.2f}) — Vol ratio: {g.volume_ratio}x")
+        for g in self.top_gainers[:5]:
+            lines.append(f"  ▲ {g.symbol}: {g.change_pct:+.2f}% (${g.price:.2f}) — "
+                         f"Vol {g.volume_ratio:.1f}x — {STORY_TIERS[g.story_tier]['label'].upper()}")
         lines.append("TOP LOSERS:")
-        for l in self.top_losers[:3]:
-            lines.append(f"  {l.symbol}: {l.change_pct:.2f}% (${l.price:.2f})")
+        for lo in self.top_losers[:5]:
+            lines.append(f"  ▼ {lo.symbol}: {lo.change_pct:+.2f}% (${lo.price:.2f}) — "
+                         f"Vol {lo.volume_ratio:.1f}x — {STORY_TIERS[lo.story_tier]['label'].upper()}")
         lines.append("\nSECTOR PERFORMANCE:")
         for sector, pct in sorted(self.sector_performance.items(), key=lambda x: x[1], reverse=True):
             bar = "▲" if pct > 0 else "▼"
             lines.append(f"  {bar} {sector}: {pct:+.2f}%")
+        breadth = self.market_breadth
+        lines.append(
+            f"\nMARKET BREADTH: ▲{breadth['advancing']} advancing  "
+            f"▼{breadth['declining']} declining  "
+            f"—{breadth['unchanged']} unchanged"
+        )
         return "\n".join(lines)
 
 
-SECTOR_ETFS = {
-    "Technology": "XLK",
-    "Healthcare": "XLV",
-    "Financials": "XLF",
-    "Energy": "XLE",
-    "Consumer Disc.": "XLY",
-    "Industrials": "XLI",
-    "Communication": "XLC",
-    "Real Estate": "XLRE",
-    "Utilities": "XLU",
-    "Materials": "XLB",
-    "Consumer Staples": "XLP",
-}
+# ── Core fetch logic ─────────────────────────────────────────────────────────
 
-MAG7 = ["AAPL", "MSFT", "NVDA", "TSLA", "AMZN", "META", "GOOGL"]
-
-
-def _fetch_ticker(symbol: str, retries: int = 3) -> Optional[TickerSnapshot]:
-    """Fetch a single ticker with retry logic."""
-    for attempt in range(retries):
+def _fetch_ticker(symbol: str) -> Optional[TickerSnapshot]:
+    """Fetch a single ticker with exponential-backoff retry."""
+    for attempt in range(MAX_RETRIES):
         try:
             t = yf.Ticker(symbol)
             info = t.fast_info
             hist = t.history(period="2d", interval="1d")
             if hist.empty:
-                logger.warning("No history for %s", symbol)
+                logger.warning("No history data for %s", symbol)
                 return None
 
-            prev_close = float(hist["Close"].iloc[-2]) if len(hist) >= 2 else float(hist["Close"].iloc[-1])
             curr_close = float(hist["Close"].iloc[-1])
+            prev_close = float(hist["Close"].iloc[-2]) if len(hist) >= 2 else curr_close
             change = curr_close - prev_close
             change_pct = (change / prev_close * 100) if prev_close else 0.0
 
             return TickerSnapshot(
                 symbol=symbol,
                 name=getattr(info, "display_name", symbol),
-                price=curr_close,
+                price=round(curr_close, 4),
                 change=round(change, 4),
                 change_pct=round(change_pct, 4),
                 volume=int(hist["Volume"].iloc[-1]),
@@ -147,20 +186,23 @@ def _fetch_ticker(symbol: str, retries: int = 3) -> Optional[TickerSnapshot]:
                 market_cap=getattr(info, "market_cap", None),
                 day_high=float(hist["High"].iloc[-1]),
                 day_low=float(hist["Low"].iloc[-1]),
-                week_52_high=getattr(info, "fifty_two_week_high", 0.0),
-                week_52_low=getattr(info, "fifty_two_week_low", 0.0),
+                week_52_high=float(getattr(info, "fifty_two_week_high", 0) or 0),
+                week_52_low=float(getattr(info, "fifty_two_week_low", 0) or 0),
                 pe_ratio=getattr(info, "pe_ratio", None),
             )
         except Exception as exc:
-            wait = settings.retry_backoff_base ** attempt
-            logger.warning("Attempt %d for %s failed: %s — retrying in %.1fs", attempt + 1, symbol, exc, wait)
-            time.sleep(wait)
+            wait = RETRY_BACKOFF_BASE ** attempt
+            logger.warning("Attempt %d/%d for %s failed: %s — retry in %.1fs",
+                           attempt + 1, MAX_RETRIES, symbol, exc, wait)
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(wait)
+
     logger.error("All retries exhausted for %s", symbol)
     return None
 
 
 def _fetch_sector_performance() -> dict[str, float]:
-    result = {}
+    result: dict[str, float] = {}
     for sector, etf in SECTOR_ETFS.items():
         snap = _fetch_ticker(etf)
         if snap:
@@ -168,50 +210,56 @@ def _fetch_sector_performance() -> dict[str, float]:
     return result
 
 
-def _fetch_movers(symbols: list[str]) -> tuple[list[TickerSnapshot], list[TickerSnapshot], list[TickerSnapshot]]:
-    """Return gainers, losers, high-volume from a list of symbols."""
-    snapshots = []
+def _fetch_movers(
+    symbols: list[str],
+) -> tuple[list[TickerSnapshot], list[TickerSnapshot], list[TickerSnapshot]]:
+    """Return (gainers, losers, high_volume) from a symbol list."""
+    snapshots: list[TickerSnapshot] = []
     for sym in symbols:
-        s = _fetch_ticker(sym)
-        if s:
-            snapshots.append(s)
+        if sym.startswith("^"):
+            continue  # skip indices in mover scan
+        snap = _fetch_ticker(sym)
+        if snap:
+            snapshots.append(snap)
 
-    gainers = sorted(snapshots, key=lambda x: x.change_pct, reverse=True)[:5]
-    losers = sorted(snapshots, key=lambda x: x.change_pct)[:5]
+    gainers  = sorted(snapshots, key=lambda x: x.change_pct, reverse=True)[:5]
+    losers   = sorted(snapshots, key=lambda x: x.change_pct)[:5]
     high_vol = sorted(snapshots, key=lambda x: x.volume_ratio, reverse=True)[:5]
     return gainers, losers, high_vol
 
 
+# ── Public entry point ───────────────────────────────────────────────────────
+
 def scrape_market() -> MarketSummary:
-    """Main entry point — collect full market snapshot."""
+    """Collect a full market snapshot. Raises RuntimeError if critical tickers fail."""
     logger.info("Starting market data scrape")
     today = datetime.now().strftime("%Y-%m-%d %A")
 
-    indices = {
-        "SPY": "sp500",
-        "QQQ": "nasdaq",
-        "DIA": "dow",
-        "IWM": "russell2000",
-        "^VIX": "vix",
-        "^TNX": "ten_year_yield",
-        "GLD": "gold",
+    index_map = {
+        "SPY":   "sp500",
+        "QQQ":   "nasdaq",
+        "DIA":   "dow",
+        "IWM":   "russell2000",
+        "^VIX":  "vix",
+        "^TNX":  "ten_year_yield",
+        "GLD":   "gold",
         "BTC-USD": "bitcoin",
     }
 
-    index_data = {}
-    for sym, key in indices.items():
+    index_data: dict[str, TickerSnapshot] = {}
+    for sym, key in index_map.items():
         snap = _fetch_ticker(sym)
         if snap is None:
-            raise RuntimeError(f"Critical ticker {sym} failed to fetch")
+            raise RuntimeError(f"Critical ticker {sym} failed — aborting scrape")
         index_data[key] = snap
-        logger.debug("Fetched %s: %.2f (%+.2f%%)", sym, snap.price, snap.change_pct)
+        logger.debug("Fetched %s: %.4f (%+.2f%%)", sym, snap.price, snap.change_pct)
 
-    gainers, losers, high_vol = _fetch_movers(settings.tracked_tickers)
+    gainers, losers, high_vol = _fetch_movers(TRACKED_TICKERS)
     sectors = _fetch_sector_performance()
 
-    # Simple breadth estimation from S&P 500 components (use sector ETFs as proxy)
     advancing = sum(1 for v in sectors.values() if v > 0)
-    declining = sum(1 for v in sectors.values() if v < 0)
+    declining  = sum(1 for v in sectors.values() if v < 0)
+    unchanged  = len(sectors) - advancing - declining
 
     summary = MarketSummary(
         date=today,
@@ -227,14 +275,16 @@ def scrape_market() -> MarketSummary:
         top_losers=losers,
         high_volume=high_vol,
         sector_performance=sectors,
-        market_breadth={"advancing": advancing, "declining": declining, "unchanged": 11 - advancing - declining},
+        market_breadth={"advancing": advancing, "declining": declining, "unchanged": unchanged},
     )
 
-    logger.info("Market scrape complete — S&P: %+.2f%%, VIX: %.2f", summary.sp500.change_pct, summary.vix.price)
+    logger.info(
+        "Market scrape complete — S&P: %+.2f%% | Tier: %s | Top: %s",
+        summary.sp500.change_pct, summary.market_tier, summary.top_story.symbol,
+    )
     return summary
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    m = scrape_market()
-    print(m.to_narrative())
+    print(scrape_market().to_narrative())

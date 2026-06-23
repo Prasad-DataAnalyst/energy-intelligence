@@ -78,12 +78,28 @@ class TestScriptParsing:
             market_narrative="S&P: -2.1%",
             earnings_narrative="NVDA: +11% beat",
             economic_narrative="CPI: 2.8%",
-            headlines="Markets sell off",
+            tier="tier2",
+            topic="Market Selloff",
+            anchor_number="S&P -2.1%",
         )
         assert script.video_type == "weekday"
         assert script.word_count > 0
         assert "HOOK" in script.segments
         assert script.tokens_used == 2500
+
+    @patch("generators.script_gen._call_claude")
+    def test_generate_weekday_script_tier3(self, mock_claude):
+        from generators.script_gen import generate_weekday_script
+        mock_claude.return_value = (MOCK_SCRIPT, 1800)
+
+        script = generate_weekday_script(
+            market_narrative="S&P: +0.3%",
+            earnings_narrative="Light earnings day",
+            economic_narrative="No major releases",
+            tier="tier3",
+        )
+        assert script.video_type == "weekday"
+        assert script.tier == "tier3"
 
     @patch("generators.script_gen._call_claude")
     def test_generate_sunday_script(self, mock_claude):
@@ -92,24 +108,50 @@ class TestScriptParsing:
 
         script = generate_sunday_script(
             topic="Options Trading 101",
-            subtopics=["calls", "puts", "strike price"],
-            key_concepts=["leverage", "premium", "expiration"],
-            current_relevance="Options volume at record highs in 2026",
+            theme="investment_banking",
+            week_context="Options volume at record highs in 2026",
+            audience_level="beginner-intermediate",
         )
         assert script.video_type == "sunday"
         assert script.model is not None
+
+    @patch("generators.script_gen._call_claude")
+    def test_generate_shorts_script(self, mock_claude):
+        from generators.script_gen import generate_shorts_script
+        mock_claude.return_value = (MOCK_SCRIPT, 800)
+
+        script = generate_shorts_script(
+            topic="NVDA Earnings Beat",
+            anchor_number="11% EPS beat",
+            tier="tier1",
+        )
+        assert script.video_type == "shorts"
+        assert script.style == "shorts_cards"
 
     @patch("generators.script_gen._call_claude")
     def test_script_save(self, mock_claude, tmp_path):
         from generators.script_gen import generate_weekday_script
         mock_claude.return_value = (MOCK_SCRIPT, 1000)
 
-        script = generate_weekday_script("market data", "earnings", "economic", "")
+        script = generate_weekday_script("market data", "earnings", "economic")
         saved_path = script.save(tmp_path)
 
         assert saved_path.exists()
         content = saved_path.read_text()
         assert "weekday" in content or "Type:" in content
+
+    @patch("generators.script_gen._call_claude")
+    def test_sunday_bonus_theme(self, mock_claude):
+        from generators.script_gen import generate_sunday_script
+        mock_claude.return_value = (MOCK_SCRIPT, 2200)
+
+        script = generate_sunday_script(
+            topic="Bitcoin vs Gold",
+            theme="rotating_bonus",
+            bonus_theme="crypto",
+        )
+        assert script.video_type == "sunday"
+        assert script.tier == "tier3"
 
 
 class TestTitleGeneration:
@@ -118,8 +160,8 @@ class TestTitleGeneration:
         title = "Top 10 S&P 500 Stocks Crashed Today — Market Recap 2026"
         score = _score_title(title)
         assert score.total_score > 50
-        assert score.number_score > 0      # has numbers
-        assert score.keyword_score > 0     # has finance keywords
+        assert score.number_score > 0
+        assert score.keyword_score > 0
 
     def test_score_title_too_short(self):
         from generators.title_gen import _score_title
@@ -152,7 +194,9 @@ class TestTitleGeneration:
         mock_desc.return_value = "Great video description here."
 
         result = generate_title_set(
-            topic="Market Crash", key_stat="S&P -3%", video_type="weekday_recap",
+            topic="Market Crash",
+            anchor_number="S&P -3%",
+            video_type="weekday",
         )
         assert result.winner is not None
         assert len(result.titles) == 3
@@ -163,11 +207,43 @@ class TestTitleGeneration:
     @patch("generators.title_gen._generate_description_via_claude")
     def test_fallback_titles_when_claude_fails(self, mock_desc, mock_titles):
         from generators.title_gen import generate_title_set
-        mock_titles.return_value = []   # Claude returned nothing
+        mock_titles.return_value = []
         mock_desc.return_value = None
 
         result = generate_title_set(
-            topic="Market Recap", key_stat="S&P +1%", video_type="weekday_recap",
+            topic="Market Recap",
+            anchor_number="S&P +1%",
+            video_type="weekday",
         )
         assert len(result.titles) > 0
         assert result.winner is not None
+
+    @patch("generators.title_gen._generate_titles_via_claude")
+    @patch("generators.title_gen._generate_description_via_claude")
+    def test_legacy_key_stat_param_accepted(self, mock_desc, mock_titles):
+        """Backward compat: key_stat= still works as an alias for anchor_number."""
+        from generators.title_gen import generate_title_set
+        mock_titles.return_value = ["S&P 500 Drops 2% Today — Market Recap"]
+        mock_desc.return_value = None
+
+        result = generate_title_set(
+            topic="Market Recap",
+            key_stat="S&P -2%",
+            video_type="weekday_recap",
+        )
+        assert result.winner is not None
+
+    @patch("generators.title_gen._generate_titles_via_claude")
+    @patch("generators.title_gen._generate_description_via_claude")
+    def test_shorts_title_route(self, mock_desc, mock_titles):
+        from generators.title_gen import generate_title_set
+        mock_titles.return_value = ["NVDA +8% TODAY"]
+        mock_desc.return_value = None
+
+        result = generate_title_set(
+            topic="NVDA Earnings",
+            anchor_number="+8%",
+            video_type="shorts",
+        )
+        assert result.winner is not None
+        assert result.video_type == "shorts"

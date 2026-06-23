@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Optional
 
 from config.settings import settings
-from config.prompts import THUMBNAIL_TEXT_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -236,6 +235,19 @@ def generate_thumbnail(
     return ThumbnailFile(path=path, spec=spec, generated_at=datetime.now().isoformat())
 
 
+_THUMBNAIL_COPY_PROMPT = """\
+Generate thumbnail copy for a DriftWire326 YouTube video.
+
+TITLE: {title}
+KEY STAT: {key_stat}
+SENTIMENT: {sentiment}
+
+Rules: headline max 3 words ALL CAPS, subtext max 4 words, emoji relevant to market sentiment.
+
+Return ONLY valid JSON:
+{{"headline": "<3-word ALL CAPS>", "subtext": "<max 4 words>", "ticker": "<symbol or null>", "emoji": "<single emoji>"}}"""
+
+
 def generate_thumbnail_from_claude(
     video_title: str,
     key_stat: str,
@@ -247,7 +259,7 @@ def generate_thumbnail_from_claude(
     import json
 
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-    prompt = THUMBNAIL_TEXT_PROMPT.substitute(
+    prompt = _THUMBNAIL_COPY_PROMPT.format(
         title=video_title, key_stat=key_stat, sentiment=sentiment,
     )
     try:
