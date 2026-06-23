@@ -201,6 +201,178 @@ def _merge_audio_files(segment_paths: list[Path], output_path: Path) -> Optional
         return None
 
 
+# ── Weekday voice rotation ────────────────────────────────────────────────────
+_WEEKDAY_VOICES = {
+    0: "en-US-GuyNeural",       # Monday — professional male
+    1: "en-US-ChristopherNeural",  # Tuesday
+    2: "en-US-EricNeural",      # Wednesday
+    3: "en-US-GuyNeural",       # Thursday
+    4: "en-US-RogerNeural",     # Friday — energetic close-of-week
+    5: "en-US-GuyNeural",       # Saturday fallback
+    6: "en-US-GuyNeural",       # Sunday
+}
+
+MIN_AUDIO_SECONDS = 120
+MAX_AUDIO_SECONDS = 180
+
+
+class AudioGenerator:
+    """Class-based TTS generation with validation and fallback chain."""
+
+    def get_todays_voice(self) -> str:
+        """Return an edge-tts voice name keyed to today's weekday."""
+        from datetime import date
+        return _WEEKDAY_VOICES.get(date.today().weekday(), EDGE_TTS_VOICE)
+
+    def generate_main_audio(
+        self,
+        script_segments: dict[str, str],
+        video_type: str,
+        voice: Optional[str] = None,
+    ) -> Optional[AudioTrack]:
+        """
+        Generate and merge audio for all script segments.
+        Validates total duration is 120–180s for weekday/sunday.
+        Shorts (no voiceover) return None immediately.
+        Falls back to gTTS if edge-tts fails.
+        """
+        if video_type == "shorts":
+            logger.info("Shorts require no voiceover — skipping audio generation")
+            return None
+
+        chosen_voice = voice or self.get_todays_voice()
+        logger.info("Generating main audio | type=%s | voice=%s", video_type, chosen_voice)
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        audio_segs: list[AudioSegment] = []
+        total_est = 0.0
+
+        for seg_name, text in script_segments.items():
+            clean = _clean_for_tts(text)
+            if not clean:
+                continue
+
+            fname = f"{video_type}_{seg_name.lower().replace(' ', '_')}_{timestamp}.mp3"
+            seg_path = OUTPUT_DIR / fname
+
+            # edge-tts first
+            dur = _edge_tts(clean, seg_path)
+            engine_used = "edge_tts"
+
+            # gTTS fallback
+            if dur is None:
+                seg_path = self.generate_fallback_audio(clean, seg_path)
+                if seg_path:
+                    dur = self.get_audio_duration(seg_path)
+                    engine_used = "gTTS"
+
+            audio_segs.append(AudioSegment(
+                segment_name=seg_name,
+                text=clean,
+                audio_path=seg_path if (seg_path and seg_path.exists()) else None,
+                duration_seconds=dur,
+                engine=engine_used,
+            ))
+            if dur:
+                total_est += dur
+
+        valid_paths = [s.audio_path for s in audio_segs if s.audio_path]
+        merged_fname = f"{video_type}_final_audio_{timestamp}.mp3"
+        merged_path = OUTPUT_DIR / merged_fname
+        merge_dur = _merge_audio_files(valid_paths, merged_path)
+        total_dur = merge_dur or total_est
+
+        # Validate duration
+        if not (MIN_AUDIO_SECONDS <= total_dur <= MAX_AUDIO_SECONDS):
+            logger.warning(
+                "Audio duration %.1fs outside target [%d, %d]s — padding/trimming",
+                total_dur, MIN_AUDIO_SECONDS, MAX_AUDIO_SECONDS,
+            )
+            if total_dur < MIN_AUDIO_SECONDS and merged_path.exists():
+                merged_path = self.add_silence_padding(merged_path, MIN_AUDIO_SECONDS - total_dur)
+                total_dur = MIN_AUDIO_SECONDS
+            # Over-length videos are flagged but not trimmed automatically (manual review)
+
+        track = AudioTrack(
+            video_type=video_type,
+            segments=audio_segs,
+            merged_path=merged_path if merged_path.exists() else None,
+            total_duration_seconds=total_dur,
+            engine="edge_tts",
+        )
+        logger.info("Audio complete — %.1fs | %d segments", total_dur, len(audio_segs))
+        return track
+
+    def generate_fallback_audio(self, text: str, output_path: Path) -> Optional[Path]:
+        """gTTS offline fallback — generates an MP3 at output_path."""
+        try:
+            from gtts import gTTS
+            tts = gTTS(text=text, lang="en", slow=False)
+            tts.save(str(output_path))
+            logger.info("gTTS fallback audio saved → %s", output_path)
+            return output_path
+        except Exception as exc:
+            logger.error("gTTS fallback failed: %s", exc)
+            return None
+
+    def get_audio_duration(self, audio_path: Path) -> float:
+        """Return duration in seconds using mutagen or pydub or ffprobe."""
+        try:
+            from mutagen.mp3 import MP3
+            return MP3(str(audio_path)).info.length
+        except Exception:
+            pass
+
+        try:
+            from pydub import AudioSegment as Pydub
+            return len(Pydub.from_file(str(audio_path))) / 1000.0
+        except Exception:
+            pass
+
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                 "-of", "default=noprint_wrappers=1:nokey=1", str(audio_path)],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode == 0:
+                return float(result.stdout.strip())
+        except Exception:
+            pass
+
+        # fallback: word-count estimate
+        word_count = len(audio_path.stem.split())
+        return (word_count / 150) * 60
+
+    def add_silence_padding(self, audio_path: Path, seconds: float) -> Path:
+        """Append silence to audio_path to meet minimum duration. Returns path."""
+        try:
+            from pydub import AudioSegment as Pydub
+            audio = Pydub.from_file(str(audio_path))
+            silence = Pydub.silent(duration=int(seconds * 1000))
+            padded = audio + silence
+            padded.export(str(audio_path), format="mp3")
+            logger.info("Added %.1fs silence padding to %s", seconds, audio_path.name)
+            return audio_path
+        except Exception:
+            # ffmpeg fallback
+            import subprocess
+            padded = audio_path.parent / f"padded_{audio_path.name}"
+            try:
+                subprocess.run(
+                    ["ffmpeg", "-y", "-i", str(audio_path),
+                     "-af", f"apad=pad_dur={seconds:.1f}", str(padded)],
+                    capture_output=True, timeout=30,
+                )
+                if padded.exists():
+                    audio_path.unlink(missing_ok=True)
+                    padded.rename(audio_path)
+            except Exception as exc:
+                logger.error("Silence padding failed: %s", exc)
+            return audio_path
+
+
 def generate_audio(script_segments: dict[str, str], video_type: str) -> AudioTrack:
     """
     Generate TTS audio for each script segment and merge into a final track.

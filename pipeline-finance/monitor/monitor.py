@@ -5,6 +5,7 @@ Runs every 2 hours via the master scheduler.
 """
 import json
 import logging
+import os
 import smtplib
 from dataclasses import dataclass, asdict, field
 from datetime import datetime, timedelta
@@ -210,7 +211,6 @@ class ChannelMonitor:
             return
 
         try:
-            import os
             msg = MIMEMultipart("alternative")
             msg["Subject"] = f"DriftWire326 Alert: {alerts[0].event}"
             msg["From"] = smtp_user
@@ -271,4 +271,187 @@ CURRENT METRICS:
         )
 
 
-import os  # needed by _send_alert_email
+# ── PipelineMonitor class ─────────────────────────────────────────────────────
+
+PIPELINE_SUMMARY_LOG = settings.logs_dir / "pipeline_daily.jsonl"
+LOW_QUOTA_THRESHOLD = 2000
+API_STATUS_FILE = settings.logs_dir / "api_status.json"
+
+
+class PipelineMonitor:
+    """Monitors DriftWire326 pipeline health, files, quota, and API status."""
+
+    def __init__(self):
+        settings.logs_dir.mkdir(parents=True, exist_ok=True)
+
+    def check_pipeline_health(self) -> dict:
+        """
+        Aggregate health check — runs all sub-checks.
+        Returns a dict with keys: files, quota, api, last_upload, healthy.
+        """
+        files_ok = self.check_output_files_exist()
+        quota_ok = self.check_quota_status()
+        api_ok = self.check_api_status()
+        last_upload_ok = self.check_last_upload_success()
+
+        healthy = all([files_ok, quota_ok, api_ok, last_upload_ok])
+        summary = {
+            "timestamp": datetime.now().isoformat(),
+            "healthy": healthy,
+            "files_ok": files_ok,
+            "quota_ok": quota_ok,
+            "api_ok": api_ok,
+            "last_upload_ok": last_upload_ok,
+        }
+        if not healthy:
+            logger.warning("Pipeline health check FAILED: %s", summary)
+        else:
+            logger.info("Pipeline health check PASSED")
+        return summary
+
+    def check_output_files_exist(self) -> bool:
+        """
+        Verify today's output files were produced (scripts, audio, video).
+        Returns True if at least one video was built today.
+        """
+        today = datetime.now().strftime("%Y%m%d")
+        checks = [
+            settings.output_dir / "scripts",
+            settings.output_dir / "audio",
+            settings.output_dir / "videos",
+        ]
+        videos_today = list((settings.output_dir / "videos").glob(f"*{today}*.mp4"))
+        if not videos_today:
+            logger.warning("check_output_files_exist: no videos found for %s", today)
+            return False
+        missing_dirs = [d for d in checks if not d.exists()]
+        if missing_dirs:
+            logger.warning("Output directories missing: %s", missing_dirs)
+            return False
+        return True
+
+    def check_quota_status(self) -> bool:
+        """
+        Check YouTube API quota is sufficient for at least one more upload.
+        Returns True if remaining quota ≥ LOW_QUOTA_THRESHOLD.
+        """
+        try:
+            from uploader.quota_tracker import QuotaTracker
+            qt = QuotaTracker()
+            remaining = qt.get_remaining()
+            if remaining < LOW_QUOTA_THRESHOLD:
+                logger.warning("Quota low: %d units remaining (threshold: %d)", remaining, LOW_QUOTA_THRESHOLD)
+                return False
+            return True
+        except Exception as exc:
+            logger.error("check_quota_status failed: %s", exc)
+            return False
+
+    def check_api_status(self) -> bool:
+        """
+        Quick liveness check for Anthropic + yfinance APIs.
+        Returns True if both respond without error.
+        """
+        results = {}
+        # Check Claude API (Anthropic)
+        try:
+            import anthropic
+            client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+            _ = client.models.list()
+            results["anthropic"] = True
+        except Exception as exc:
+            logger.warning("Anthropic API check failed: %s", exc)
+            results["anthropic"] = False
+
+        # Check market data (yfinance — simple SPY price fetch)
+        try:
+            import yfinance as yf
+            hist = yf.Ticker("SPY").history(period="1d")
+            results["yfinance"] = not hist.empty
+        except Exception as exc:
+            logger.warning("yfinance API check failed: %s", exc)
+            results["yfinance"] = False
+
+        # Save status
+        try:
+            API_STATUS_FILE.write_text(json.dumps({"timestamp": datetime.now().isoformat(), **results}))
+        except Exception:
+            pass
+
+        all_ok = all(results.values())
+        if not all_ok:
+            logger.warning("API status: %s", results)
+        return all_ok
+
+    def check_last_upload_success(self) -> bool:
+        """
+        Inspect quota_tracker.json to verify at least one upload today.
+        Returns True if an upload was recorded in the last 24h.
+        """
+        try:
+            from uploader.quota_tracker import QuotaTracker, QUOTA_LOG_PATH
+            if not QUOTA_LOG_PATH.exists():
+                logger.warning("check_last_upload_success: quota log not found")
+                return False
+            qt = QuotaTracker()
+            state = qt.status()
+            if state.uploads_today == 0:
+                logger.warning("No uploads recorded today (%s)", state.date)
+                return False
+            return True
+        except Exception as exc:
+            logger.error("check_last_upload_success failed: %s", exc)
+            return False
+
+    def log_daily_summary(self) -> dict:
+        """
+        Run a full health check and log to pipeline_daily.jsonl.
+        Designed to be called at 23:00 ET.
+        """
+        health = self.check_pipeline_health()
+        try:
+            from uploader.quota_tracker import QuotaTracker
+            qt = QuotaTracker()
+            health["quota_summary"] = qt.get_daily_summary()
+        except Exception:
+            health["quota_summary"] = {}
+
+        try:
+            with open(PIPELINE_SUMMARY_LOG, "a", encoding="utf-8") as f:
+                f.write(json.dumps(health) + "\n")
+            logger.info("Daily summary logged → %s", PIPELINE_SUMMARY_LOG)
+        except Exception as exc:
+            logger.error("log_daily_summary write failed: %s", exc)
+        return health
+
+    def alert(self, message: str, level: str = "warning") -> None:
+        """
+        Emit a pipeline alert at the given level to the log and (if configured) email.
+        level: 'info' | 'warning' | 'error' | 'critical'
+        """
+        level_fn = {
+            "info": logger.info,
+            "warning": logger.warning,
+            "error": logger.error,
+            "critical": logger.critical,
+        }.get(level, logger.warning)
+        level_fn("PIPELINE ALERT [%s]: %s", level.upper(), message)
+
+        # Attempt email alert via SMTP
+        smtp_host = os.environ.get("SMTP_HOST", "")
+        smtp_user = os.environ.get("SMTP_USER", "")
+        smtp_pass = os.environ.get("SMTP_PASS", "")
+        alert_email = os.environ.get("ALERT_EMAIL", smtp_user)
+
+        if all([smtp_host, smtp_user, smtp_pass, alert_email]):
+            try:
+                msg = MIMEText(f"DriftWire326 Pipeline Alert\n\n[{level.upper()}] {message}")
+                msg["Subject"] = f"DriftWire326 [{level.upper()}] Pipeline Alert"
+                msg["From"] = smtp_user
+                msg["To"] = alert_email
+                with smtplib.SMTP(smtp_host, 587) as server:
+                    server.starttls()
+                    server.login(smtp_user, smtp_pass)
+                    server.sendmail(smtp_user, alert_email, msg.as_string())
+            except Exception as exc:
+                logger.debug("Alert email failed: %s", exc)

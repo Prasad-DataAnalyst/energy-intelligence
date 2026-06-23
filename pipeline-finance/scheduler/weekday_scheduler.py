@@ -46,6 +46,102 @@ class WeekdayScheduler:
     def _log_step(self, step: str, detail: str = "") -> None:
         logger.info("[%s] STEP: %s %s", self.run_id, step, f"— {detail}" if detail else "")
 
+    def is_market_day(self, dt: Optional[datetime] = None) -> bool:
+        """Return True if dt (default: now) is a US market trading day (Mon–Fri, not a holiday)."""
+        US_MARKET_HOLIDAYS = {
+            # NYSE 2026 observed holidays (yyyy-mm-dd)
+            "2026-01-01", "2026-01-19", "2026-02-16", "2026-04-03",
+            "2026-05-25", "2026-07-03", "2026-09-07", "2026-11-26", "2026-12-25",
+        }
+        from zoneinfo import ZoneInfo
+        now = dt or datetime.now(ZoneInfo(settings.timezone))
+        if now.weekday() >= 5:   # Saturday=5, Sunday=6
+            return False
+        if now.strftime("%Y-%m-%d") in US_MARKET_HOLIDAYS:
+            return False
+        return True
+
+    def run_morning_pipeline(self) -> PipelineResult:
+        """
+        06:00 ET — scrape, generate, and build all assets.
+        Does NOT upload — assets are stored for the scheduled upload windows.
+        """
+        logger.info("[%s] run_morning_pipeline starting (06:00 slot)", self.run_id)
+        return self.run()
+
+    def upload_morning(self) -> None:
+        """07:00 ET upload slot — publish overnight-generated content."""
+        logger.info("[%s] upload_morning slot (07:00 ET)", self.run_id)
+        try:
+            from uploader.uploader import YouTubeUploader
+            from uploader.quota_tracker import QuotaTracker
+            qt = QuotaTracker()
+            uploader = YouTubeUploader(qt)
+            uploader.process_failed_queue()
+        except Exception as exc:
+            logger.error("upload_morning failed: %s", exc)
+            self.errors.append(f"upload_morning: {exc}")
+
+    def upload_midday(self) -> None:
+        """12:30 ET upload slot — publish Shorts generated during morning run."""
+        logger.info("[%s] upload_midday slot (12:30 ET)", self.run_id)
+        try:
+            from pathlib import Path as _Path
+            from uploader.quota_tracker import QuotaTracker
+            from uploader.uploader import YouTubeUploader, UploadConfig
+            qt = QuotaTracker()
+            if not qt.can_upload():
+                logger.warning("Midday upload skipped — quota exceeded")
+                return
+            shorts_dir = settings.output_dir / "shorts"
+            today_str = datetime.now().strftime("%Y%m%d")
+            shorts = sorted(shorts_dir.glob(f"short_*{today_str}*.mp4"), reverse=True)
+            if not shorts:
+                logger.info("No Shorts to upload at midday")
+                return
+            uploader = YouTubeUploader(qt)
+            if not uploader.authenticate():
+                return
+            for short_path in shorts[:1]:  # only upload 1 midday short
+                uploader.upload_short(
+                    video_path=short_path,
+                    title=f"Market Snapshot #{today_str} #Shorts",
+                    description=settings.disclaimer_text,
+                    tags=["Shorts", "stocks", "market", "DriftWire326"],
+                )
+        except Exception as exc:
+            logger.error("upload_midday failed: %s", exc)
+            self.errors.append(f"upload_midday: {exc}")
+
+    def upload_afternoon(self) -> None:
+        """16:30 ET upload slot — publish the main market recap video."""
+        logger.info("[%s] upload_afternoon slot (16:30 ET)", self.run_id)
+        try:
+            from uploader.quota_tracker import QuotaTracker
+            from uploader.uploader import YouTubeUploader
+            qt = QuotaTracker()
+            if not qt.can_upload():
+                logger.warning("Afternoon upload skipped — quota exceeded")
+                return
+            videos_dir = settings.output_dir / "videos"
+            today_str = datetime.now().strftime("%Y%m%d")
+            videos = sorted(videos_dir.glob(f"weekday_*{today_str}*.mp4"), reverse=True)
+            if not videos:
+                logger.info("No weekday videos to upload at 16:30")
+                return
+            uploader = YouTubeUploader(qt)
+            if not uploader.authenticate():
+                return
+            uploader.upload_main_video(
+                video_path=videos[0],
+                title=f"Stock Market Recap {today_str}",
+                description=settings.disclaimer_text,
+                tags=["stocks", "market recap", "DriftWire326"],
+            )
+        except Exception as exc:
+            logger.error("upload_afternoon failed: %s", exc)
+            self.errors.append(f"upload_afternoon: {exc}")
+
     def run(self) -> PipelineResult:
         start = datetime.now()
         logger.info("WeekdayScheduler run started: %s", self.run_id)

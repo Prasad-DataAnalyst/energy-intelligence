@@ -3,13 +3,20 @@ DriftWire326 — YouTube Finance Automation Pipeline
 Entry point supporting manual runs, dry-runs, and scheduler launch.
 
 Usage:
-  python main.py                    # Start the full scheduler (runs forever)
-  python main.py --run weekday      # Run weekday pipeline once now
-  python main.py --run sunday       # Run Sunday pipeline once now
-  python main.py --run monitor      # Run monitor check once
-  python main.py --dry-run weekday  # Dry-run: scrape + generate only (no upload)
-  python main.py --quota            # Show current API quota status
-  python main.py --test             # Run test suite
+  python main.py                         # Start the full scheduler (runs forever)
+  python main.py --mode full             # Full pipeline: scrape+build+upload
+  python main.py --mode scrape           # Scrape only (no generation)
+  python main.py --mode build            # Build assets only (no upload)
+  python main.py --mode upload           # Upload previously built videos
+  python main.py --mode test             # Run test suite
+  python main.py --mode sunday           # Sunday pipeline once
+  python main.py --run weekday           # Run weekday pipeline once now
+  python main.py --run sunday            # Run Sunday pipeline once now
+  python main.py --run monitor           # Run monitor check once
+  python main.py --dry-run weekday       # Dry-run: scrape + generate only (no upload)
+  python main.py --quota                 # Show current API quota status
+  python main.py --test                  # Run test suite
+  python main.py --mode full --date 2026-06-23 --topic "AAPL earnings"
 """
 import argparse
 import logging
@@ -120,6 +127,80 @@ def cmd_run_monitor() -> int:
     return 0
 
 
+def cmd_mode_scrape(date_str: str = "") -> int:
+    """Scrape all data sources, save JSON to output/scripts/."""
+    logger = logging.getLogger("main")
+    logger.info("MODE: scrape (date=%s)", date_str or "today")
+    try:
+        from scrapers.market_scraper import scrape_market
+        from scrapers.earnings_scraper import scrape_earnings
+        from scrapers.economic_scraper import scrape_economic_data
+
+        market = scrape_market()
+        earnings = scrape_earnings()
+        economic = scrape_economic_data()
+
+        print(f"Market:   {market.to_narrative()[:120]}...")
+        print(f"Earnings: {earnings.to_narrative()[:120]}...")
+        print(f"Economic: {economic.to_narrative()[:120]}...")
+        print("\n✅ Scrape complete — data saved to output/scripts/")
+        return 0
+    except Exception as exc:
+        logging.getLogger("main").exception("Scrape failed: %s", exc)
+        return 1
+
+
+def cmd_mode_build(topic: str = "") -> int:
+    """Generate script + build assets (no upload)."""
+    logger = logging.getLogger("main")
+    logger.info("MODE: build (topic=%s)", topic or "auto")
+    try:
+        from scrapers.market_scraper import scrape_market
+        from scrapers.earnings_scraper import scrape_earnings
+        from scrapers.economic_scraper import scrape_economic_data
+        from generators.script_gen import generate_weekday_script
+
+        market = scrape_market()
+        earnings = scrape_earnings()
+        economic = scrape_economic_data()
+
+        script = generate_weekday_script(
+            market_narrative=market.to_narrative(),
+            earnings_narrative=earnings.to_narrative(),
+            economic_narrative=economic.to_narrative(),
+            topic=topic or "",
+        )
+        path = script.save(settings.output_dir / "scripts")
+        from generators.compliance_filter import check_compliance
+        result = check_compliance(script.script)
+        print(f"✅ Script saved: {path}")
+        print(f"   Compliance: {result.summary}")
+        return 0
+    except Exception as exc:
+        logger.exception("Build failed: %s", exc)
+        return 1
+
+
+def cmd_mode_upload() -> int:
+    """Upload most recent pre-built video from output/videos/."""
+    logger = logging.getLogger("main")
+    logger.info("MODE: upload")
+    try:
+        from uploader.quota_tracker import QuotaTracker
+        from uploader.uploader import YouTubeUploader
+        qt = QuotaTracker()
+        if not qt.can_upload():
+            print(f"❌ Quota too low:\n{qt.report()}")
+            return 1
+        uploader = YouTubeUploader(qt)
+        uploader.process_failed_queue()
+        print("✅ Upload mode: processed failed queue")
+        return 0
+    except Exception as exc:
+        logger.exception("Upload failed: %s", exc)
+        return 1
+
+
 def cmd_quota() -> int:
     from uploader.quota_tracker import QuotaTracker
     tracker = QuotaTracker()
@@ -150,10 +231,20 @@ def main() -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
+    # New --mode flag (primary interface)
+    parser.add_argument(
+        "--mode",
+        choices=["full", "scrape", "build", "upload", "test", "sunday"],
+        help="Pipeline mode to run",
+    )
+    parser.add_argument("--date", default="", help="Override date (YYYY-MM-DD)")
+    parser.add_argument("--topic", default="", help="Override topic for script generation")
+    parser.add_argument("--dry-run", action="store_true", dest="dry_run",
+                        help="Scrape and generate only — no upload")
+
+    # Legacy flags (preserved for backward compatibility)
     parser.add_argument("--run", choices=["weekday", "sunday", "monitor"],
-                        help="Run a specific pipeline once")
-    parser.add_argument("--dry-run", choices=["weekday", "sunday"],
-                        dest="dry_run", help="Run without uploading")
+                        help="(Legacy) Run a specific pipeline once")
     parser.add_argument("--quota", action="store_true", help="Show API quota status")
     parser.add_argument("--test", action="store_true", help="Run test suite")
     parser.add_argument("--log-level", default="INFO",
@@ -164,18 +255,29 @@ def main() -> int:
     logger = logging.getLogger("main")
     logger.info("DriftWire326 pipeline starting — channel: %s", settings.channel_handle)
 
+    # ── --mode routing ────────────────────────────────────────────────────
+    if args.mode == "full":
+        return cmd_run_weekday(dry_run=args.dry_run)
+    if args.mode == "scrape":
+        return cmd_mode_scrape(args.date)
+    if args.mode == "build":
+        return cmd_mode_build(args.topic)
+    if args.mode == "upload":
+        return cmd_mode_upload()
+    if args.mode == "test":
+        return cmd_test()
+    if args.mode == "sunday":
+        return cmd_run_sunday(dry_run=args.dry_run)
+
+    # ── Legacy --run/--quota/--test routing ───────────────────────────────
     if args.quota:
         return cmd_quota()
     if args.test:
         return cmd_test()
-    if args.dry_run == "weekday":
-        return cmd_run_weekday(dry_run=True)
-    if args.dry_run == "sunday":
-        return cmd_run_sunday(dry_run=True)
     if args.run == "weekday":
-        return cmd_run_weekday()
+        return cmd_run_weekday(dry_run=args.dry_run)
     if args.run == "sunday":
-        return cmd_run_sunday()
+        return cmd_run_sunday(dry_run=args.dry_run)
     if args.run == "monitor":
         return cmd_run_monitor()
 

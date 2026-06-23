@@ -258,6 +258,232 @@ def add_to_playlist(video_id: str, playlist_id: str) -> bool:
         return False
 
 
+# ── YouTubeUploader class ─────────────────────────────────────────────────────
+
+UPLOAD_GAP_MINUTES = 30          # minimum gap between consecutive uploads
+MIN_QUOTA_TO_UPLOAD = 1700       # safety buffer — never go below this
+FAILED_QUEUE_PATH = settings.logs_dir / "failed_queue.json"
+
+
+class YouTubeUploader:
+    """Class-based YouTube uploader with quota enforcement and retry logic."""
+
+    def __init__(self, quota_tracker=None):
+        self._youtube = None
+        self._quota = quota_tracker
+        self._last_upload_at: Optional[float] = None  # epoch seconds
+
+    def authenticate(self) -> bool:
+        """Authenticate and store the YouTube service object. Returns True on success."""
+        try:
+            self._youtube = _get_authenticated_service()
+            logger.info("YouTube authentication successful")
+            return True
+        except Exception as exc:
+            logger.error("YouTube authentication failed: %s", exc)
+            return False
+
+    def _enforce_upload_gap(self) -> None:
+        """Block if less than 30 minutes since last upload."""
+        if self._last_upload_at is not None:
+            elapsed = time.time() - self._last_upload_at
+            gap = UPLOAD_GAP_MINUTES * 60
+            if elapsed < gap:
+                wait = gap - elapsed
+                logger.info("Enforcing 30-min upload gap — sleeping %.0fs", wait)
+                time.sleep(wait)
+
+    def _check_quota(self) -> bool:
+        """Return False if quota is too low to safely upload."""
+        if self._quota:
+            return self._quota.can_upload()
+        return True
+
+    def upload_main_video(
+        self,
+        video_path: Path,
+        title: str,
+        description: str,
+        tags: list[str],
+        thumbnail_path: Optional[Path] = None,
+        publish_at: Optional[datetime] = None,
+        playlist_id: Optional[str] = None,
+    ) -> UploadResult:
+        """
+        Upload a main weekday/Sunday video.
+        category_id=25 (News & Politics). Enforces 30-min upload gap.
+        """
+        if not self._check_quota():
+            return UploadResult(
+                success=False, video_id=None, video_url=None,
+                title=title, upload_time_seconds=0, file_size_mb=0,
+                error=f"Quota too low (< {MIN_QUOTA_TO_UPLOAD} units) — aborting",
+            )
+
+        self._enforce_upload_gap()
+
+        config = UploadConfig(
+            title=title[:100],
+            description=description[:5000],
+            tags=tags,
+            category="News & Politics",   # category_id=25
+            privacy="private",
+            publish_at=publish_at,
+            playlist_id=playlist_id,
+        )
+
+        result = upload_full(video_path, config, thumbnail_path, self._quota)
+        if result.success:
+            self._last_upload_at = time.time()
+        else:
+            self._queue_failed(video_path, config, thumbnail_path)
+        return result
+
+    def upload_short(
+        self,
+        video_path: Path,
+        title: str,
+        description: str,
+        tags: list[str],
+        thumbnail_path: Optional[Path] = None,
+        publish_at: Optional[datetime] = None,
+    ) -> UploadResult:
+        """
+        Upload a YouTube Short.
+        Auto-appends #Shorts to title if missing.
+        """
+        if not self._check_quota():
+            return UploadResult(
+                success=False, video_id=None, video_url=None,
+                title=title, upload_time_seconds=0, file_size_mb=0,
+                error="Quota too low",
+            )
+
+        self._enforce_upload_gap()
+
+        # Auto-append #Shorts
+        if "#Shorts" not in title and "#shorts" not in title:
+            title = (title + " #Shorts")[:100]
+
+        config = UploadConfig(
+            title=title,
+            description=description[:5000],
+            tags=tags + ["#Shorts", "Shorts", "YouTubeShorts"],
+            category="News & Politics",
+            privacy="private",
+            publish_at=publish_at,
+        )
+        result = upload_full(video_path, config, thumbnail_path, self._quota)
+        if result.success:
+            self._last_upload_at = time.time()
+        else:
+            self._queue_failed(video_path, config, thumbnail_path)
+        return result
+
+    def set_thumbnail(self, video_id: str, thumbnail_path: Path) -> bool:
+        """Set a custom thumbnail for an uploaded video."""
+        return set_thumbnail(video_id, thumbnail_path)
+
+    def verify_upload_status(self, video_id: str) -> dict:
+        """Check the processing status of an uploaded video."""
+        try:
+            if not self._youtube:
+                self.authenticate()
+            response = self._youtube.videos().list(
+                part="status,processingDetails",
+                id=video_id,
+            ).execute()
+            items = response.get("items", [])
+            if not items:
+                return {"status": "not_found", "video_id": video_id}
+            item = items[0]
+            return {
+                "video_id": video_id,
+                "privacy": item["status"].get("privacyStatus"),
+                "upload_status": item["status"].get("uploadStatus"),
+                "processing_status": item.get("processingDetails", {}).get("processingStatus"),
+            }
+        except Exception as exc:
+            logger.error("verify_upload_status failed: %s", exc)
+            return {"status": "error", "error": str(exc)}
+
+    def retry_failed_upload(
+        self,
+        video_path: Path,
+        config: "UploadConfig",
+        thumbnail_path: Optional[Path] = None,
+    ) -> UploadResult:
+        """
+        Retry a single failed upload once after a 15-minute wait.
+        """
+        logger.info("Waiting 15 minutes before retry upload...")
+        time.sleep(15 * 60)
+        result = upload_full(video_path, config, thumbnail_path, self._quota)
+        if result.success:
+            self._last_upload_at = time.time()
+        return result
+
+    def process_failed_queue(self) -> list[UploadResult]:
+        """
+        Load failed_queue.json, retry each entry once.
+        Clears successfully retried entries from the queue.
+        """
+        if not FAILED_QUEUE_PATH.exists():
+            return []
+
+        try:
+            queue = json.loads(FAILED_QUEUE_PATH.read_text())
+        except Exception as exc:
+            logger.error("Failed to read failed_queue.json: %s", exc)
+            return []
+
+        results = []
+        remaining = []
+        for entry in queue:
+            video_path = Path(entry["video_path"])
+            thumbnail_path = Path(entry["thumbnail_path"]) if entry.get("thumbnail_path") else None
+            config = UploadConfig(
+                title=entry["title"],
+                description=entry.get("description", ""),
+                tags=entry.get("tags", []),
+                category=entry.get("category", "News & Politics"),
+            )
+            result = self.retry_failed_upload(video_path, config, thumbnail_path)
+            results.append(result)
+            if not result.success:
+                remaining.append(entry)
+
+        FAILED_QUEUE_PATH.write_text(json.dumps(remaining, indent=2))
+        logger.info("Failed queue processed: %d retried, %d remaining", len(results), len(remaining))
+        return results
+
+    def _queue_failed(
+        self,
+        video_path: Path,
+        config: "UploadConfig",
+        thumbnail_path: Optional[Path],
+    ) -> None:
+        """Append a failed upload to failed_queue.json for later retry."""
+        try:
+            queue = []
+            if FAILED_QUEUE_PATH.exists():
+                queue = json.loads(FAILED_QUEUE_PATH.read_text())
+            queue.append({
+                "video_path": str(video_path),
+                "thumbnail_path": str(thumbnail_path) if thumbnail_path else None,
+                "title": config.title,
+                "description": config.description,
+                "tags": config.tags,
+                "category": config.category,
+                "failed_at": datetime.now().isoformat(),
+            })
+            FAILED_QUEUE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            FAILED_QUEUE_PATH.write_text(json.dumps(queue, indent=2))
+            logger.info("Queued failed upload: %s", config.title[:60])
+        except Exception as exc:
+            logger.error("Failed to queue upload: %s", exc)
+
+
 def upload_full(
     video_path: Path,
     config: UploadConfig,

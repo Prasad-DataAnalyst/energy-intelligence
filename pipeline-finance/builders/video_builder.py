@@ -212,6 +212,220 @@ def _build_with_ffmpeg(assets: VideoAssets, output_path: Path) -> Optional[float
     return assets.duration_seconds
 
 
+# ── VideoBuilder class ────────────────────────────────────────────────────────
+
+MIN_DURATION = 120
+MAX_DURATION = 180
+CAPTION_FONT_SIZE = 52
+MUSIC_VOLUME = 0.08
+
+
+class VideoBuilder:
+    """Class-based video assembly for DriftWire326 main videos."""
+
+    def __init__(self, output_dir: Optional[Path] = None):
+        self.output_dir = output_dir or OUTPUT_DIR
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+    def build_main_video(self, assets: VideoAssets) -> BuiltVideo:
+        """Convenience wrapper — build a weekday or Sunday video."""
+        return build_video(assets)
+
+    def create_ken_burns_clip(self, image_path: Path, duration: float, zoom_ratio: float = 1.05):
+        """
+        Apply a slow Ken Burns zoom-in effect to a static image.
+        Returns a MoviePy clip or None if MoviePy unavailable.
+        """
+        try:
+            from moviepy.editor import ImageClip
+            import numpy as np
+
+            W, H = settings.video_width, settings.video_height
+            fps = settings.video_fps
+            clip = ImageClip(str(image_path)).set_duration(duration).resize((W, H))
+
+            def make_frame(t):
+                progress = t / duration
+                scale = 1.0 + (zoom_ratio - 1.0) * progress
+                frame = clip.get_frame(t)
+                from PIL import Image
+                img = Image.fromarray(frame)
+                new_w = int(W * scale)
+                new_h = int(H * scale)
+                img_resized = img.resize((new_w, new_h), Image.LANCZOS)
+                x0 = (new_w - W) // 2
+                y0 = (new_h - H) // 2
+                cropped = img_resized.crop((x0, y0, x0 + W, y0 + H))
+                return np.array(cropped)
+
+            from moviepy.editor import VideoClip
+            return VideoClip(make_frame, duration=duration).set_fps(fps)
+
+        except Exception as exc:
+            logger.warning("create_ken_burns_clip failed: %s", exc)
+            return None
+
+    def burn_captions(
+        self,
+        video_path: Path,
+        captions: list[tuple[float, float, str]],  # [(start, end, text), ...]
+        output_path: Optional[Path] = None,
+    ) -> Path:
+        """
+        Burn captions into video using ffmpeg drawtext.
+        Style: 52px bold white, black outline.
+        captions: list of (start_sec, end_sec, text).
+        """
+        if not captions:
+            return video_path
+
+        out = output_path or video_path.parent / f"captioned_{video_path.name}"
+        filter_parts = []
+        for start, end, text in captions:
+            safe_text = text.replace("'", "\\'").replace(":", "\\:").replace("%", "\\%")
+            filter_parts.append(
+                f"drawtext=text='{safe_text}'"
+                f":fontsize={CAPTION_FONT_SIZE}"
+                f":fontcolor=white"
+                f":borderw=3:bordercolor=black"
+                f":x=(w-text_w)/2:y=h-th-80"
+                f":enable='between(t,{start},{end})'"
+                f":font=DejaVu-Sans-Bold"
+            )
+        vf = ",".join(filter_parts)
+
+        cmd = ["ffmpeg", "-y", "-i", str(video_path), "-vf", vf,
+               "-c:v", "libx264", "-c:a", "copy", str(out)]
+        result = subprocess.run(cmd, capture_output=True, timeout=300)
+        if result.returncode != 0:
+            logger.error("Caption burn failed: %s", result.stderr.decode()[-300:])
+            return video_path
+        logger.info("Captions burned → %s", out)
+        return out
+
+    def add_lower_third(
+        self,
+        video_path: Path,
+        label: str,
+        start: float = 0.5,
+        duration: float = 3.0,
+        output_path: Optional[Path] = None,
+    ) -> Path:
+        """Overlay a lower-third title card using ffmpeg drawbox + drawtext."""
+        out = output_path or video_path.parent / f"lt_{video_path.name}"
+        end = start + duration
+        safe = label.replace("'", "\\'")
+        vf = (
+            f"drawbox=x=0:y=ih-120:w=iw:h=120:color=black@0.6:t=fill"
+            f":enable='between(t,{start},{end})',"
+            f"drawtext=text='{safe}'"
+            f":fontsize=38:fontcolor=white:font=DejaVu-Sans-Bold"
+            f":x=30:y=ih-90"
+            f":enable='between(t,{start},{end})'"
+        )
+        cmd = ["ffmpeg", "-y", "-i", str(video_path), "-vf", vf,
+               "-c:v", "libx264", "-c:a", "copy", str(out)]
+        result = subprocess.run(cmd, capture_output=True, timeout=300)
+        if result.returncode != 0:
+            logger.error("Lower third failed: %s", result.stderr.decode()[-200:])
+            return video_path
+        return out
+
+    def add_watermark(self, video_path: Path, output_path: Optional[Path] = None) -> Path:
+        """Overlay @DriftWire326 watermark (top-right, semi-transparent)."""
+        out = output_path or video_path.parent / f"wm_{video_path.name}"
+        vf = (
+            "drawtext=text='@DriftWire326'"
+            ":fontsize=28:fontcolor=white@0.5"
+            ":font=DejaVu-Sans"
+            ":x=w-tw-20:y=20"
+        )
+        cmd = ["ffmpeg", "-y", "-i", str(video_path), "-vf", vf,
+               "-c:v", "libx264", "-c:a", "copy", str(out)]
+        result = subprocess.run(cmd, capture_output=True, timeout=300)
+        if result.returncode != 0:
+            logger.error("Watermark overlay failed: %s", result.stderr.decode()[-200:])
+            return video_path
+        return out
+
+    def mix_audio(
+        self,
+        video_path: Path,
+        music_path: Path,
+        music_volume: float = MUSIC_VOLUME,
+        output_path: Optional[Path] = None,
+    ) -> Path:
+        """Mix background music at music_volume under the main voiceover."""
+        out = output_path or video_path.parent / f"mixed_{video_path.name}"
+        filter_complex = (
+            f"[1:a]volume={music_volume}[bg];"
+            "[0:a][bg]amix=inputs=2:duration=first:dropout_transition=2[aout]"
+        )
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", str(video_path),
+            "-i", str(music_path),
+            "-filter_complex", filter_complex,
+            "-map", "0:v", "-map", "[aout]",
+            "-c:v", "copy", "-c:a", "aac",
+            str(out),
+        ]
+        result = subprocess.run(cmd, capture_output=True, timeout=300)
+        if result.returncode != 0:
+            logger.error("Audio mix failed: %s", result.stderr.decode()[-200:])
+            return video_path
+        return out
+
+    def validate_duration(self, video_path: Path) -> tuple[bool, float]:
+        """
+        Check video duration is within [120, 180]s.
+        Returns (is_valid, actual_duration).
+        """
+        try:
+            result = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                 "-of", "default=noprint_wrappers=1:nokey=1", str(video_path)],
+                capture_output=True, text=True, timeout=10,
+            )
+            dur = float(result.stdout.strip())
+            valid = MIN_DURATION <= dur <= MAX_DURATION
+            if not valid:
+                logger.warning("Video duration %.1fs outside [%d, %d]s", dur, MIN_DURATION, MAX_DURATION)
+            return valid, dur
+        except Exception as exc:
+            logger.error("validate_duration failed: %s", exc)
+            return False, 0.0
+
+    def export(
+        self,
+        input_path: Path,
+        output_path: Optional[Path] = None,
+        crf: int = 23,
+    ) -> Path:
+        """
+        Re-encode to H.264 1920×1080 30fps AAC (YouTube recommended spec).
+        Returns the output path.
+        """
+        W, H = settings.video_width, settings.video_height
+        fps = settings.video_fps
+        out = output_path or self.output_dir / f"final_{input_path.name}"
+        cmd = [
+            "ffmpeg", "-y", "-i", str(input_path),
+            "-vf", f"scale={W}:{H}:force_original_aspect_ratio=decrease,"
+                   f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:color=0A0A0F",
+            "-c:v", "libx264", "-crf", str(crf), "-preset", "medium",
+            "-r", str(fps), "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", settings.audio_bitrate,
+            str(out),
+        ]
+        result = subprocess.run(cmd, capture_output=True, timeout=600)
+        if result.returncode != 0:
+            logger.error("Export failed: %s", result.stderr.decode()[-300:])
+            raise RuntimeError(f"Export failed for {input_path}")
+        logger.info("Video exported → %s", out)
+        return out
+
+
 def build_video(assets: VideoAssets) -> BuiltVideo:
     """Main entry — build final video. Returns BuiltVideo metadata."""
     logger.info("Building video: '%s' (%s, %.1fs)", assets.title, assets.video_type, assets.duration_seconds)

@@ -251,6 +251,139 @@ def generate_title_set(
     return result
 
 
+# ── TitleGenerator class ─────────────────────────────────────────────────────
+
+class TitleGenerator:
+    """Class-based title, description, and tags generation for DriftWire326."""
+
+    SHORTS_CHAR_LIMIT = 40
+    BASE_TAGS = [
+        "stocks", "stock market", "investing", "finance",
+        "market news", "DriftWire326", "Wall Street", "S&P 500",
+    ]
+
+    def generate_main_title(
+        self,
+        topic: str,
+        anchor_number: str = "",
+        script_summary: str = "",
+        tier: str = "tier2",
+    ) -> TitleSet:
+        """Generate title set for a weekday main video."""
+        logger.info("Generating weekday title | tier=%s | topic=%s", tier, topic[:50])
+        return generate_title_set(
+            topic=topic,
+            anchor_number=anchor_number,
+            video_type="weekday",
+            script_summary=script_summary,
+        )
+
+    def generate_shorts_title(
+        self,
+        topic: str,
+        anchor_number: str = "",
+        hook_card_text: str = "",
+    ) -> str:
+        """
+        Generate a Shorts title with a hard 40-character cap.
+        Returns the winning title, truncated to 40 chars if needed.
+        """
+        ts = generate_title_set(
+            topic=topic,
+            anchor_number=anchor_number,
+            video_type="shorts",
+            hook_card_text=hook_card_text,
+        )
+        title = ts.winner.title
+        if len(title) > self.SHORTS_CHAR_LIMIT:
+            title = title[:self.SHORTS_CHAR_LIMIT].rstrip()
+            logger.info("Shorts title truncated to 40 chars: %s", title)
+        return title
+
+    def generate_sunday_title(
+        self,
+        topic: str,
+        sunday_theme: str = "investment_banking",
+        script_summary: str = "",
+    ) -> TitleSet:
+        """Generate title set for a Sunday educational video."""
+        logger.info("Generating Sunday title | theme=%s | topic=%s", sunday_theme, topic[:50])
+        return generate_title_set(
+            topic=topic,
+            video_type="sunday",
+            sunday_theme=sunday_theme,
+            script_summary=script_summary,
+        )
+
+    def generate_description(
+        self,
+        title: str,
+        script_summary: str,
+        video_type: str = "weekday",
+        extra_tags: Optional[list[str]] = None,
+    ) -> str:
+        """
+        Generate YouTube description.
+        Auto-appends disclaimer and AI disclosure at the end.
+        """
+        from config.settings import settings
+        tags_str = ", ".join(self.generate_tags(extra_tags))
+        desc = _generate_description_via_claude(
+            title=title,
+            script_summary=script_summary,
+            video_type=video_type,
+            tags=tags_str,
+        ) or f"{title}\n\n{script_summary[:300]}"
+
+        # Always append compliance footer
+        if settings.disclaimer_text not in desc:
+            desc = desc.rstrip() + f"\n\n{settings.disclaimer_text}"
+        ai_disclosure = "Narration is AI-generated."
+        if ai_disclosure not in desc:
+            desc = desc.rstrip() + f"\n\n{ai_disclosure}"
+        return desc
+
+    def generate_tags(self, extra: Optional[list[str]] = None) -> list[str]:
+        """Always starts with BASE_TAGS; caller may append extras."""
+        tags = list(self.BASE_TAGS)
+        if extra:
+            for t in extra:
+                if t not in tags:
+                    tags.append(t)
+        return tags[:500]  # YouTube caps at 500 chars total when joined
+
+    def run_promise_check(
+        self,
+        title: str,
+        script: str,
+        topic: str,
+        anchor_number: str = "",
+        max_attempts: int = 2,
+    ) -> str:
+        """
+        Verify title promises match script content (≥60% word overlap).
+        Re-generates up to max_attempts times if check fails.
+        Returns the best title found.
+        """
+        from generators.compliance_filter import ComplianceFilter
+        cf = ComplianceFilter()
+
+        if cf.run_promise_match(title, script):
+            return title
+
+        logger.warning("Promise mismatch for title '%s' — regenerating", title[:60])
+        for attempt in range(max_attempts):
+            ts = self.generate_main_title(topic, anchor_number, script[:400])
+            candidate = ts.winner.title
+            if cf.run_promise_match(candidate, script):
+                logger.info("Promise match resolved on attempt %d: %s", attempt + 1, candidate)
+                return candidate
+            logger.warning("Attempt %d still mismatched: %s", attempt + 1, candidate[:60])
+
+        logger.error("Promise check failed after %d attempts — using original title", max_attempts)
+        return title
+
+
 def log_title_performance(title: str, ctr: float, views: int) -> None:
     """Record observed CTR to a JSONL file for future scoring calibration."""
     record = {

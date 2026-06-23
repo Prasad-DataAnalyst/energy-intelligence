@@ -176,6 +176,90 @@ def check_compliance(script: str, use_ai: bool = True) -> ComplianceResult:
     return result
 
 
+# ── ComplianceFilter class ────────────────────────────────────────────────────
+
+class ComplianceFilter:
+    """Mandatory compliance gate for all DriftWire326 scripts."""
+
+    AI_DISCLOSURE = "Narration is AI-generated."
+
+    def check_blocked_phrases(self, script: str) -> list[str]:
+        """Return list of blocked-phrase violations."""
+        violations: list[str] = []
+        script_lower = script.lower()
+        for phrase in settings.compliance_block_phrases:
+            if phrase.lower() in script_lower:
+                violations.append(f"Blocked phrase: '{phrase}'")
+        for pattern, label in HARD_BLOCK_PATTERNS:
+            if label is None:
+                continue
+            if re.search(pattern, script_lower):
+                violations.append(f"Hard block: {label}")
+        return violations
+
+    def check_required_phrases(self, script: str) -> bool:
+        """Return True if disclaimer patterns are present."""
+        sl = script.lower()
+        return any(re.search(p, sl) for p in DISCLAIMER_PATTERNS)
+
+    def inject_disclaimer(self, script: str) -> str:
+        """Append disclaimer block if not already present."""
+        if not self.check_required_phrases(script):
+            return (script.rstrip()
+                    + f"\n\n[DISCLAIMER]\n{settings.disclaimer_text}\n")
+        return script
+
+    def inject_ai_disclosure(self, script: str) -> str:
+        """Append AI disclosure line if not already present."""
+        if self.AI_DISCLOSURE not in script:
+            return script.rstrip() + f"\n\n{self.AI_DISCLOSURE}\n"
+        return script
+
+    def run_promise_match(self, title: str, script: str) -> bool:
+        """True if ≥60% of significant title words appear in the script."""
+        words = set(re.findall(r'\b[A-Za-z]{4,}\b', title.lower()))
+        if not words:
+            return True
+        sl = script.lower()
+        matches = sum(1 for w in words if w in sl)
+        return (matches / len(words)) >= 0.6
+
+    def filter(self, script: str, title: str = "") -> dict:
+        """
+        Mandatory gate method.
+        Returns {passed: bool, script: str, flags: list[str]}
+        """
+        flags: list[str] = []
+        modified = script
+
+        blocked = self.check_blocked_phrases(script)
+        flags.extend(blocked)
+
+        if not self.check_required_phrases(script):
+            flags.append("Disclaimer missing — injecting automatically")
+            modified = self.inject_disclaimer(modified)
+
+        if self.AI_DISCLOSURE not in modified:
+            modified = self.inject_ai_disclosure(modified)
+
+        if title and not self.run_promise_match(title, script):
+            flags.append(f"Promise mismatch: '{title[:50]}' not well-delivered")
+
+        hard_fails = [f for f in flags if "Hard block" in f or "Blocked phrase" in f]
+        passed = len(hard_fails) == 0
+
+        if flags:
+            self.log_all_flags(flags, title)
+
+        return {"passed": passed, "script": modified, "flags": flags}
+
+    def log_all_flags(self, flags: list[str], title: str = "") -> None:
+        """Log all compliance flags to the pipeline logger (→ driftwire326.log)."""
+        label = title[:40] if title else "unknown"
+        for flag in flags:
+            logger.warning("COMPLIANCE [%s]: %s", label, flag)
+
+
 def auto_fix_script(script: str, result: ComplianceResult) -> str:
     """
     Attempt automatic fixes for common compliance issues.

@@ -3,6 +3,8 @@ Chart generator — produces branded financial charts as PNG frames for video.
 Uses matplotlib + mplfinance. All charts match DriftWire326 brand colors.
 """
 import logging
+import subprocess
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -262,6 +264,299 @@ def generate_gainers_losers_chart(
 
     path = _save_chart(fig, "gainers_losers")
     return ChartFile("gainers_losers", path, "Market Movers", datetime.now().isoformat())
+
+
+# ── ChartGenerator class ─────────────────────────────────────────────────────
+
+class ChartGenerator:
+    """Class-based chart generation for DriftWire326 pipeline."""
+
+    def __init__(self, output_dir: Optional[Path] = None):
+        self.output_dir = output_dir or OUTPUT_DIR
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+    def _ticker_dir(self, ticker: str) -> Path:
+        today = datetime.now().strftime("%Y%m%d")
+        d = self.output_dir / f"{ticker}_{today}"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def apply_brand_style(self, fig: plt.Figure) -> None:
+        """Apply DriftWire326 dark brand colors to a figure and all its axes."""
+        fig.patch.set_facecolor(BRAND["bg"])
+        for ax in fig.get_axes():
+            ax.set_facecolor(BRAND["surface"])
+            ax.tick_params(colors=BRAND["text2"])
+            ax.xaxis.label.set_color(BRAND["text2"])
+            ax.yaxis.label.set_color(BRAND["text2"])
+            ax.title.set_color(BRAND["text"])
+            for spine in ax.spines.values():
+                spine.set_edgecolor(BRAND["grid"])
+            ax.grid(True, color=BRAND["grid"], linestyle="--", alpha=0.5)
+
+    def generate_price_line(
+        self,
+        ticker: str,
+        days: int = 30,
+        orientation: str = "landscape",
+    ) -> Optional[ChartFile]:
+        """
+        Line chart for ticker over `days` days.
+        orientation: 'landscape' (1920×1080) or 'portrait' (1080×1920 for Shorts).
+        Line color: green if price went up, red if down.
+        """
+        try:
+            import yfinance as yf
+            t = yf.Ticker(ticker)
+            hist = t.history(period=f"{days}d")
+            if hist.empty:
+                logger.warning("No price data for %s", ticker)
+                return None
+
+            prices = hist["Close"]
+            up = prices.iloc[-1] >= prices.iloc[0]
+            line_color = BRAND["green"] if up else BRAND["primary"]
+
+            if orientation == "portrait":
+                figsize = (6, 10.67)  # ~1080×1920 ratio
+            else:
+                figsize = (16, 9)    # 1920×1080 ratio
+
+            fig, ax = plt.subplots(figsize=figsize)
+            self.apply_brand_style(fig)
+
+            ax.plot(prices.index, prices.values, color=line_color, linewidth=2.5, zorder=3)
+            ax.fill_between(prices.index, prices.values, prices.min(),
+                            color=line_color, alpha=0.15, zorder=2)
+
+            ax.set_title(f"{ticker} — {days}d Price", fontsize=14, fontweight="bold")
+            ax.set_xlabel("")
+            ax.set_ylabel("Price (USD)")
+            ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"${v:,.2f}"))
+            _add_brand_watermark(ax)
+            fig.tight_layout()
+
+            out_dir = self._ticker_dir(ticker)
+            path = out_dir / f"price_line_{ticker}_{orientation}_{datetime.now().strftime('%H%M%S')}.png"
+            fig.savefig(path, dpi=150, bbox_inches="tight", facecolor=BRAND["bg"])
+            plt.close(fig)
+            logger.info("Price line chart saved → %s", path)
+            return ChartFile("price_line", path, f"{ticker} Price", datetime.now().isoformat())
+
+        except Exception as exc:
+            logger.error("generate_price_line failed for %s: %s", ticker, exc)
+            return None
+
+    def generate_candlestick(
+        self,
+        ticker: str,
+        days: int = 14,
+    ) -> Optional[ChartFile]:
+        """Landscape candlestick chart with volume bars."""
+        if not HAS_MPF:
+            logger.warning("mplfinance not available — falling back to line chart")
+            return self.generate_price_line(ticker, days)
+
+        try:
+            import yfinance as yf
+            t = yf.Ticker(ticker)
+            hist = t.history(period=f"{days}d")
+            if hist.empty:
+                logger.warning("No data for %s", ticker)
+                return None
+
+            mc = mpf.make_marketcolors(
+                up=BRAND["green"], down=BRAND["primary"],
+                edge="inherit", wick="inherit",
+                volume={"up": BRAND["green"], "down": BRAND["primary"]},
+            )
+            style = mpf.make_mpf_style(
+                marketcolors=mc,
+                facecolor=BRAND["surface"],
+                figcolor=BRAND["bg"],
+                gridcolor=BRAND["grid"],
+                gridstyle="--",
+                gridaxis="both",
+                y_on_right=True,
+                rc={"font.family": "DejaVu Sans", "text.color": BRAND["text"]},
+            )
+
+            out_dir = self._ticker_dir(ticker)
+            path = out_dir / f"candlestick_{ticker}_{datetime.now().strftime('%H%M%S')}.png"
+
+            fig, axes = mpf.plot(
+                hist, type="candle", style=style,
+                title=f"{ticker} — {days}d",
+                volume=True, figsize=(16, 9),
+                returnfig=True, tight_layout=True,
+            )
+            _add_brand_watermark(axes[0])
+            fig.savefig(path, dpi=150, bbox_inches="tight", facecolor=BRAND["bg"])
+            plt.close(fig)
+            logger.info("Candlestick saved → %s", path)
+            return ChartFile("candlestick", path, f"{ticker} Candlestick", datetime.now().isoformat())
+
+        except Exception as exc:
+            logger.error("generate_candlestick failed for %s: %s", ticker, exc)
+            return None
+
+    def generate_animated_line(self, ticker: str) -> Optional[Path]:
+        """
+        Render a price-line-draws-itself animation over 3 seconds.
+        Returns MP4 path or None if ffmpeg unavailable.
+        Generates 30fps * 3s = 90 PNG frames then encodes with ffmpeg.
+        """
+        try:
+            import yfinance as yf
+            t = yf.Ticker(ticker)
+            hist = t.history(period="30d")
+            if hist.empty:
+                return None
+
+            prices = hist["Close"].values
+            up = prices[-1] >= prices[0]
+            line_color = BRAND["green"] if up else BRAND["primary"]
+
+            fps = 30
+            duration = 3
+            n_frames = fps * duration
+            n_points = len(prices)
+
+            with tempfile.TemporaryDirectory() as tmp:
+                frame_dir = Path(tmp)
+                for frame_idx in range(n_frames):
+                    # draw progressively more points each frame
+                    pts = max(2, int((frame_idx + 1) / n_frames * n_points))
+                    fig, ax = plt.subplots(figsize=(16, 9))
+                    self.apply_brand_style(fig)
+                    ax.plot(range(pts), prices[:pts], color=line_color, linewidth=2.5)
+                    ax.set_xlim(0, n_points)
+                    ax.set_ylim(prices.min() * 0.98, prices.max() * 1.02)
+                    ax.set_title(f"{ticker} — 30d Price", fontsize=14, fontweight="bold")
+                    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"${v:,.2f}"))
+                    _add_brand_watermark(ax)
+                    fig.tight_layout()
+                    fig.savefig(frame_dir / f"frame_{frame_idx:04d}.png",
+                                dpi=100, bbox_inches="tight", facecolor=BRAND["bg"])
+                    plt.close(fig)
+
+                out_dir = self._ticker_dir(ticker)
+                mp4_path = out_dir / f"animated_{ticker}_{datetime.now().strftime('%H%M%S')}.mp4"
+                cmd = [
+                    "ffmpeg", "-y", "-framerate", str(fps),
+                    "-i", str(frame_dir / "frame_%04d.png"),
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                    "-crf", "23", str(mp4_path),
+                ]
+                result = subprocess.run(cmd, capture_output=True, timeout=60)
+                if result.returncode != 0:
+                    logger.error("ffmpeg animation failed: %s", result.stderr.decode())
+                    return None
+                logger.info("Animated line MP4 → %s", mp4_path)
+                return mp4_path
+
+        except Exception as exc:
+            logger.error("generate_animated_line failed for %s: %s", ticker, exc)
+            return None
+
+    def generate_economic_bar(self, series_id: str, label: str) -> Optional[ChartFile]:
+        """
+        Bar chart comparing latest vs previous value for a FRED series.
+        Falls back to placeholder bars if FRED unavailable.
+        """
+        try:
+            from config.settings import settings
+            fred_key = getattr(settings, "fred_api_key", "")
+            latest_val = prev_val = None
+
+            if fred_key:
+                import urllib.request
+                import json as _json
+                url = (
+                    f"https://api.stlouisfed.org/fred/series/observations"
+                    f"?series_id={series_id}&api_key={fred_key}"
+                    f"&file_type=json&sort_order=desc&limit=2"
+                )
+                with urllib.request.urlopen(url, timeout=10) as r:
+                    data = _json.loads(r.read())
+                obs = [o for o in data.get("observations", []) if o["value"] != "."]
+                if len(obs) >= 2:
+                    latest_val = float(obs[0]["value"])
+                    prev_val = float(obs[1]["value"])
+
+            if latest_val is None:
+                latest_val, prev_val = 3.2, 3.4  # placeholder
+
+            fig, ax = plt.subplots(figsize=(8, 6))
+            self.apply_brand_style(fig)
+
+            colors = [BRAND["green"] if latest_val <= prev_val else BRAND["primary"],
+                      BRAND["text2"]]
+            bars = ax.bar(["Latest", "Previous"], [latest_val, prev_val],
+                          color=colors, width=0.5, zorder=3)
+
+            for bar, val in zip(bars, [latest_val, prev_val]):
+                ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.02,
+                        f"{val:.2f}", ha="center", va="bottom",
+                        color=BRAND["text"], fontsize=12, fontweight="bold")
+
+            ax.set_title(f"{label} ({series_id})", fontsize=13, fontweight="bold")
+            ax.set_ylabel(label)
+            _add_brand_watermark(ax)
+            fig.tight_layout()
+
+            path = self.output_dir / f"econ_bar_{series_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+            fig.savefig(path, dpi=150, bbox_inches="tight", facecolor=BRAND["bg"])
+            plt.close(fig)
+            logger.info("Economic bar chart → %s", path)
+            return ChartFile("economic_bar", path, label, datetime.now().isoformat())
+
+        except Exception as exc:
+            logger.error("generate_economic_bar failed for %s: %s", series_id, exc)
+            return None
+
+    def generate_indices_summary(self) -> Optional[ChartFile]:
+        """4-panel price-line chart: SPY, QQQ, DIA, IWM (landscape 1920×1080)."""
+        tickers = ["SPY", "QQQ", "DIA", "IWM"]
+        labels = ["S&P 500", "Nasdaq 100", "Dow Jones", "Russell 2000"]
+
+        try:
+            import yfinance as yf
+            fig, axes = plt.subplots(2, 2, figsize=(16, 9))
+            self.apply_brand_style(fig)
+            fig.suptitle(
+                f"Market Indices Summary — {datetime.now().strftime('%b %d, %Y')}",
+                fontsize=14, fontweight="bold", color=BRAND["text"],
+            )
+
+            for ax, sym, lbl in zip(axes.flat, tickers, labels):
+                try:
+                    hist = yf.Ticker(sym).history(period="30d")["Close"]
+                    up = hist.iloc[-1] >= hist.iloc[0]
+                    color = BRAND["green"] if up else BRAND["primary"]
+                    ax.plot(hist.index, hist.values, color=color, linewidth=2)
+                    ax.fill_between(hist.index, hist.values, hist.min(), color=color, alpha=0.1)
+                    chg = (hist.iloc[-1] / hist.iloc[0] - 1) * 100
+                    ax.set_title(f"{lbl}  {chg:+.2f}%", fontsize=11, fontweight="bold",
+                                 color=color)
+                except Exception:
+                    ax.text(0.5, 0.5, f"{sym}\nN/A", transform=ax.transAxes,
+                            ha="center", va="center", color=BRAND["text2"])
+                ax.set_facecolor(BRAND["surface"])
+                ax.tick_params(colors=BRAND["text2"], labelsize=8)
+                ax.grid(True, color=BRAND["grid"], linestyle="--", alpha=0.4)
+                _add_brand_watermark(ax, alpha=0.10)
+
+            fig.tight_layout()
+            path = self.output_dir / f"indices_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+            fig.savefig(path, dpi=150, bbox_inches="tight", facecolor=BRAND["bg"])
+            plt.close(fig)
+            logger.info("Indices summary chart → %s", path)
+            return ChartFile("indices_summary", path, "Market Indices Summary", datetime.now().isoformat())
+
+        except Exception as exc:
+            logger.error("generate_indices_summary failed: %s", exc)
+            return None
 
 
 def generate_all_charts(market_summary) -> list[ChartFile]:

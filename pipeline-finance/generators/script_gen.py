@@ -3,6 +3,7 @@ generators/script_gen.py — DriftWire326
 Claude AI script generation with tier-aware weekday prompts,
 Sunday theme routing, and Shorts 5-card format.
 """
+import json
 import logging
 import random
 import re
@@ -281,6 +282,173 @@ def generate_sunday_script(
 
 
 # ── Topic selector ────────────────────────────────────────────────────────────
+
+# ── ScriptGenerator class ────────────────────────────────────────────────────
+
+class ScriptGenerator:
+    """Class-based script generation with cyclic styles and hook history."""
+
+    def __init__(self, output_dir: Optional[Path] = None):
+        from config.settings import settings
+        self.output_dir = output_dir or (settings.output_dir / "scripts")
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self._style_state_path = settings.logs_dir / "style_state.json"
+        self._hook_history_path = settings.logs_dir / "hook_history.json"
+
+    # ── Data loading ──────────────────────────────────────────────────────────
+
+    def load_todays_data(self) -> dict:
+        """Merge latest market + economic + earnings JSON from output/scripts/."""
+        from glob import glob as _glob
+        today = datetime.now().strftime("%Y%m%d")
+        data: dict = {}
+        for label in ("market", "economic", "earnings"):
+            pattern = str(self.output_dir / f"{label}_{today}*.json")
+            files = sorted(_glob(pattern), reverse=True)
+            if files:
+                try:
+                    data[label] = json.loads(Path(files[0]).read_text())
+                except Exception as exc:
+                    logger.warning("Could not load %s data: %s", label, exc)
+                    data[label] = {}
+            else:
+                data[label] = {}
+        logger.info("Loaded today's data: keys=%s", list(data.keys()))
+        return data
+
+    def select_topics(self, data: dict) -> list[dict]:
+        """Use Claude TOPIC_SELECTOR_PROMPT to rank topics by news value."""
+        topics_json = json.dumps(data, default=str)[:4000]
+        return select_best_topic(
+            topics_json=topics_json,
+            date_str=datetime.now().strftime("%Y-%m-%d"),
+        )
+
+    def detect_tier(self, topic_data: dict) -> int:
+        """Return 1 (≥5%), 2 (≥2%), or 3 (routine) based on topic_data."""
+        change_pct = abs(float(topic_data.get("change_pct") or 0))
+        score = float(topic_data.get("score") or 0)
+        if change_pct >= 5 or score >= 80:
+            return 1
+        if change_pct >= 2 or score >= 50:
+            return 2
+        return 3
+
+    def get_style(self) -> str:
+        """Return next style in cyclic rotation through SCRIPT_STYLES."""
+        state = self._load_json(self._style_state_path, {"index": 0})
+        idx = state.get("index", 0) % len(SCRIPT_STYLES)
+        self._save_json(self._style_state_path, {"index": idx + 1})
+        return SCRIPT_STYLES[idx]
+
+    def get_hook(self) -> str:
+        """Randomly select HOOK_VARIATION; avoid repeats for 5-day window."""
+        history = self._load_json(self._hook_history_path, [])
+        if not isinstance(history, list):
+            history = []
+        available = [h for h in HOOK_VARIATIONS if h not in history]
+        if not available:
+            history = []
+            available = list(HOOK_VARIATIONS)
+        hook = random.choice(available)
+        history.append(hook)
+        self._save_json(self._hook_history_path, history[-5:])
+        return hook
+
+    # ── Generation ────────────────────────────────────────────────────────────
+
+    def generate_main_script(
+        self,
+        topic: str,
+        tier: int,
+        style: str,
+        hook: str,
+        market_narrative: str = "",
+        earnings_narrative: str = "",
+        economic_narrative: str = "",
+        anchor_number: str = "",
+    ) -> GeneratedScript:
+        """Generate tier-appropriate weekday script via Claude."""
+        return generate_weekday_script(
+            market_narrative=market_narrative,
+            earnings_narrative=earnings_narrative,
+            economic_narrative=economic_narrative,
+            tier=f"tier{tier}",
+            topic=topic,
+            anchor_number=anchor_number,
+        )
+
+    def generate_shorts_cards(self, topic: str, tier: int) -> GeneratedScript:
+        """Generate 5-card Shorts script via SHORTS_SCRIPT_PROMPT."""
+        return generate_shorts_script(topic=topic, anchor_number=topic, tier=f"tier{tier}")
+
+    def validate_word_count(
+        self,
+        script: GeneratedScript,
+        min_words: int,
+        max_words: int,
+        context: Optional[dict] = None,
+    ) -> GeneratedScript:
+        """Regenerate if word count outside [min, max]. Max 3 attempts."""
+        for attempt in range(3):
+            if min_words <= script.word_count <= max_words:
+                return script
+            logger.warning(
+                "Word count %d outside [%d,%d] — attempt %d/3",
+                script.word_count, min_words, max_words, attempt + 1,
+            )
+            ctx = context or {}
+            if script.video_type == "weekday":
+                script = generate_weekday_script(
+                    market_narrative=ctx.get("market", ""),
+                    earnings_narrative=ctx.get("earnings", ""),
+                    economic_narrative=ctx.get("economic", ""),
+                    tier=script.tier,
+                    topic=script.title_draft,
+                )
+            else:
+                break
+        logger.warning("Word count still OOR after 3 attempts: %d", script.word_count)
+        return script
+
+    def extract_anchor_number(self, script: GeneratedScript) -> str:
+        """Pull the leading key statistic from the script text."""
+        for pat in [
+            r'(?:fell|dropped|rose|surged|gained|lost|up|down)\s+([\d.]+\s*%)',
+            r'\$([\d,.]+(?:\s*(?:B|M|T|billion|million|trillion))?)',
+            r'([\d.]+\s*%)',
+        ]:
+            m = re.search(pat, script.script, re.IGNORECASE)
+            if m:
+                return m.group(1).strip()
+        m = re.search(r'[\d.]+[%$BMK]', script.script)
+        return m.group(0) if m else ""
+
+    def save_scripts(self, scripts: dict[str, GeneratedScript]) -> dict[str, Path]:
+        """Run compliance filter then save each script to output/scripts/."""
+        from generators.compliance_filter import ComplianceFilter
+        cf = ComplianceFilter()
+        paths: dict[str, Path] = {}
+        for key, script in scripts.items():
+            result = cf.filter(script.script, script.title_draft)
+            script.script = result["script"]   # always use (possibly fixed) script
+            paths[key] = script.save(self.output_dir)
+        return paths
+
+    # ── Private helpers ───────────────────────────────────────────────────────
+
+    def _load_json(self, path: Path, default):
+        if path.exists():
+            try:
+                return json.loads(path.read_text())
+            except Exception:
+                pass
+        return default
+
+    def _save_json(self, path: Path, data) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data))
+
 
 def select_best_topic(
     topics_json: str,

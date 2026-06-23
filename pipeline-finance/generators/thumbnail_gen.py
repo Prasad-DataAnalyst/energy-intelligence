@@ -248,6 +248,168 @@ Return ONLY valid JSON:
 {{"headline": "<3-word ALL CAPS>", "subtext": "<max 4 words>", "ticker": "<symbol or null>", "emoji": "<single emoji>"}}"""
 
 
+# ── ThumbnailGenerator class ──────────────────────────────────────────────────
+
+MAX_THUMB_BYTES = 2 * 1024 * 1024  # 2 MB YouTube limit
+
+_TIER_SENTIMENT = {
+    "tier1": "warning",    # breakout — urgent orange/yellow
+    "tier2": "neutral",    # notable — blue
+    "tier3": "neutral",    # routine — blue
+}
+
+_SUNDAY_SENTIMENT = {
+    "investment_banking": "bullish",
+    "insurance_protection": "neutral",
+    "savings_wealth": "bullish",
+    "rotating_bonus": "warning",
+}
+
+
+class ThumbnailGenerator:
+    """Class-based thumbnail generation with tier + theme routing."""
+
+    def __init__(self, output_dir: Optional[Path] = None):
+        self.output_dir = output_dir or OUTPUT_DIR
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+    def generate_weekday_thumbnail(
+        self,
+        title: str,
+        key_stat: str,
+        ticker: Optional[str] = None,
+        tier: str = "tier2",
+        chart_path: Optional[Path] = None,
+        sentiment: Optional[str] = None,
+    ) -> ThumbnailFile:
+        """
+        Generate a weekday thumbnail.
+        Tier-aware: tier1 uses warning palette, tier2/3 use neutral/bullish by stat.
+        """
+        auto_sentiment = sentiment or _TIER_SENTIMENT.get(tier, "neutral")
+        if key_stat and not sentiment:
+            has_minus = "-" in key_stat or "fell" in title.lower() or "crash" in title.lower()
+            auto_sentiment = "bearish" if has_minus else "bullish"
+
+        spec = ThumbnailSpec(
+            headline=self._make_headline(title),
+            subtext=key_stat[:30] if key_stat else "Market Update",
+            ticker=ticker,
+            emoji="📉" if "bearish" in auto_sentiment else "📈",
+            sentiment=auto_sentiment,
+            chart_path=chart_path,
+            logo_path=None,
+        )
+        thumb = generate_thumbnail(spec, chart_path)
+        self.validate_file_size(thumb.path)
+        return thumb
+
+    def generate_sunday_thumbnail(
+        self,
+        title: str,
+        theme: str = "investment_banking",
+        chart_path: Optional[Path] = None,
+    ) -> ThumbnailFile:
+        """Generate a Sunday educational thumbnail with theme-based palette."""
+        sent = _SUNDAY_SENTIMENT.get(theme, "bullish")
+        spec = ThumbnailSpec(
+            headline=self._make_headline(title),
+            subtext="SUNDAY DEEP DIVE",
+            ticker=None,
+            emoji="🎓",
+            sentiment=sent,
+            chart_path=chart_path,
+            logo_path=None,
+        )
+        thumb = generate_thumbnail(spec, chart_path)
+        self.validate_file_size(thumb.path)
+        return thumb
+
+    def apply_brand_template(self, image_path: Path, sentiment: str = "neutral") -> Path:
+        """
+        Apply brand frame/overlay to an existing image.
+        Returns the modified path (overwrites in-place).
+        """
+        try:
+            from PIL import Image, ImageDraw
+            img = Image.open(image_path).convert("RGB")
+            draw = ImageDraw.Draw(img, "RGBA")
+            palette = SENTIMENT_PALETTES.get(sentiment, SENTIMENT_PALETTES["neutral"])
+            # Left accent bar
+            draw.rectangle([(0, 0), (8, img.height)], fill=palette["accent"])
+            # Bottom brand strip
+            draw.rectangle(
+                [(0, img.height - 40), (img.width, img.height)],
+                fill=(0, 0, 0, 160),
+            )
+            self.add_channel_watermark(draw, img.width, img.height)
+            img.save(image_path, "JPEG", quality=92)
+        except Exception as exc:
+            logger.error("apply_brand_template failed: %s", exc)
+        return image_path
+
+    def add_channel_watermark(
+        self,
+        draw,
+        width: int,
+        height: int,
+        alpha: float = 0.15,
+    ) -> None:
+        """Draw @DriftWire326 watermark at 15% opacity (bottom-right)."""
+        font = _get_font(26)
+        if font:
+            opacity = int(255 * alpha)
+            draw.text(
+                (width - 200, height - 36),
+                "@DriftWire326",
+                font=font,
+                fill=(255, 255, 255, opacity),
+            )
+
+    def add_text_with_shadow(
+        self,
+        draw,
+        text: str,
+        xy: tuple,
+        font,
+        fill: tuple,
+        shadow_offset: int = 3,
+    ) -> None:
+        """Draw text with black drop shadow."""
+        _draw_text_with_shadow(draw, text, xy, font, fill, shadow_offset)
+
+    def validate_file_size(self, path: Path) -> bool:
+        """
+        Check thumbnail is under 2 MB. Re-saves at lower quality if over.
+        Returns True if within limit.
+        """
+        if not path.exists():
+            return False
+        size = path.stat().st_size
+        if size <= MAX_THUMB_BYTES:
+            return True
+        # Re-compress
+        try:
+            from PIL import Image
+            img = Image.open(path)
+            for quality in (85, 70, 55):
+                img.save(path, "JPEG", quality=quality, optimize=True)
+                if path.stat().st_size <= MAX_THUMB_BYTES:
+                    logger.info("Thumbnail re-compressed to %dKB (q=%d)", path.stat().st_size // 1024, quality)
+                    return True
+            logger.error("Thumbnail still over 2MB after re-compression: %s", path)
+        except Exception as exc:
+            logger.error("validate_file_size failed: %s", exc)
+        return False
+
+    def _make_headline(self, title: str) -> str:
+        """Shorten title to ≤3 meaningful words for the thumbnail headline."""
+        words = title.split()
+        stop = {"the", "a", "an", "is", "are", "was", "were", "of", "in", "and", "or", "to"}
+        meaningful = [w for w in words if w.lower() not in stop]
+        return " ".join(meaningful[:3]).upper() or title[:20].upper()
+
+
 def generate_thumbnail_from_claude(
     video_title: str,
     key_stat: str,

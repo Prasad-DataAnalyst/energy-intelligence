@@ -3,8 +3,11 @@ Master scheduler — coordinates all pipeline jobs using APScheduler.
 Weekday: market scrape → script → build → upload (8AM and 5PM ET).
 Sunday: educational video (11AM ET).
 Runs as a long-lived process; designed for server/cron deployment.
+Process isolation: each heavy pipeline run spawns a child subprocess.
 """
 import logging
+import multiprocessing
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -32,40 +35,70 @@ def _setup_logging() -> None:
         root.addHandler(h)
 
 
+def _run_weekday_in_process() -> None:
+    """Isolated child-process entry for weekday pipeline."""
+    from scheduler.weekday_scheduler import WeekdayScheduler
+    sch = WeekdayScheduler()
+    result = sch.run()
+    if result:
+        logger.info("Weekday pipeline complete: %s", result)
+    else:
+        logger.error("Weekday pipeline returned no result")
+
+
+def _run_sunday_in_process() -> None:
+    """Isolated child-process entry for Sunday pipeline."""
+    from scheduler.sunday_scheduler import SundayScheduler
+    sch = SundayScheduler()
+    result = sch.run()
+    if result:
+        logger.info("Sunday pipeline complete: %s", result)
+    else:
+        logger.error("Sunday pipeline returned no result")
+
+
+def _run_isolated(target_fn, name: str) -> None:
+    """Spawn target_fn in a fresh child process for isolation."""
+    logger.info("Spawning isolated process for: %s (PID parent: %d)", name, os.getpid())
+    proc = multiprocessing.Process(target=target_fn, name=name, daemon=False)
+    proc.start()
+    proc.join(timeout=7200)   # 2-hour hard timeout per pipeline run
+    if proc.exitcode != 0:
+        logger.error("Isolated process '%s' exited with code %s", name, proc.exitcode)
+    else:
+        logger.info("Isolated process '%s' completed successfully", name)
+
+
 def run_weekday_pipeline() -> None:
-    """Full weekday pipeline: scrape → generate → build → upload."""
+    """Full weekday pipeline: scrape → generate → build → upload (process-isolated)."""
     logger.info("=" * 60)
     logger.info("WEEKDAY PIPELINE STARTING — %s", datetime.now().strftime("%Y-%m-%d %H:%M"))
     logger.info("=" * 60)
-
     try:
-        from scheduler.weekday_scheduler import WeekdayScheduler
-        scheduler = WeekdayScheduler()
-        result = scheduler.run()
-        if result:
-            logger.info("Weekday pipeline complete: %s", result)
-        else:
-            logger.error("Weekday pipeline returned no result")
+        _run_isolated(_run_weekday_in_process, "WeekdayPipeline")
     except Exception as exc:
         logger.exception("Weekday pipeline FAILED: %s", exc)
 
 
 def run_sunday_pipeline() -> None:
-    """Full Sunday educational pipeline."""
+    """Full Sunday educational pipeline (process-isolated)."""
     logger.info("=" * 60)
     logger.info("SUNDAY PIPELINE STARTING — %s", datetime.now().strftime("%Y-%m-%d %H:%M"))
     logger.info("=" * 60)
-
     try:
-        from scheduler.sunday_scheduler import SundayScheduler
-        scheduler = SundayScheduler()
-        result = scheduler.run()
-        if result:
-            logger.info("Sunday pipeline complete: %s", result)
-        else:
-            logger.error("Sunday pipeline returned no result")
+        _run_isolated(_run_sunday_in_process, "SundayPipeline")
     except Exception as exc:
         logger.exception("Sunday pipeline FAILED: %s", exc)
+
+
+def run_heartbeat() -> None:
+    """30-minute heartbeat — logs scheduler liveness to logs/heartbeat.log."""
+    hb_path = settings.logs_dir / "heartbeat.log"
+    settings.logs_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with open(hb_path, "a", encoding="utf-8") as f:
+        f.write(f"[HEARTBEAT] {ts} | PID={os.getpid()} | scheduler alive\n")
+    logger.debug("Heartbeat logged at %s", ts)
 
 
 def run_monitor_check() -> None:
@@ -132,6 +165,16 @@ def start_scheduler() -> None:
         CronTrigger(minute=0, hour="*/2"),
         id="monitor_check",
         name="Channel Performance Monitor",
+        max_instances=1,
+        coalesce=True,
+    )
+
+    # ── Heartbeat (every 30 minutes) ─────────────────────────────────────
+    scheduler.add_job(
+        run_heartbeat,
+        CronTrigger(minute="0,30"),
+        id="heartbeat",
+        name="Scheduler Heartbeat",
         max_instances=1,
         coalesce=True,
     )

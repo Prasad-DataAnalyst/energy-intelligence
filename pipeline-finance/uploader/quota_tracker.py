@@ -158,3 +158,79 @@ class QuotaTracker:
             f"  Uploads:   {s.uploads_today} / {settings.daily_upload_quota} today\n"
             f"  Can Upload: {'YES ✅' if s.can_upload else 'NO ❌ — quota exceeded'}"
         )
+
+    # ── Additional methods ────────────────────────────────────────────────────
+
+    def load_state(self) -> DailyQuotaState:
+        """Explicitly reload state from disk (re-reads file)."""
+        self._state = self._load()
+        return self._state
+
+    def save_state(self) -> None:
+        """Explicitly persist current state to disk."""
+        self._save()
+
+    def reset_daily(self) -> None:
+        """Force-reset daily counters (e.g. for testing or manual override)."""
+        self._state = DailyQuotaState(
+            date=self._today(),
+            total_used=0,
+            remaining=DAILY_QUOTA_LIMIT,
+            entries=[],
+            uploads_today=0,
+        )
+        self._save()
+        logger.info("Quota state manually reset for %s", self._state.date)
+
+    def log_usage(self, operation: str, cost: Optional[int] = None, note: str = "") -> None:
+        """
+        Log an arbitrary API operation with an optional cost override.
+        Useful for manually tracking non-standard API calls.
+        """
+        self._ensure_today()
+        effective_cost = cost if cost is not None else QUOTA_COSTS.get(operation, 1)
+        entry = QuotaEntry(
+            operation=operation,
+            cost=effective_cost,
+            video_id=None,
+            title=note or None,
+        )
+        self._state.total_used += effective_cost
+        self._state.remaining = max(0, DAILY_QUOTA_LIMIT - self._state.total_used)
+        self._state.entries.append(asdict(entry))
+        self._save()
+        logger.debug("Usage logged: %s (%d units) — note: %s", operation, effective_cost, note)
+
+    def get_remaining(self) -> int:
+        """Return remaining quota units for today."""
+        self._ensure_today()
+        return self._state.remaining
+
+    def get_daily_summary(self) -> dict:
+        """Return a structured summary dict for monitoring/alerting."""
+        s = self.status()
+        return {
+            "date": s.date,
+            "total_used": s.total_used,
+            "remaining": s.remaining,
+            "limit": s.limit,
+            "utilization_pct": s.utilization_pct,
+            "uploads_today": s.uploads_today,
+            "max_uploads": settings.daily_upload_quota,
+            "can_upload": s.can_upload,
+            "entry_count": len(s.entries),
+        }
+
+    def alert_low_quota(self, threshold: int = 2000) -> bool:
+        """
+        Check if remaining quota is below threshold.
+        Logs a warning and returns True if low.
+        """
+        remaining = self.get_remaining()
+        if remaining < threshold:
+            logger.warning(
+                "LOW QUOTA ALERT: only %d units remaining (threshold: %d)",
+                remaining, threshold,
+            )
+            return True
+        return False

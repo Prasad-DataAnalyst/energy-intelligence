@@ -59,12 +59,105 @@ def _pick_topic(library: dict) -> dict:
     return chosen
 
 
+_THEME_CYCLE = [
+    "investment_banking",
+    "insurance_protection",
+    "savings_wealth",
+    "rotating_bonus",
+]
+
+_WEEK_CYCLE_FILE = Path(__file__).parent.parent / "logs" / "sunday_week_cycle.json"
+
+
 class SundayScheduler:
     """Orchestrates the Sunday educational pipeline."""
 
     def __init__(self):
         self.run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.errors: list[str] = []
+
+    def get_week_in_cycle(self) -> int:
+        """Return 0-based week index within the 4-week theme cycle."""
+        try:
+            if _WEEK_CYCLE_FILE.exists():
+                data = json.loads(_WEEK_CYCLE_FILE.read_text())
+                return int(data.get("week_index", 0)) % len(_THEME_CYCLE)
+        except Exception:
+            pass
+        return date.today().isocalendar()[1] % len(_THEME_CYCLE)
+
+    def get_sunday_theme(self) -> str:
+        """Return the Sunday theme for this week based on cycle position."""
+        idx = self.get_week_in_cycle()
+        theme = _THEME_CYCLE[idx]
+        logger.info("Sunday theme this week: %s (week %d in cycle)", theme, idx)
+        return theme
+
+    def get_sunday_topic(self, theme: str) -> dict:
+        """Pick a topic from the library matching the given theme (best-effort)."""
+        try:
+            library = _load_topic_library()
+            topics = library["topics"]
+            theme_topics = [t for t in topics if t.get("theme") == theme]
+            if not theme_topics:
+                theme_topics = topics
+            return _pick_topic({"topics": theme_topics, **{k: v for k, v in library.items() if k != "topics"}})
+        except Exception as exc:
+            logger.warning("get_sunday_topic failed (%s) — using default: %s", theme, exc)
+            return {"title": f"{theme.replace('_', ' ').title()} Explained", "theme": theme,
+                    "tags": [], "current_relevance": "Timely financial education topic"}
+
+    def run_sunday_pipeline(self) -> Optional["PipelineResult"]:
+        """
+        Full Sunday pipeline with correct generate_sunday_script() call.
+        Detects theme from week cycle, picks topic from library.
+        """
+        return self.run()
+
+    def upload_morning_sunday(self) -> None:
+        """10:00 ET Sunday upload slot."""
+        logger.info("[%s] upload_morning_sunday (10:00 ET)", self.run_id)
+        try:
+            from uploader.quota_tracker import QuotaTracker
+            from uploader.uploader import YouTubeUploader
+            qt = QuotaTracker()
+            if not qt.can_upload():
+                logger.warning("Morning Sunday upload skipped — quota exceeded")
+                return
+            uploader = YouTubeUploader(qt)
+            uploader.process_failed_queue()
+        except Exception as exc:
+            logger.error("upload_morning_sunday failed: %s", exc)
+            self.errors.append(f"upload_morning_sunday: {exc}")
+
+    def upload_afternoon_sunday(self) -> None:
+        """16:00 ET Sunday upload slot — main educational video."""
+        logger.info("[%s] upload_afternoon_sunday (16:00 ET)", self.run_id)
+        try:
+            from uploader.quota_tracker import QuotaTracker
+            from uploader.uploader import YouTubeUploader
+            qt = QuotaTracker()
+            if not qt.can_upload():
+                logger.warning("Afternoon Sunday upload skipped — quota exceeded")
+                return
+            videos_dir = settings.output_dir / "videos"
+            today_str = datetime.now().strftime("%Y%m%d")
+            videos = sorted(videos_dir.glob(f"sunday_*{today_str}*.mp4"), reverse=True)
+            if not videos:
+                logger.info("No Sunday videos ready for afternoon upload")
+                return
+            uploader = YouTubeUploader(qt)
+            if not uploader.authenticate():
+                return
+            uploader.upload_main_video(
+                video_path=videos[0],
+                title=f"Sunday Finance Deep Dive {today_str}",
+                description=settings.disclaimer_text,
+                tags=["investing", "financial education", "DriftWire326"],
+            )
+        except Exception as exc:
+            logger.error("upload_afternoon_sunday failed: %s", exc)
+            self.errors.append(f"upload_afternoon_sunday: {exc}")
 
     def run(self):
         start = datetime.now()
@@ -80,19 +173,22 @@ class SundayScheduler:
             topic_data = _pick_topic(library)
 
             topic = topic_data["title"]
-            subtopics = topic_data["subtopics"]
-            key_concepts = topic_data["key_concepts"]
-            current_relevance = topic_data["current_relevance"]
+            current_relevance = topic_data.get("current_relevance", "")
             tags_base = topic_data.get("tags", [])
 
+            # Determine theme from week cycle
+            theme = topic_data.get("theme") or self.get_sunday_theme()
+            week_context = current_relevance or "Markets were active this week."
+            bonus_theme = topic_data.get("bonus_theme", "macro_finance")
+
             # ── Generate script ────────────────────────────────────────────
-            logger.info("Generating Sunday script for: %s", topic)
+            logger.info("Generating Sunday script for: %s | theme=%s", topic, theme)
             from generators.script_gen import generate_sunday_script
             script = generate_sunday_script(
                 topic=topic,
-                subtopics=subtopics,
-                key_concepts=key_concepts,
-                current_relevance=current_relevance,
+                theme=theme,
+                week_context=week_context,
+                bonus_theme=bonus_theme,
             )
             script.save(settings.output_dir / "scripts")
 
