@@ -11,30 +11,54 @@
 ```
 pipeline-finance/
 ├── config/          Settings, prompts, OAuth credentials
-├── scrapers/        Market data (yfinance), economic (FRED), earnings, topic library
-├── generators/      AI script writer, compliance filter, charts, audio, thumbnails, titles
-├── builders/        Video assembler (MoviePy/ffmpeg), Shorts builder
-├── uploader/        YouTube Data API v3 upload + quota tracker
-├── scheduler/       APScheduler — weekday (8AM/5PM ET) + Sunday (11AM ET)
-├── monitor/         Analytics monitoring + email/webhook alerts
-├── tests/           pytest test suite
+│   ├── settings.py          Pydantic settings (loads from .env)
+│   ├── prompts.py           All Claude prompt templates
+│   └── finance_oauth.json   YouTube OAuth2 credential placeholder
+├── scrapers/        Market data, economic indicators, earnings
+│   ├── market_scraper.py    yfinance — prices, movers, sector performance
+│   ├── economic_scraper.py  FRED API — CPI, GDP, unemployment, Fed rate
+│   ├── earnings_scraper.py  SEC EDGAR + Finnhub — EPS beats/misses
+│   └── topic_library.py     Sunday educational topic bank
+├── generators/      AI-powered content generation
+│   ├── script_gen.py        Claude API — full scripts with [SECTION] markers
+│   ├── compliance_filter.py Rule engine + Claude semantic review + auto-fix
+│   ├── chart_generator.py   matplotlib/mplfinance — branded PNG charts
+│   ├── audio_gen.py         edge-tts primary / gTTS fallback, 120–180s range
+│   ├── thumbnail_gen.py     Pillow — 1280×720 branded JPEG thumbnails
+│   └── title_gen.py         Claude API — scored titles, descriptions, tags
+├── builders/        Video assembly (MoviePy/ffmpeg)
+│   ├── video_builder.py     Main video — Ken Burns, captions, watermark
+│   └── shorts_builder.py    YouTube Shorts — cards, ≤60s hard limit
+├── uploader/        YouTube Data API v3
+│   ├── uploader.py          OAuth2 upload, 30-min gap, failed queue
+│   └── quota_tracker.py     10,000 unit/day tracking, reset, alerts
+├── scheduler/       APScheduler — automated daily runs
+│   ├── weekday_scheduler.py Mon–Fri market pipelines + NYSE holiday check
+│   ├── sunday_scheduler.py  4-theme educational cycle
+│   └── master_scheduler.py  Process-isolated runners + 30-min heartbeat
+├── monitor/         Health checks, KPI tracking, alerts
+│   └── monitor.py           Pipeline health, quota, API status, email alerts
+├── tests/           pytest test suite — 206 tests, all passing
+├── assets/          Fonts, watermarks, music library
+├── logs/            Quota log, heartbeat log, daily JSONL summaries
+├── output/          Generated videos, audio, thumbnails, charts
 └── main.py          CLI entry point
 ```
 
 ## Pipeline Flow
 
 ```
-[Scrape] Market + Earnings + Economic Data
-         ↓
-[Generate] Claude AI Script → Compliance Filter → Auto-Fix
-         ↓
-[Create] Charts (matplotlib) + Audio (ElevenLabs/pyttsx3)
-         ↓        + Thumbnail (Pillow) + Titles (Claude AI)
-[Build] Main Video (MoviePy/ffmpeg 1920×1080) + Short (1080×1920)
-         ↓
-[Upload] YouTube Data API v3 → Schedule Publish → Set Thumbnail
-         ↓
-[Monitor] Hourly KPI checks → Milestone alerts → Email notifications
+[Scrape]    Market (yfinance) + Earnings (SEC EDGAR/Finnhub) + Economic (FRED)
+               ↓
+[Generate]  Claude AI Script → Compliance Filter → Auto-Fix
+               ↓
+[Create]    Charts (matplotlib) + Audio (edge-tts, 120–180s) + Thumbnail (Pillow)
+               ↓            + Titles & Tags (Claude AI, promise-checked)
+[Build]     Main Video (MoviePy/ffmpeg 1920×1080 30fps) + Short (1080×1920 ≤60s)
+               ↓
+[Upload]    YouTube Data API v3 → Set Thumbnail → Record Quota Usage
+               ↓
+[Monitor]   Health checks every 30 min → Alerts → Daily JSONL summary
 ```
 
 ---
@@ -50,6 +74,9 @@ python --version
 # ffmpeg (required for video building)
 sudo apt install ffmpeg         # Ubuntu/Debian
 brew install ffmpeg             # macOS
+
+# System font for thumbnails (optional — DejaVu is bundled)
+sudo apt install fonts-dejavu   # Ubuntu/Debian
 ```
 
 ### 2. Install Dependencies
@@ -57,26 +84,50 @@ brew install ffmpeg             # macOS
 ```bash
 cd pipeline-finance
 pip install -r requirements.txt
+
+# Additional audio libraries (required for audio duration + fallback TTS)
+pip install mutagen gtts edge-tts
 ```
 
 ### 3. Configure Environment
 
 ```bash
 cp .env.example .env
-# Edit .env with your API keys:
-# - ANTHROPIC_API_KEY (required)
-# - ELEVENLABS_API_KEY (optional — falls back to pyttsx3)
-# - FRED_API_KEY (optional — falls back to mock data)
-# - YouTube OAuth setup (see below)
 ```
+
+Edit `.env` with your credentials:
+
+```env
+# Required
+ANTHROPIC_API_KEY=sk-ant-...
+
+# Required for earnings data
+FINNHUB_API_KEY=your_finnhub_key
+
+# Optional — falls back to public FRED endpoints
+FRED_API_KEY=your_fred_key
+
+# Optional — for email alerts
+ALERT_EMAIL_FROM=alerts@yourdomain.com
+ALERT_EMAIL_TO=you@yourdomain.com
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_PASSWORD=your_app_password
+```
+
+**Security rules — never break these:**
+- `.env` must never be committed to git (it's in `.gitignore`)
+- `config/finance_oauth.json` is a placeholder — real credentials handled at runtime
+- `MIN_QUOTA_TO_UPLOAD = 1700` is enforced before every upload
+- All scripts must pass the compliance gate before any upload
 
 ### 4. YouTube API Setup
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com)
 2. Create a project → Enable **YouTube Data API v3**
-3. Create OAuth 2.0 credentials (Desktop App type)
-4. Download JSON → save as `config/finance_oauth.json`
-5. First run will open a browser for authorization
+3. Create OAuth 2.0 credentials → Application type: **Desktop App**
+4. Download the JSON → save as `config/finance_oauth.json`
+5. First run opens a browser for one-time authorization; token is cached automatically
 
 ### 5. Run the Pipeline
 
@@ -84,20 +135,26 @@ cp .env.example .env
 # Check quota status
 python main.py --quota
 
-# Dry run (scrape + generate only, no upload)
-python main.py --dry-run weekday
+# Run full weekday pipeline once (scrape → build → upload)
+python main.py --mode full
 
-# Run weekday pipeline once
-python main.py --run weekday
+# Individual stages
+python main.py --mode scrape              # scrape only
+python main.py --mode build --topic AAPL  # build only for a topic
+python main.py --mode upload              # upload from output/ queue
 
-# Run Sunday educational pipeline
-python main.py --run sunday
+# Sunday educational pipeline
+python main.py --mode sunday
 
-# Start the full scheduler (runs 24/7)
+# Dry run (no upload)
+python main.py --run weekday --dry-run
+python main.py --run sunday  --dry-run
+
+# Start the full 24/7 scheduler
 python main.py
 
 # Run tests
-python main.py --test
+python main.py --mode test
 # or directly:
 pytest tests/ -v
 ```
@@ -106,51 +163,124 @@ pytest tests/ -v
 
 ## Schedule
 
-| Day       | Time (ET) | Content                              |
-|-----------|-----------|--------------------------------------|
-| Mon–Fri   | 8:00 AM   | Pre-market briefing (5-7 min)        |
-| Mon–Fri   | 5:00 PM   | Post-market full recap (8-10 min)    |
-| Daily     | Continuous| YouTube Shorts from key moments      |
-| Sunday    | 11:00 AM  | Educational deep-dive (10-12 min)    |
+| Day       | Time (ET)  | Action                                          |
+|-----------|------------|-------------------------------------------------|
+| Mon–Fri   | 6:00 AM    | Scrape + generate script + build video          |
+| Mon–Fri   | 7:00 AM    | Upload main morning briefing                    |
+| Mon–Fri   | 12:30 PM   | Upload midday Short                             |
+| Mon–Fri   | 4:30 PM    | Upload afternoon market wrap video              |
+| Sunday    | 10:00 AM   | Upload Sunday educational deep-dive             |
+| Sunday    | 4:00 PM    | Upload Sunday afternoon Short                   |
+| Every 30m | —          | Heartbeat log + health checks                   |
+
+Market-day check respects NYSE observed holidays (New Year's Day, MLK Day, Presidents Day, Good Friday, Memorial Day, Juneteenth, Independence Day, Labor Day, Thanksgiving, Christmas).
 
 ---
 
 ## Module Reference
 
-### Scrapers
+### Config (Modules 1–2)
+
+| File | Purpose |
+|------|---------|
+| `config/settings.py` | Pydantic `Settings` — all paths, keys, brand constants, disclaimer text |
+| `config/prompts.py` | All Claude prompt templates for script, title, compliance |
+
+### Scrapers (Modules 3–4)
+
 | Module | Source | Data |
 |--------|--------|------|
-| `market_scraper.py` | yfinance | Prices, movers, sector performance |
-| `economic_scraper.py` | FRED API | CPI, GDP, unemployment, Fed rate |
-| `earnings_scraper.py` | yfinance | EPS beats/misses, upcoming reports |
+| `market_scraper.py` | yfinance | Prices, % moves, top movers, sector heatmap; tier1 ≥5%, tier2 ≥2% |
+| `economic_scraper.py` | FRED REST API | CPI, GDP, unemployment rate, Fed funds rate |
+| `earnings_scraper.py` | SEC EDGAR + Finnhub | EPS beats/misses, upcoming reports, 8-K filings |
+| `topic_library.py` | Static bank | 50+ Sunday educational topics in 4 theme categories |
 
-### Generators
+### Generators (Modules 5–9)
+
 | Module | Tech | Output |
 |--------|------|--------|
-| `script_gen.py` | Claude API | Full scripts with section markers |
-| `compliance_filter.py` | Rules + Claude | Compliance report + auto-fixes |
-| `chart_generator.py` | matplotlib + mplfinance | PNG chart images |
-| `audio_gen.py` | ElevenLabs / pyttsx3 | MP3 audio per segment |
-| `thumbnail_gen.py` | Pillow | 1280×720 branded JPG |
-| `title_gen.py` | Claude API | 10 scored title options + description |
+| `script_gen.py` | Claude `claude-sonnet-4-6` | Weekday/Sunday scripts with `[HOOK]`, `[DATA]`, `[ANALYSIS]`, `[CLOSE]` markers |
+| `compliance_filter.py` | Regex + Claude | ComplianceReport with auto-fixed script; blocks high-risk content |
+| `chart_generator.py` | matplotlib + mplfinance | `ChartFile` — price_line, candlestick, animated MP4, economic_bar, 4-panel indices |
+| `audio_gen.py` | edge-tts → gTTS fallback | `AudioTrack` — 120–180s validated MP3; weekday voice rotation (Mon=Guy, Tue=Christopher…) |
+| `thumbnail_gen.py` | Pillow | `ThumbnailFile` — 1280×720 JPEG ≤2MB; weekday + Sunday templates; 15% opacity watermark |
+| `title_gen.py` | Claude API | `TitleSet` with 10 scored options; description auto-appends disclaimer + AI disclosure |
 
-### YouTube API Quota
-The free tier provides **10,000 units/day**.  
-Video upload costs **1,600 units** — max ~6 uploads/day safely.  
-Quota is tracked in `logs/quota_tracker.json` and reset daily.
+### Builders (Modules 10–11)
+
+| Module | Tech | Output |
+|--------|------|--------|
+| `video_builder.py` | MoviePy + ffmpeg | `BuiltVideo` — 1920×1080 H.264 30fps AAC; Ken Burns, 52px captions, lower-third, 8% music mix |
+| `shorts_builder.py` | MoviePy + ffmpeg | `BuiltShort` — 1080×1920 ≤60s; card-style text overlay, 15% music, 7-day no-repeat music rotation |
+
+### Uploader (Modules 12–13)
+
+| Module | Purpose |
+|--------|---------|
+| `uploader.py` | `YouTubeUploader` — OAuth2 resumable upload; category 25 (News & Politics); auto-appends `#Shorts`; 30-min gap between uploads; failed queue to `logs/failed_queue.json` |
+| `quota_tracker.py` | `QuotaTracker` — 10,000 unit/day limit; per-operation cost table; `alert_low_quota(threshold=2000)`; persists to `logs/quota_tracker.json` |
+
+### Scheduler (Modules 14–16)
+
+| Module | Purpose |
+|--------|---------|
+| `weekday_scheduler.py` | Mon–Fri pipelines; `is_market_day()` with NYSE holiday list; morning/midday/afternoon slots |
+| `sunday_scheduler.py` | 4-week theme cycle (investment_banking → insurance → savings → rotating_bonus); `get_sunday_topic()` |
+| `master_scheduler.py` | APScheduler cron; each pipeline run in isolated child process with 2-hour hard timeout; 30-min heartbeat to `logs/heartbeat.log` |
+
+### Monitor (Module 17)
+
+`monitor.py` — `PipelineMonitor` class:
+- `check_pipeline_health()` — aggregates all checks into a health dict
+- `check_quota_status()` — alerts when remaining < 2,000 units
+- `check_api_status()` — liveness ping of Anthropic API + yfinance
+- `check_last_upload_success()` — reads upload log for recent success
+- `log_daily_summary()` — appends to `logs/pipeline_daily.jsonl`
+- `alert(message, level)` — email + webhook (Slack/Discord)
+
+### CLI (Module 18)
+
+`main.py` — argument reference:
+
+```
+--mode {full,scrape,build,upload,test,sunday}   Pipeline stage to run
+--date YYYY-MM-DD                                Override run date
+--topic TOPIC                                    Override scraped topic
+--run {weekday,sunday}                           Legacy: run once
+--dry-run                                        Skip upload step
+--quota                                          Show quota status and exit
+--test                                           Run pytest suite and exit
+```
+
+---
+
+## YouTube API Quota
+
+The free tier provides **10,000 units/day**.
+
+| Operation | Cost (units) |
+|-----------|-------------|
+| `videos.insert` (upload) | 1,600 |
+| `thumbnails.set` | 50 |
+| `videos.list` | 1 |
+| `videos.update` | 50 |
+
+The pipeline enforces `MIN_QUOTA_TO_UPLOAD = 1700` before every upload. With 3 uploads/day (morning main + Short + afternoon main), daily usage is ~3,350 units, well within the 10,000 limit.
 
 ---
 
 ## Compliance Architecture
 
-All scripts pass through a two-stage compliance gate:
+All scripts pass through a mandatory two-stage gate before any video is built:
 
-1. **Rule Engine** — regex patterns block guaranteed returns, risk-free claims, direct buy/sell advice
-2. **Claude AI Review** — semantic review catches subtle compliance issues  
-3. **Auto-Fix** — non-critical issues are automatically corrected  
-4. **High-risk scripts are blocked** — never uploaded without manual review
+1. **Rule Engine** — regex blocks guaranteed-return claims, risk-free language, direct buy/sell advice
+2. **Claude AI Semantic Review** — catches subtle compliance issues the rules miss
+3. **Auto-Fix** — non-critical issues are corrected in-place; script re-evaluated
+4. **Hard Block** — high-risk scripts are rejected and never uploaded
 
-All videos include the standard disclaimer per FTC and SEC guidance.
+Every video description automatically includes:
+- `settings.disclaimer_text` (standard financial disclaimer)
+- `"Narration is AI-generated."` (FTC AI disclosure)
 
 ---
 
@@ -158,33 +288,73 @@ All videos include the standard disclaimer per FTC and SEC guidance.
 
 | Element | Value |
 |---------|-------|
+| Channel handle | `@DriftWire326` |
 | Primary color | `#FF0033` (YouTube red) |
 | Background | `#0A0A0F` (near black) |
 | Accent | `#FFD700` (gold) |
-| Success | `#00CC66` (green) |
+| Success green | `#00CC66` |
+| Danger red | `#FF3333` |
 | Fonts | Impact (headlines), DejaVu Sans (body) |
-| Video format | 1920×1080 @ 30fps, libx264, 8Mbps |
-| Shorts format | 1080×1920 @ 30fps, max 55s |
-| Thumbnail | 1280×720 JPEG, >95 quality |
+| Main video | 1920×1080 @ 30fps, H.264, 8 Mbps, AAC 192k |
+| Shorts | 1080×1920 @ 30fps, H.264, ≤60s hard limit |
+| Thumbnail | 1280×720 JPEG, ≤2MB, auto-recompressed if over |
+| Audio | 120–180s validated range; silence padding if short |
 
 ---
 
 ## Testing
 
 ```bash
+# Run all 206 tests
+pytest tests/ -v
+
+# With coverage report
 pytest tests/ -v --cov=. --cov-report=term-missing
+
+# Single module
+pytest tests/test_chart_generator.py -v
 ```
 
-Tests cover: scraper data models, compliance rules, script parsing,  
-title scoring, quota tracking, upload config, video builder assets.
+| Test file | Tests | Module |
+|-----------|-------|--------|
+| `test_market_scraper.py` | 12 | market_scraper |
+| `test_economic_scraper.py` | 12 | economic_scraper |
+| `test_earnings_scraper.py` | 12 | earnings_scraper |
+| `test_script_gen.py` | 15 | script_gen |
+| `test_compliance.py` | 17 | compliance_filter |
+| `test_chart_generator.py` | 8 | ChartGenerator class |
+| `test_audio_gen.py` | 10 | AudioGenerator class |
+| `test_title_gen.py` | 11 | TitleGenerator class |
+| `test_thumbnail_gen.py` | 10 | ThumbnailGenerator class |
+| `test_builders.py` | 18 | VideoBuilder + ShortsBuilder |
+| `test_scheduler.py` | 18 | WeekdayScheduler + SundayScheduler |
+| `test_monitor.py` | 13 | PipelineMonitor + ChannelMonitor |
+| `test_youtube_uploader.py` | 20 | YouTubeUploader + QuotaTracker |
+| **Total** | **206** | All passing, no live API calls |
 
-All tests run without API keys using mocks.
+All tests run without API keys using `unittest.mock` patches.
+
+---
+
+## Directory Outputs
+
+| Path | Contents |
+|------|----------|
+| `output/weekday/` | Built main videos per date |
+| `output/shorts/` | Built Shorts per date |
+| `output/charts/` | PNG charts organized by ticker/date |
+| `output/audio/` | MP3 segments per pipeline run |
+| `output/thumbnails/` | JPEG thumbnails per video |
+| `logs/quota_tracker.json` | Daily quota state (auto-reset) |
+| `logs/heartbeat.log` | 30-min pipeline heartbeat |
+| `logs/pipeline_daily.jsonl` | Per-run JSON summaries |
+| `logs/failed_queue.json` | Uploads queued for retry |
 
 ---
 
 ## Legal
 
-All generated content includes mandatory financial disclaimers.  
+All generated content includes mandatory financial disclaimers per FTC and SEC guidance.  
 This pipeline is for educational content creation only.  
 Nothing produced constitutes financial advice.  
 Always review AI-generated scripts before publishing.
