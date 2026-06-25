@@ -18,6 +18,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import os
+os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "1")
+
 HERE     = Path(__file__).parent
 SECRETS  = HERE / "client_secrets.json"
 TOKEN    = HERE / "youtube_token.json"
