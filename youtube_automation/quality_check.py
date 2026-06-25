@@ -121,15 +121,23 @@ def check_video(video_path: str) -> list:
 
     # Supporting files
     folder = path.parent
-    for fname in [path.with_suffix(".srt").name,
-                  path.stem + "_thumbnail.jpg"]:
-        if not (folder / fname).exists():
-            errors.append(f"Missing: {fname}")
+    is_all_signs = path.stem.startswith("daily_horoscope_")
 
-    for meta in ["title.txt", "description.txt", "hashtags.txt",
-                 "tags.txt", "pinned_comment.txt"]:
-        if not (folder / meta).exists():
-            errors.append(f"Missing metadata: {meta}")
+    thumb = path.stem + "_thumbnail.jpg"
+    if not (folder / thumb).exists():
+        errors.append(f"Missing: {thumb}")
+
+    if is_all_signs:
+        assets_json = folder / (path.stem + "_assets.json")
+        if not assets_json.exists():
+            errors.append(f"Missing metadata: {path.stem}_assets.json")
+    else:
+        if not (folder / path.with_suffix(".srt").name).exists():
+            errors.append(f"Missing: {path.with_suffix('.srt').name}")
+        for meta in ["title.txt", "description.txt", "hashtags.txt",
+                     "tags.txt", "pinned_comment.txt"]:
+            if not (folder / meta).exists():
+                errors.append(f"Missing metadata: {meta}")
 
     return errors
 
