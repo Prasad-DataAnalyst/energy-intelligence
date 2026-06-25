@@ -9,6 +9,7 @@ Usage:
   python3 make_daily_video.py daily_horoscope_20260621.json
   python3 make_daily_video.py 20260621
 """
+import asyncio
 import json
 import os
 import subprocess as _sp
@@ -439,6 +440,113 @@ def _generate_ambient(duration: float, out_path: str) -> bool:
         return False
 
 
+# ── Voice narration (edge-tts, free) ──────────────────────────────────────────
+def _voice_script(sign: str, fields: dict) -> str:
+    love   = fields.get("love",   "")
+    career = fields.get("career", "")
+    money  = fields.get("money",  "")
+    num    = fields.get("lucky_number", "")
+    color  = fields.get("lucky_color",  "")
+    note   = fields.get("note",   "")
+    return (
+        f"{sign.title()}. "
+        f"Love: {love}. "
+        f"Career: {career}. "
+        f"Money: {money}. "
+        f"Lucky number {num}, lucky color {color}. "
+        f"{note}."
+    )
+
+
+async def _tts_async(text: str, out_path: str) -> bool:
+    try:
+        import edge_tts
+        comm = edge_tts.Communicate(text, voice="en-IE-EmilyNeural")
+        await comm.save(out_path)
+        return Path(out_path).exists() and Path(out_path).stat().st_size > 512
+    except Exception as e:
+        print(f"[WARN] edge-tts: {e}", file=sys.stderr)
+        return False
+
+
+def _generate_silence(duration: float, out_path: str) -> bool:
+    cmd = [
+        "ffmpeg", "-y", "-loglevel", "error",
+        "-f", "lavfi", "-t", str(duration),
+        "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+        "-acodec", "libmp3lame", "-b:a", "64k",
+        out_path,
+    ]
+    try:
+        r = _sp.run(cmd, capture_output=True, timeout=30)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def _generate_sign_voice(text: str, out_path: str, target_secs: float) -> bool:
+    """TTS → pad/trim to exactly target_secs."""
+    raw = out_path.replace(".mp3", "_raw.mp3")
+    ok = asyncio.run(_tts_async(text, raw))
+    if not ok:
+        Path(raw).unlink(missing_ok=True)
+        return _generate_silence(target_secs, out_path)
+
+    cmd = [
+        "ffmpeg", "-y", "-loglevel", "error",
+        "-i", raw,
+        "-af", f"apad,atrim=end={target_secs}",
+        "-ar", "44100",
+        "-acodec", "libmp3lame", "-b:a", "128k",
+        out_path,
+    ]
+    try:
+        r = _sp.run(cmd, capture_output=True, timeout=30)
+        return r.returncode == 0
+    except Exception:
+        return False
+    finally:
+        Path(raw).unlink(missing_ok=True)
+
+
+def _concat_audio(clips: list, out_path: str) -> bool:
+    inputs = []
+    for c in clips:
+        inputs += ["-i", c]
+    n = len(clips)
+    flt = "".join(f"[{i}:a]" for i in range(n)) + f"concat=n={n}:v=0:a=1[out]"
+    cmd = [
+        "ffmpeg", "-y", "-loglevel", "error",
+        *inputs, "-filter_complex", flt,
+        "-map", "[out]",
+        "-acodec", "libmp3lame", "-b:a", "128k",
+        out_path,
+    ]
+    try:
+        r = _sp.run(cmd, capture_output=True, timeout=120)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def _mix_voice_ambient(voice_path: str, ambient_path: str, out_path: str) -> bool:
+    """Mix voice (85%) with ambient (15%)."""
+    cmd = [
+        "ffmpeg", "-y", "-loglevel", "error",
+        "-i", voice_path, "-i", ambient_path,
+        "-filter_complex",
+        "[0:a]volume=0.85[v];[1:a]volume=0.15[a];[v][a]amix=inputs=2:duration=first[out]",
+        "-map", "[out]",
+        "-acodec", "aac", "-b:a", "128k",
+        out_path,
+    ]
+    try:
+        r = _sp.run(cmd, capture_output=True, timeout=120)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
 # ── Video assembly ─────────────────────────────────────────────────────────────
 def assemble_video(png_files: list, durations: list,
                    audio_path: str | None, out_path: str) -> bool:
@@ -540,17 +648,67 @@ def process(json_path: str) -> str:
             durations.append(SIGN_SECS)
             print(f"      [{sign.title():<14}]  {SIGN_SECS}s")
 
-        # 2. Ambient music
-        print(f"\n[2/4] Generating ambient music ({total_dur}s)...")
-        audio_path = str(tmp / "ambient.mp3")
-        if _generate_ambient(total_dur, audio_path):
+        # 2. Voice narration (edge-tts, free)
+        print(f"\n[2/5] Generating voice narration (edge-tts)...")
+        voice_clips: list = []
+
+        sil_path = str(tmp / "voice_00_intro.mp3")
+        if _generate_silence(INTRO_SECS, sil_path):
+            voice_clips.append(sil_path)
+            print(f"      [intro]  {INTRO_SECS}s silence")
+        else:
+            voice_clips.append(None)
+
+        for idx, sign in enumerate(SIGNS):
+            fields = signs_data.get(sign, {})
+            script = _voice_script(sign, fields)
+            vpath  = str(tmp / f"voice_{idx + 1:02d}_{sign}.mp3")
+            if _generate_sign_voice(script, vpath, SIGN_SECS):
+                voice_clips.append(vpath)
+                print(f"      [{sign.title():<14}]  {SIGN_SECS}s")
+            else:
+                sil2 = str(tmp / f"sil_{idx + 1:02d}.mp3")
+                _generate_silence(SIGN_SECS, sil2)
+                voice_clips.append(sil2)
+                print(f"      [{sign.title():<14}]  (TTS failed, silence)")
+
+        voice_concat_path = str(tmp / "voice_all.mp3")
+        valid_clips = [c for c in voice_clips if c and Path(c).exists()]
+        voice_ok = (len(valid_clips) == len(voice_clips) and
+                    _concat_audio(valid_clips, voice_concat_path))
+        if voice_ok:
+            print("      Voice concat OK")
+        else:
+            print("      [WARN] Voice concat failed — falling back to ambient-only")
+
+        # 3. Ambient music
+        print(f"\n[3/5] Generating ambient music ({total_dur}s)...")
+        ambient_path = str(tmp / "ambient.mp3")
+        ambient_ok = _generate_ambient(total_dur, ambient_path)
+        if ambient_ok:
             print("      OK")
         else:
-            print("      [WARN] Music failed — video will be silent")
-            audio_path = None
+            print("      [WARN] Ambient failed")
 
-        # 3. Assemble
-        print(f"\n[3/4] Assembling {WIDTH}x{HEIGHT} @ {FPS}fps...")
+        # Mix voice + ambient
+        if voice_ok and ambient_ok:
+            mixed_path = str(tmp / "audio_final.aac")
+            if _mix_voice_ambient(voice_concat_path, ambient_path, mixed_path):
+                audio_path: str | None = mixed_path
+                print("      Voice + ambient mixed")
+            else:
+                audio_path = ambient_path
+                print("      [WARN] Mix failed — ambient only")
+        elif ambient_ok:
+            audio_path = ambient_path
+        elif voice_ok:
+            audio_path = voice_concat_path
+        else:
+            audio_path = None
+            print("      [WARN] No audio — video will be silent")
+
+        # 4. Assemble
+        print(f"\n[4/5] Assembling {WIDTH}x{HEIGHT} @ {FPS}fps...")
         ok = assemble_video(png_files, durations, audio_path, video_path)
         if not ok:
             print("[ERROR] Assembly failed", file=sys.stderr)
@@ -558,8 +716,8 @@ def process(json_path: str) -> str:
         size_mb = os.path.getsize(video_path) / 1_048_576
         print(f"      OK — {size_mb:.1f} MB")
 
-    # 4. Thumbnail (outside tmpdir, using persistent paths)
-    print(f"\n[4/4] Thumbnail...")
+    # 5. Thumbnail (outside tmpdir, using persistent paths)
+    print(f"\n[5/5] Thumbnail...")
     render_thumbnail(date_str, thumb_path)
 
     # Save metadata for uploader
