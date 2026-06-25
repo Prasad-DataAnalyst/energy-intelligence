@@ -564,13 +564,14 @@ def assemble_video(png_files: list, durations: list,
         "-f", "concat", "-safe", "0", "-i", concat_txt,
         "-vf", f"fps={FPS},scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=disable",
         "-pix_fmt", "yuv420p",
-        "-c:v", "libx264", "-preset", "fast", "-crf", "22",
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+        "-threads", "0",
         "-movflags", "+faststart",
         tmp_video,
     ]
 
     try:
-        r1 = _sp.run(cmd1, capture_output=True, timeout=600)
+        r1 = _sp.run(cmd1, capture_output=True, timeout=1800)
         if r1.returncode != 0:
             print(f"[ERROR] Video assembly: {r1.stderr.decode()[-300:]}", file=sys.stderr)
             return False

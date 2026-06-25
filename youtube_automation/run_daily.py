@@ -160,7 +160,7 @@ def run_all_signs_pipeline(args) -> int:
 
     # ── 2. Render slideshow video ───────────────────────────────────────────────
     print(f"\n[2/4] Video    — rendering slideshow...")
-    ok = run_live([PYTHON, "make_daily_video.py", json_file], timeout=600)
+    ok = run_live([PYTHON, "make_daily_video.py", json_file], timeout=1800)
     if not ok:
         print("      FAILED", file=sys.stderr)
         subprocess.run(["sudo", "systemctl", "start", "getmindfuelnow"], capture_output=True)
