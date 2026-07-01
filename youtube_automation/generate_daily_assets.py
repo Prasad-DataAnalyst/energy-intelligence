@@ -44,6 +44,30 @@ Style rules:
 Return ONLY valid raw JSON. No markdown. No explanation. No code fences."""
 
 
+_REQUIRED_FIELDS = ("love", "career", "money", "lucky_number", "lucky_color", "note")
+
+
+def _validate(data: dict) -> None:
+    """Raise ValueError if any sign or required field is missing/empty.
+    Guards against a malformed Claude response shipping '—' placeholder cards."""
+    signs = data.get("signs")
+    if not isinstance(signs, dict):
+        raise ValueError("'signs' object missing")
+    missing_signs = [s for s in SIGNS if s not in signs]
+    if missing_signs:
+        raise ValueError(f"missing signs: {missing_signs}")
+    for s in SIGNS:
+        f = signs[s]
+        if not isinstance(f, dict):
+            raise ValueError(f"{s}: not an object")
+        for k in _REQUIRED_FIELDS:
+            v = f.get(k)
+            if v is None or (isinstance(v, str) and not v.strip()):
+                raise ValueError(f"{s}: empty field '{k}'")
+            if isinstance(v, (list, dict)):
+                raise ValueError(f"{s}: field '{k}' must be a single value, got {type(v).__name__}")
+
+
 def generate(period: str, date_tag: str = None) -> str:
     client   = anthropic.Anthropic()
     if date_tag:
@@ -80,18 +104,31 @@ Return this EXACT JSON structure (fill in all 12 signs):
 }}"""
 
     print(f"[INFO] Generating all 12 signs via Claude...")
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=4000,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_msg}],
-    )
 
-    raw = response.content[0].text.strip()
-    raw = re.sub(r"^```[a-z]*\n?", "", raw)
-    raw = re.sub(r"\n?```$", "", raw)
+    data = None
+    last_err = None
+    for attempt in range(1, 4):
+        try:
+            response = client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=4000,
+                system=SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": user_msg}],
+            )
+            raw = response.content[0].text.strip()
+            raw = re.sub(r"^```[a-z]*\n?", "", raw)
+            raw = re.sub(r"\n?```$", "", raw)
+            candidate = json.loads(raw)
+            _validate(candidate)
+            data = candidate
+            break
+        except Exception as e:
+            last_err = e
+            print(f"[WARN] Attempt {attempt}/3 failed: {e}", file=sys.stderr)
 
-    data     = json.loads(raw)
+    if data is None:
+        raise RuntimeError(f"Claude asset generation failed after 3 attempts: {last_err}")
+
     filename = f"daily_horoscope_{date_tag}.json"
     with open(filename, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)

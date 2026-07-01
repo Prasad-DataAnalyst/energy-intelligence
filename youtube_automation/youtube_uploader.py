@@ -133,9 +133,20 @@ def upload_video(video_path: str, content: dict, seo_package: dict = None,
         data=json.dumps(metadata),
     )
     if init_resp.status_code == 403:
-        _queue_for_retry(video_path, content, seo_package)
+        reason = ""
+        try:
+            reason = init_resp.json()["error"]["errors"][0].get("reason", "")
+        except Exception:
+            pass
+        if reason in ("quotaExceeded", "uploadLimitExceeded", "dailyLimitExceeded"):
+            _queue_for_retry(video_path, content, seo_package)
+            raise RuntimeError(
+                "YouTube quota exceeded — video queued for retry at next UTC midnight."
+            )
+        # Scope / auth / permission 403 — do NOT queue (retry won't help); surface the real reason.
         raise RuntimeError(
-            "YouTube quota exceeded — video queued for retry at next UTC midnight."
+            f"YouTube upload forbidden (403 {reason or 'insufficientPermissions'}): "
+            f"{init_resp.text[:200]}"
         )
     if not init_resp.ok:
         log.error("YouTube upload init failed %d: %s", init_resp.status_code, init_resp.text[:500])
@@ -159,6 +170,7 @@ def _stream_upload(session, upload_url: str, video_path: str, file_size: int) ->
     retry    = 0
     with open(video_path, "rb") as fh:
         while uploaded < file_size:
+            fh.seek(uploaded)          # always track the protocol offset (fixes retry/short-308 corruption)
             chunk = fh.read(CHUNK)
             end   = uploaded + len(chunk) - 1
             for attempt in range(6):

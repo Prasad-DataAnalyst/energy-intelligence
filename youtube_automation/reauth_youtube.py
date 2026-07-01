@@ -20,14 +20,17 @@ load_dotenv()
 
 import os
 os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "1")
+os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
 
 HERE     = Path(__file__).parent
 SECRETS  = HERE / "client_secrets.json"
 TOKEN    = HERE / "youtube_token.json"
 
+# Keep in sync with config.YOUTUBE_SCOPES — force-ssl is required to post comments.
 SCOPES = [
     "https://www.googleapis.com/auth/youtube.upload",
     "https://www.googleapis.com/auth/youtube",
+    "https://www.googleapis.com/auth/youtube.force-ssl",
 ]
 
 REDIRECT_URI = "http://localhost:8080"

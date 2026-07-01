@@ -458,10 +458,10 @@ def _voice_script(sign: str, fields: dict) -> str:
     )
 
 
-async def _tts_async(text: str, out_path: str) -> bool:
+async def _tts_async(text: str, out_path: str, rate: str = "+0%") -> bool:
     try:
         import edge_tts
-        comm = edge_tts.Communicate(text, voice="en-IE-EmilyNeural")
+        comm = edge_tts.Communicate(text, voice="en-IE-EmilyNeural", rate=rate)
         await comm.save(out_path)
         return Path(out_path).exists() and Path(out_path).stat().st_size > 512
     except Exception as e:
@@ -469,11 +469,30 @@ async def _tts_async(text: str, out_path: str) -> bool:
         return False
 
 
+def _audio_dur(path: str) -> float:
+    """Duration in seconds via ffprobe, or 0.0 on failure."""
+    try:
+        r = _sp.run(
+            ["ffprobe", "-v", "quiet", "-of", "csv=p=0",
+             "-show_entries", "format=duration", path],
+            capture_output=True, text=True, timeout=20,
+        )
+        return float(r.stdout.strip()) if r.returncode == 0 and r.stdout.strip() else 0.0
+    except Exception:
+        return 0.0
+
+
+# All audio normalized to this layout so concat never fails on a mismatch.
+_AR = "44100"
+_AC = "2"
+
+
 def _generate_silence(duration: float, out_path: str) -> bool:
     cmd = [
         "ffmpeg", "-y", "-loglevel", "error",
         "-f", "lavfi", "-t", str(duration),
-        "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+        "-i", f"anullsrc=channel_layout=stereo:sample_rate={_AR}",
+        "-ar", _AR, "-ac", _AC,
         "-acodec", "libmp3lame", "-b:a", "64k",
         out_path,
     ]
@@ -485,18 +504,25 @@ def _generate_silence(duration: float, out_path: str) -> bool:
 
 
 def _generate_sign_voice(text: str, out_path: str, target_secs: float) -> bool:
-    """TTS → pad/trim to exactly target_secs."""
+    """TTS → speed up to fit target_secs (avoids mid-sentence cut) → pad/trim exact."""
     raw = out_path.replace(".mp3", "_raw.mp3")
     ok = asyncio.run(_tts_async(text, raw))
     if not ok:
         Path(raw).unlink(missing_ok=True)
         return _generate_silence(target_secs, out_path)
 
+    # If the narration overruns the slide, re-synthesize faster (cap +60%) so the
+    # whole line is spoken within the window instead of being chopped off.
+    dur = _audio_dur(raw)
+    if dur > target_secs + 0.3:
+        rate_pct = min(60, int((dur / target_secs - 1) * 100) + 3)
+        asyncio.run(_tts_async(text, raw, rate=f"+{rate_pct}%"))  # overwrite raw, sped up
+
     cmd = [
         "ffmpeg", "-y", "-loglevel", "error",
         "-i", raw,
         "-af", f"apad,atrim=end={target_secs}",
-        "-ar", "44100",
+        "-ar", _AR, "-ac", _AC,
         "-acodec", "libmp3lame", "-b:a", "128k",
         out_path,
     ]
@@ -514,7 +540,13 @@ def _concat_audio(clips: list, out_path: str) -> bool:
     for c in clips:
         inputs += ["-i", c]
     n = len(clips)
-    flt = "".join(f"[{i}:a]" for i in range(n)) + f"concat=n={n}:v=0:a=1[out]"
+    # Normalize every input's sample rate + channel layout before concat so a
+    # mono TTS clip and a stereo silence clip can't break the filter.
+    norm = "".join(
+        f"[{i}:a]aformat=sample_rates={_AR}:channel_layouts=stereo[a{i}];"
+        for i in range(n)
+    )
+    flt = norm + "".join(f"[a{i}]" for i in range(n)) + f"concat=n={n}:v=0:a=1[out]"
     cmd = [
         "ffmpeg", "-y", "-loglevel", "error",
         *inputs, "-filter_complex", flt,

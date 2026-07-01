@@ -15,7 +15,7 @@ import smtplib
 import subprocess
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from pathlib import Path
 
@@ -57,6 +57,18 @@ def run_captured(cmd: list, timeout: int = 120) -> tuple:
         return False, str(e)
 
 
+def _daemon(action: str) -> None:
+    """Stop/start the getmindfuelnow daemon to free CPU/RAM during rendering.
+    Tries both /usr/bin and /bin systemctl paths (merged-/usr Ubuntu resolves to
+    /usr/bin, but the sudoers rule may whitelist either). Best-effort; warns on
+    failure but never blocks the pipeline."""
+    r = subprocess.run(["sudo", "systemctl", action, "getmindfuelnow"],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        print(f"  [WARN] daemon {action} failed (rc={r.returncode}): "
+              f"{(r.stderr or '').strip()[:120]}")
+
+
 def run_live(cmd: list, timeout: int = 1800) -> bool:
     try:
         r = subprocess.run(cmd, timeout=timeout)
@@ -76,9 +88,10 @@ def send_summary_email(date: str, results: dict, elapsed: int, upload: bool) -> 
     if not app_pw:
         return
 
+    check_keys = ["assets", "video", "quality"] + (["upload"] if upload else [])
     passed = sum(
         1 for r in results.values()
-        if all(str(r.get(k, "")).startswith("✅") for k in ["assets", "video", "quality"] if r.get(k))
+        if all(str(r.get(k, "")).startswith("✅") for k in check_keys if r.get(k))
     )
     total  = len(results)
     status = "ALL OK" if passed == total else f"ISSUES: {passed}/{total} passed"
@@ -134,80 +147,96 @@ def run_all_signs_pipeline(args) -> int:
     print(f"  Period: {args.period}  |  Started: {datetime.now():%H:%M:%S}")
     print(f"{'='*60}\n")
 
-    subprocess.run(["sudo", "systemctl", "stop", "getmindfuelnow"], capture_output=True)
+    _daemon("stop")
     print("  [INFO] Daemon paused for rendering\n")
 
-    # ── 1. Generate all-signs assets JSON ──────────────────────────────────────
-    json_file = f"daily_horoscope_{args.date}.json"
-    if args.skip_assets and Path(json_file).exists():
-        print(f"[1/4] Assets   — reusing {json_file}")
-        assets_ok = True
-    else:
-        print(f"[1/4] Assets   — generating all 12 signs via Claude...")
-        ok, out = run_captured(
-            [PYTHON, "generate_daily_assets.py", args.period, args.date],
-            timeout=120,
-        )
-        assets_ok = ok
-        if ok:
-            print(f"      OK → {json_file}")
+    assets_ok = qc_ok = False
+    upload_result = ""
+    try:
+        # ── 1. Generate all-signs assets JSON ──────────────────────────────────
+        json_file = f"daily_horoscope_{args.date}.json"
+        if args.skip_assets and Path(json_file).exists():
+            print(f"[1/4] Assets   — reusing {json_file}")
+            assets_ok = True
         else:
-            print(f"      FAILED: {out[-200:]}", file=sys.stderr)
+            print(f"[1/4] Assets   — generating all 12 signs via Claude...")
+            ok, out = run_captured(
+                [PYTHON, "generate_daily_assets.py", args.period, args.date],
+                timeout=300,
+            )
+            assets_ok = ok
+            if ok:
+                print(f"      OK → {json_file}")
+            else:
+                print(f"      FAILED: {out[-200:]}", file=sys.stderr)
 
-    if not assets_ok:
-        subprocess.run(["sudo", "systemctl", "start", "getmindfuelnow"], capture_output=True)
-        return 1
+        if not assets_ok:
+            return 1
 
-    # ── 2. Render slideshow video ───────────────────────────────────────────────
-    print(f"\n[2/4] Video    — rendering slideshow...")
-    ok = run_live([PYTHON, "make_daily_video.py", json_file], timeout=1800)
-    if not ok:
-        print("      FAILED", file=sys.stderr)
-        subprocess.run(["sudo", "systemctl", "start", "getmindfuelnow"], capture_output=True)
-        return 1
-    print("      OK")
+        # ── 2. Render slideshow video ──────────────────────────────────────────
+        print(f"\n[2/4] Video    — rendering slideshow...")
+        ok = run_live([PYTHON, "make_daily_video.py", json_file], timeout=1800)
+        if not ok:
+            print("      FAILED", file=sys.stderr)
+            return 1
+        print("      OK")
 
-    # ── 3. Quality check ───────────────────────────────────────────────────────
-    video_path = f"outputs/{args.date}/DailyAll/daily_horoscope_{args.date}.mp4"
-    print(f"\n[3/4] QC       — checking {video_path}...")
-    ok, out = run_captured([PYTHON, "quality_check.py", video_path], timeout=60)
-    qc_ok = ok
-    print(f"      {'PASS' if ok else 'FAIL'}" + (f": {out}" if not ok else ""))
+        # ── 3. Quality check ───────────────────────────────────────────────────
+        video_path = f"outputs/{args.date}/DailyAll/daily_horoscope_{args.date}.mp4"
+        print(f"\n[3/4] QC       — checking {video_path}...")
+        ok, out = run_captured([PYTHON, "quality_check.py", video_path], timeout=60)
+        qc_ok = ok
+        print(f"      {'PASS' if ok else 'FAIL'}" + (f": {out}" if not ok else ""))
 
-    # ── 4. Upload ──────────────────────────────────────────────────────────────
-    if args.upload and qc_ok:
-        print(f"\n[4/4] Upload   — uploading to YouTube...")
-        try:
-            sys.path.insert(0, str(Path(__file__).parent))
-            from youtube_uploader import upload_video, upload_thumbnail, post_comment, pin_comment
-            import json as _json
-            assets_json = f"outputs/{args.date}/DailyAll/daily_horoscope_{args.date}_assets.json"
-            assets  = _json.loads(Path(assets_json).read_text(encoding="utf-8"))
-            content = {
-                "title":          assets.get("title", ""),
-                "description":    assets.get("description", ""),
-                "tags":           assets.get("tags", []),
-                "date":           args.date,
-                "privacy_status": "public",
-            }
-            # Publish at 10 AM UTC (6 AM EST) — prime horoscope time
-            pub_date   = datetime.strptime(args.date, "%Y%m%d")
-            publish_at = pub_date.replace(hour=10, minute=0, second=0).strftime("%Y-%m-%dT%H:%M:%SZ")
-            vid_id     = upload_video(video_path, content, publish_at=publish_at)
-            thumb_path = f"outputs/{args.date}/DailyAll/daily_horoscope_{args.date}_thumbnail.jpg"
-            upload_thumbnail(vid_id, thumb_path)
-            cid = post_comment(vid_id, assets.get("pinned_comment", ""))
-            pin_comment(vid_id, cid)
-            print(f"      OK: https://youtu.be/{vid_id} — publishes {publish_at}")
-            upload_result = f"✅ youtu.be/{vid_id}"
-        except Exception as _e:
-            print(f"      FAILED: {_e}")
-            upload_result = f"❌ {str(_e)[:80]}"
-    else:
-        upload_result = ""
+        # ── 4. Upload ──────────────────────────────────────────────────────────
+        if args.upload and qc_ok:
+            print(f"\n[4/4] Upload   — uploading to YouTube...")
+            try:
+                sys.path.insert(0, str(Path(__file__).parent))
+                from youtube_uploader import (upload_video, upload_thumbnail,
+                                              post_comment, pin_comment,
+                                              process_retry_queue)
+                import json as _json
+                # Retry any videos queued from a previous quota-limited day.
+                try:
+                    retried = process_retry_queue()
+                    if retried:
+                        print(f"      [INFO] Uploaded {retried} queued video(s) from prior days")
+                except Exception as _qe:
+                    print(f"      [INFO] Retry queue skipped: {_qe}")
 
-    elapsed = int(time.time() - t_start)
-    all_ok  = assets_ok and qc_ok
+                assets_json = f"outputs/{args.date}/DailyAll/daily_horoscope_{args.date}_assets.json"
+                assets  = _json.loads(Path(assets_json).read_text(encoding="utf-8"))
+                content = {
+                    "title":          assets.get("title", ""),
+                    "description":    assets.get("description", ""),
+                    "tags":           assets.get("tags", []),
+                    "date":           args.date,
+                    "privacy_status": "public",
+                }
+                # Publish at 10 AM UTC (6 AM EST). If that moment is already past
+                # (late/manual run), schedule ASAP — YouTube rejects past publishAt.
+                pub_dt = datetime.strptime(args.date, "%Y%m%d").replace(hour=10, minute=0, second=0)
+                if pub_dt <= datetime.utcnow():
+                    pub_dt = datetime.utcnow() + timedelta(minutes=15)
+                publish_at = pub_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+                vid_id     = upload_video(video_path, content, publish_at=publish_at)
+                thumb_path = f"outputs/{args.date}/DailyAll/daily_horoscope_{args.date}_thumbnail.jpg"
+                upload_thumbnail(vid_id, thumb_path)
+                cid = post_comment(vid_id, assets.get("pinned_comment", ""))
+                pin_comment(vid_id, cid)
+                print(f"      OK: https://youtu.be/{vid_id} — publishes {publish_at}")
+                upload_result = f"✅ youtu.be/{vid_id}"
+            except Exception as _e:
+                print(f"      FAILED: {_e}")
+                upload_result = f"❌ {str(_e)[:80]}"
+    finally:
+        _daemon("start")
+        print("  [INFO] Daemon restarted\n")
+
+    elapsed   = int(time.time() - t_start)
+    upload_ok = (not args.upload) or upload_result.startswith("✅")
+    all_ok    = assets_ok and qc_ok and upload_ok
 
     print(f"\n{'='*60}")
     print(f"  SUMMARY — {args.date}  ({elapsed // 60}m {elapsed % 60}s)")
@@ -217,14 +246,11 @@ def run_all_signs_pipeline(args) -> int:
     print(f"  Output: outputs/{args.date}/DailyAll/")
     print(f"{'='*60}\n")
 
-    subprocess.run(["sudo", "systemctl", "start", "getmindfuelnow"], capture_output=True)
-    print("  [INFO] Daemon restarted\n")
-
     send_summary_email(
         args.date,
         {"all_signs": {
             "assets": "✅" if assets_ok else "❌",
-            "video":  "✅",          # we returned early if video failed
+            "video":  "✅" if qc_ok else "❌",
             "quality":"✅" if qc_ok else "❌",
             "upload": upload_result,
         }},
@@ -279,7 +305,7 @@ def main():
     t_start = time.time()
 
     # Pause daemon so rendering gets full CPU + RAM
-    subprocess.run(["sudo", "systemctl", "stop", "getmindfuelnow"], capture_output=True)
+    _daemon("stop")
     print("  [INFO] Daemon paused for rendering — will restart after all signs\n")
 
     for idx, sign in enumerate(signs, 1):
@@ -399,7 +425,7 @@ def main():
     print(f"{'='*60}\n")
 
     # Restart daemon
-    subprocess.run(["sudo", "systemctl", "start", "getmindfuelnow"], capture_output=True)
+    _daemon("start")
     print("  [INFO] Daemon restarted\n")
 
     # Email summary

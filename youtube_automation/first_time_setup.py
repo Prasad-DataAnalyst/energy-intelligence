@@ -43,7 +43,8 @@ from googleapiclient.errors import HttpError
 
 SCOPES = [
     "https://www.googleapis.com/auth/youtube.upload",
-    "https://www.googleapis.com/auth/youtube",        # needed for channel branding
+    "https://www.googleapis.com/auth/youtube",         # needed for channel branding
+    "https://www.googleapis.com/auth/youtube.force-ssl",  # needed for posting comments
 ]
 
 SECRETS = HERE / "client_secrets.json"

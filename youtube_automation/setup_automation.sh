@@ -5,9 +5,15 @@
 
 set -e
 
-USER_HOME="/home/prasad2t"
-REPO="$USER_HOME/energy-intelligence/youtube_automation"
-VENV_PYTHON="/usr/bin/python3"
+USER_HOME="$HOME"
+# Resolve the repo dir from this script's location so it works for any user.
+REPO="$(cd "$(dirname "$0")" && pwd)"
+# Prefer the project venv if present; else fall back to system python3.
+if [ -x "$REPO/.venv/bin/python" ]; then
+    VENV_PYTHON="$REPO/.venv/bin/python"
+else
+    VENV_PYTHON="$(command -v python3)"
+fi
 LOG="$USER_HOME/daily_horoscope.log"
 
 echo ""
@@ -37,20 +43,17 @@ echo "  OK: python3 found at $VENV_PYTHON"
 echo ""
 echo "[2/4] Configuring passwordless sudo for daemon control..."
 
-SUDOERS_LINE="prasad2t ALL=(ALL) NOPASSWD: /bin/systemctl stop getmindfuelnow, /bin/systemctl start getmindfuelnow"
+SUDOERS_LINE="prasad2t ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop getmindfuelnow, /usr/bin/systemctl start getmindfuelnow, /bin/systemctl stop getmindfuelnow, /bin/systemctl start getmindfuelnow"
 SUDOERS_FILE="/etc/sudoers.d/horoscope-daemon"
 
-if sudo grep -q "getmindfuelnow" /etc/sudoers 2>/dev/null || sudo test -f "$SUDOERS_FILE" 2>/dev/null; then
-    echo "  OK: sudoers already configured"
-else
-    echo "$SUDOERS_LINE" | sudo tee "$SUDOERS_FILE" > /dev/null
-    sudo chmod 440 "$SUDOERS_FILE"
-    sudo visudo -c -f "$SUDOERS_FILE" && echo "  OK: sudoers configured" || {
-        echo "  ERROR: sudoers syntax error — removing"
-        sudo rm -f "$SUDOERS_FILE"
-        exit 1
-    }
-fi
+# Always rewrite so path fixes (/usr/bin vs /bin systemctl) are picked up on re-run.
+echo "$SUDOERS_LINE" | sudo tee "$SUDOERS_FILE" > /dev/null
+sudo chmod 440 "$SUDOERS_FILE"
+sudo visudo -c -f "$SUDOERS_FILE" && echo "  OK: sudoers configured" || {
+    echo "  ERROR: sudoers syntax error — removing"
+    sudo rm -f "$SUDOERS_FILE"
+    exit 1
+}
 
 # ── 3. Install cron job ───────────────────────────────────────────────────────
 echo ""
