@@ -139,7 +139,7 @@ def upload_video(video_path: str, content: dict, seo_package: dict = None,
         except Exception:
             pass
         if reason in ("quotaExceeded", "uploadLimitExceeded", "dailyLimitExceeded"):
-            _queue_for_retry(video_path, content, seo_package)
+            _queue_for_retry(video_path, content, seo_package, publish_at)
             raise RuntimeError(
                 "YouTube quota exceeded — video queued for retry at next UTC midnight."
             )
@@ -269,33 +269,12 @@ def post_comment(video_id: str, text: str) -> str:
 
 
 def pin_comment(video_id: str, comment_id: str) -> bool:
-    """Pin a comment thread as the pinned comment. Returns True on success."""
-    if not comment_id:
-        return False
-    try:
-        session, _ = _authed_session()
-        # YouTube doesn't have a direct "pin" API; best achievable is marking as top comment
-        # by moderating it as ACCEPTED (channels can do this via commentThreads.update)
-        body = {
-            "id": comment_id,
-            "snippet": {
-                "videoId": video_id,
-                "topLevelComment": {"id": comment_id},
-                "canReply": True,
-                "isPublic": True,
-            },
-        }
-        resp = session.put(
-            "https://www.googleapis.com/youtube/v3/commentThreads?part=snippet",
-            headers={"Content-Type": "application/json"},
-            data=json.dumps(body),
-        )
-        success = resp.status_code in (200, 204)
-        if success:
-            log.info("Comment pinned: %s", comment_id)
-        return success
-    except Exception as exc:
-        log.warning("Pin comment failed: %s", exc)
+    """No-op: the YouTube Data API has no endpoint to pin a comment — pinning is
+    only available in YouTube Studio. Kept as a stub so callers don't break.
+    The previous implementation POSTed an invalid commentThreads.update body that
+    returned 400 every time; we skip that useless round-trip now."""
+    if comment_id:
+        log.info("Comment %s posted (pinning must be done manually in Studio)", comment_id)
     return False
 
 
@@ -331,14 +310,19 @@ def post_community_post(text: str) -> bool:
 # Retry queue — survives restarts
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _queue_for_retry(video_path: str, content: dict, seo_package: dict):
+def _queue_for_retry(video_path: str, content: dict, seo_package: dict,
+                     publish_at: str = None):
     _QUEUE_FILE.parent.mkdir(parents=True, exist_ok=True)
     queue = _load_queue()
+    # Store content as-is (it is JSON-serializable). The old str()-coercion turned
+    # the tags list into a string that _build_tags then split into one garbage tag.
+    safe_content = {k: v for k, v in content.items() if k != "_opportunity"}
     queue.append({
         "video_path":  video_path,
-        "content":     {k: str(v) for k, v in content.items() if k != "_opportunity"},
+        "content":     safe_content,
         "seo_package": seo_package or {},
-        "queued_at":   datetime.datetime.utcnow().isoformat() + "Z",
+        "publish_at":  publish_at,          # preserve scheduling on retry
+        "queued_at":   _utcnow_iso(),
         "retry_after": _next_midnight_utc(),
         "attempts":    0,
     })
@@ -352,7 +336,7 @@ def process_retry_queue() -> int:
     Returns count of successful retries.
     """
     queue = _load_queue()
-    now   = datetime.datetime.utcnow().isoformat() + "Z"
+    now   = _utcnow_iso()
     remaining = []
     succeeded = 0
 
@@ -365,10 +349,15 @@ def process_retry_queue() -> int:
             continue
         try:
             item["attempts"] = item.get("attempts", 0) + 1
+            # Drop a publish_at that has since fallen into the past (YouTube rejects it).
+            pub = item.get("publish_at")
+            if pub and pub <= (_utcnow_iso()):
+                pub = None
             video_id = upload_video(
                 item["video_path"],
                 item["content"],
                 item.get("seo_package"),
+                publish_at=pub,
             )
             log.info("Retry succeeded: %s → %s", item["video_path"], video_id)
             succeeded += 1
@@ -394,8 +383,17 @@ def _save_queue(queue: list) -> None:
     _QUEUE_FILE.write_text(json.dumps(queue, indent=2))
 
 
+def _utcnow() -> datetime.datetime:
+    """Timezone-naive UTC now (replaces deprecated datetime.utcnow())."""
+    return datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+
+
+def _utcnow_iso() -> str:
+    return _utcnow().isoformat() + "Z"
+
+
 def _next_midnight_utc() -> str:
-    tomorrow = datetime.datetime.utcnow().replace(
+    tomorrow = _utcnow().replace(
         hour=0, minute=5, second=0, microsecond=0
     ) + datetime.timedelta(days=1)
     return tomorrow.isoformat() + "Z"
@@ -516,7 +514,7 @@ def update_channel_branding(force: bool = False) -> bool:
     if not force and _BRANDING_STAMP.exists():
         try:
             last = datetime.datetime.fromisoformat(_BRANDING_STAMP.read_text().strip())
-            if (datetime.datetime.utcnow() - last).days < 7:
+            if (_utcnow() - last).days < 7:
                 log.info("Channel branding is up-to-date (updated within 7 days)")
                 return True
         except Exception:
@@ -551,7 +549,7 @@ def update_channel_branding(force: bool = False) -> bool:
 
         if resp.status_code in (200, 204):
             _BRANDING_STAMP.parent.mkdir(parents=True, exist_ok=True)
-            _BRANDING_STAMP.write_text(datetime.datetime.utcnow().isoformat())
+            _BRANDING_STAMP.write_text(_utcnow().isoformat())
             log.info("Channel branding updated — bio, keywords, country set")
             return True
 
@@ -624,7 +622,7 @@ def _log_upload(video_path: str, video_id: str, title: str, content: dict):
         "title":       title,
         "topic":       content.get("topic", ""),
         "file":        video_path,
-        "uploaded_at": datetime.datetime.utcnow().isoformat() + "Z",
+        "uploaded_at": _utcnow_iso(),
         "url":         f"https://youtu.be/{video_id}",
     })
     _LOG_FILE.write_text(json.dumps(history, indent=2))

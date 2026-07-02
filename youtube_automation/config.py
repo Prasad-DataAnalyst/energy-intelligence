@@ -3,7 +3,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Video dimensions
+# Video dimensions.
+# NOTE: the ACTIVE daily pipeline (make_daily_video.py) hardcodes 1080x1920 @ 24fps
+# for YouTube Shorts and does NOT read these values — they remain only for the
+# legacy make_shorts_video.py path. Changing VIDEO_WIDTH/HEIGHT in .env will NOT
+# change the daily video resolution; edit make_daily_video.py constants instead.
 WIDTH  = int(os.getenv("VIDEO_WIDTH",  1920))
 HEIGHT = int(os.getenv("VIDEO_HEIGHT", 1080))
 FPS    = int(os.getenv("VIDEO_FPS",    24))

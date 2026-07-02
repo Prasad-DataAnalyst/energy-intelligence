@@ -99,7 +99,39 @@ _FALLBACK_REG = [
     "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
 ]
 
+# Fonts that actually contain the U+2648–U+2653 zodiac glyphs. Cinzel does NOT —
+# so glyphs must never be drawn with the display font or they render as tofu boxes.
+_GLYPH_FONTS = [
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf",
+    "/usr/share/fonts/truetype/ancient-scripts/Symbola_hint.ttf",
+    "/usr/share/fonts/truetype/symbola/Symbola.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+]
+
 _fcache: dict = {}
+_gcache: dict = {}
+
+
+def _glyph_font(size: int) -> ImageFont.FreeTypeFont:
+    """Font guaranteed to render a zodiac glyph (♈). Validates the actual glyph,
+    not just 'X', so a glyph-less display font is never chosen for symbols."""
+    if size not in _gcache:
+        for p in _GLYPH_FONTS:
+            if not Path(p).exists():
+                continue
+            try:
+                f = ImageFont.truetype(p, size)
+                d = ImageDraw.Draw(Image.new("RGB", (max(size * 2, 40),) * 2))
+                if d.textbbox((0, 0), "♈", font=f)[2] > 2:   # ♈ Aries
+                    _gcache[size] = f
+                    break
+            except Exception:
+                continue
+        else:
+            _gcache[size] = _font(size, bold=True)   # last resort
+    return _gcache[size]
 
 
 def _font(size: int, bold: bool = True) -> ImageFont.FreeTypeFont:
@@ -210,7 +242,7 @@ def render_intro_card(date_str: str) -> Image.Image:
 
     # All 12 zodiac glyphs — 2 rows of 6
     glyphs = [SIGN_EMOJIS[s] for s in SIGNS]
-    f_g    = _font(78, bold=True)
+    f_g    = _glyph_font(78)
     col_w  = CW // 6
     for row in range(2):
         gx = PAD + col_w // 2
@@ -243,7 +275,7 @@ def render_sign_card(sign: str, fields: dict, idx: int) -> Image.Image:
 
     # Faint zodiac glyph watermark
     glyph   = SIGN_EMOJIS.get(sign, "")
-    wm_font = _font(360, bold=True)
+    wm_font = _glyph_font(360)
     try:
         wm_w = _tw(glyph, wm_font)
         ov   = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
@@ -265,12 +297,22 @@ def render_sign_card(sign: str, fields: dict, idx: int) -> Image.Image:
     # Header strip
     draw.rectangle([0, 0, WIDTH, 224], fill=(0, 0, 0, 150))
     draw.rectangle([0, 224, WIDTH, 230], fill=GOLD)
-    label = f"{glyph}  {sign.upper()}  {glyph}"
-    hf    = _font(84, bold=True)
-    lw    = _tw(label, hf)
-    hx    = (WIDTH - lw) // 2
-    draw.text((hx + 3, 57), label, font=hf, fill=(0, 0, 0, 155))
-    draw.text((hx,     54), label, font=hf, fill=GOLD)
+    # Draw name in the display font, flanking glyphs in a glyph-capable font,
+    # so the zodiac symbols never render as tofu when Cinzel is installed.
+    hf     = _font(84, bold=True)
+    gf     = _glyph_font(84)
+    name   = sign.upper()
+    gap    = 28
+    name_w = _tw(name, hf)
+    gly_w  = _tw(glyph, gf)
+    total  = gly_w + gap + name_w + gap + gly_w
+    x0     = (WIDTH - total) // 2
+    parts  = [(glyph, gf, gly_w), (name, hf, name_w), (glyph, gf, gly_w)]
+    for dx, dy, col in [(3, 57, (0, 0, 0, 155)), (0, 54, GOLD)]:
+        gx = x0 + dx
+        for txt, fnt, w in parts:
+            draw.text((gx, dy), txt, font=fnt, fill=col)
+            gx += w + gap
 
     # ── Content ────────────────────────────────────────────────────────────────
     y   = 248
@@ -382,7 +424,7 @@ def render_thumbnail(date_str: str, out_path: str) -> None:
 
     # Zodiac glyphs in one row
     glyphs = [SIGN_EMOJIS[s] for s in SIGNS]
-    f_g    = _font(58, bold=True)
+    f_g    = _glyph_font(58)
     total_gw = sum(_tw(g, f_g) for g in glyphs) + 11 * 18
     gx = (TW - total_gw) // 2
     gy = 220

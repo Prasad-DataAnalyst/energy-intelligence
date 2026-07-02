@@ -61,13 +61,35 @@ echo "[3/4] Installing cron job (runs daily at 5:30 AM UTC — all 12 signs, aut
 
 CRON_CMD="30 5 * * * cd $REPO && $VENV_PYTHON run_daily.py --date \$(date +\\%Y\\%m\\%d) --period \"\$(date +'\\%B \\%Y')\" --upload >> $LOG 2>&1"
 
-# Remove any old version of this cron job first
-( crontab -l 2>/dev/null | grep -v "run_daily.py" ) | crontab - 2>/dev/null || true
+# Remove any old version of this cron job first (both the current runner and the
+# legacy daily_runner.py 3 PM job installed by first_time_setup.py).
+( crontab -l 2>/dev/null | grep -v -e "run_daily.py" -e "daily_runner.py" ) | crontab - 2>/dev/null || true
 
 # Add the new one
 ( crontab -l 2>/dev/null; echo "$CRON_CMD" ) | crontab -
 
 echo "  OK: cron job installed"
+
+# ── 3b. Log rotation so $LOG doesn't grow without bound ───────────────────────
+echo ""
+echo "[3b] Configuring log rotation..."
+LOGROTATE_FILE="/etc/logrotate.d/getmindfuelnow"
+if command -v logrotate >/dev/null 2>&1; then
+    sudo tee "$LOGROTATE_FILE" > /dev/null <<ROT
+$LOG {
+    weekly
+    rotate 8
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}
+ROT
+    echo "  OK: logrotate config → $LOGROTATE_FILE (weekly, keep 8)"
+else
+    echo "  SKIP: logrotate not installed"
+fi
 
 # ── 4. Show confirmation ──────────────────────────────────────────────────────
 echo ""

@@ -15,7 +15,7 @@ import smtplib
 import subprocess
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
 from pathlib import Path
 
@@ -23,6 +23,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 PYTHON = sys.executable
+
+
+def _utcnow() -> datetime:
+    """Timezone-naive UTC now (replaces deprecated datetime.utcnow())."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 SIGNS = [
     "aries", "taurus", "gemini", "cancer", "leo", "virgo",
@@ -100,7 +105,7 @@ def send_summary_email(date: str, results: dict, elapsed: int, upload: bool) -> 
         f"GetMindFuelNow Daily Pipeline — {date}",
         f"Result  : {status}",
         f"Duration: {elapsed // 60}m {elapsed % 60}s",
-        f"Time    : {datetime.utcnow():%Y-%m-%d %H:%M UTC}",
+        f"Time    : {_utcnow():%Y-%m-%d %H:%M UTC}",
         "",
         "Sign-by-sign results:",
         "-" * 55,
@@ -217,8 +222,8 @@ def run_all_signs_pipeline(args) -> int:
                 # Publish at 10 AM UTC (6 AM EST). If that moment is already past
                 # (late/manual run), schedule ASAP — YouTube rejects past publishAt.
                 pub_dt = datetime.strptime(args.date, "%Y%m%d").replace(hour=10, minute=0, second=0)
-                if pub_dt <= datetime.utcnow():
-                    pub_dt = datetime.utcnow() + timedelta(minutes=15)
+                if pub_dt <= _utcnow():
+                    pub_dt = _utcnow() + timedelta(minutes=15)
                 publish_at = pub_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
                 vid_id     = upload_video(video_path, content, publish_at=publish_at)
                 thumb_path = f"outputs/{args.date}/DailyAll/daily_horoscope_{args.date}_thumbnail.jpg"
