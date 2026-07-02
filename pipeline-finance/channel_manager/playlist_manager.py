@@ -116,8 +116,12 @@ class PlaylistManager:
         return {}
 
     def _save_cached_ids(self) -> None:
+        """Atomically persist the playlist ID cache (temp file + rename)."""
+        import os
         PLAYLIST_IDS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        PLAYLIST_IDS_FILE.write_text(json.dumps(self._cached_ids, indent=2))
+        tmp = PLAYLIST_IDS_FILE.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(self._cached_ids, indent=2))
+        os.replace(tmp, PLAYLIST_IDS_FILE)
         logger.debug("Playlist IDs saved → %s", PLAYLIST_IDS_FILE)
 
     # ── API helpers ──────────────────────────────────────────────────────────

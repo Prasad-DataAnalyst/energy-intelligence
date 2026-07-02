@@ -69,9 +69,12 @@ class ChannelMonitor:
             lines = MONITOR_LOG.read_text().strip().splitlines()
             if lines:
                 last = json.loads(lines[-1])
-                return ChannelMetrics(**last)
-        except Exception:
-            pass
+                # Filter to known fields so old log lines with drifted
+                # schemas can't raise TypeError on load.
+                known = {f.name for f in ChannelMetrics.__dataclass_fields__.values()}
+                return ChannelMetrics(**{k: v for k, v in last.items() if k in known})
+        except Exception as exc:
+            logger.warning("Could not load previous metrics from %s: %s", MONITOR_LOG.name, exc)
         return None
 
     def _log_metrics(self, metrics: ChannelMetrics) -> None:
@@ -230,7 +233,7 @@ CURRENT METRICS:
 • Latest Video CTR: {metrics.latest_video_ctr}%
 """
             msg.attach(MIMEText(body, "plain"))
-            with smtplib.SMTP(smtp_host, 587) as server:
+            with smtplib.SMTP(smtp_host, 587, timeout=30) as server:
                 server.starttls()
                 server.login(smtp_user, smtp_pass)
                 server.sendmail(smtp_user, alert_email, msg.as_string())
@@ -375,8 +378,8 @@ class PipelineMonitor:
         # Save status
         try:
             API_STATUS_FILE.write_text(json.dumps({"timestamp": datetime.now().isoformat(), **results}))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Could not write API status file: %s", exc)
 
         all_ok = all(results.values())
         if not all_ok:
@@ -449,7 +452,7 @@ class PipelineMonitor:
                 msg["Subject"] = f"DriftWire326 [{level.upper()}] Pipeline Alert"
                 msg["From"] = smtp_user
                 msg["To"] = alert_email
-                with smtplib.SMTP(smtp_host, 587) as server:
+                with smtplib.SMTP(smtp_host, 587, timeout=30) as server:
                     server.starttls()
                     server.login(smtp_user, smtp_pass)
                     server.sendmail(smtp_user, alert_email, msg.as_string())

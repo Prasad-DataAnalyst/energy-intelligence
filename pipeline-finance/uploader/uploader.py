@@ -45,11 +45,27 @@ class UploadConfig:
     language: str = "en"
     location: str = "United States"
 
+    def _compliance_description(self) -> str:
+        """
+        Ensure the financial disclaimer and AI disclosure appear in every
+        upload description (channel policy — must never be skipped), while
+        respecting YouTube's 5000-character description limit.
+        """
+        description = self.description
+        footer_parts = [
+            p for p in (settings.disclaimer_text, settings.ai_disclosure)
+            if p not in description
+        ]
+        if not footer_parts:
+            return description[:5000]
+        footer = "\n\n" + "\n\n".join(footer_parts)
+        return description[: 5000 - len(footer)].rstrip() + footer
+
     def to_youtube_body(self) -> dict:
         body = {
             "snippet": {
                 "title": self.title[:100],
-                "description": self.description[:5000],
+                "description": self._compliance_description(),
                 "tags": self.tags[:500],
                 "categoryId": CATEGORY_IDS.get(self.category, "28"),
                 "defaultLanguage": self.language,
@@ -62,8 +78,11 @@ class UploadConfig:
             },
         }
         if self.publish_at:
-            # Must be in RFC 3339 format
-            body["status"]["publishAt"] = self.publish_at.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+            # Must be in RFC 3339 format, expressed in UTC
+            publish_at = self.publish_at
+            if publish_at.tzinfo is not None:
+                publish_at = publish_at.astimezone(timezone.utc)
+            body["status"]["publishAt"] = publish_at.strftime("%Y-%m-%dT%H:%M:%S.000Z")
             body["status"]["privacyStatus"] = "private"   # required when scheduling
         return body
 
@@ -260,9 +279,18 @@ def add_to_playlist(video_id: str, playlist_id: str) -> bool:
 
 # ── YouTubeUploader class ─────────────────────────────────────────────────────
 
+from config.settings import MIN_QUOTA_TO_UPLOAD  # noqa: E402 — single source of truth (1700)
+
 UPLOAD_GAP_MINUTES = 30          # minimum gap between consecutive uploads
-MIN_QUOTA_TO_UPLOAD = 1700       # safety buffer — never go below this
 FAILED_QUEUE_PATH = settings.logs_dir / "failed_queue.json"
+
+
+def _write_failed_queue(queue: list[dict]) -> None:
+    """Atomically write the failed-upload queue (temp file + rename)."""
+    FAILED_QUEUE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = FAILED_QUEUE_PATH.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(queue, indent=2))
+    os.replace(tmp, FAILED_QUEUE_PATH)
 
 
 class YouTubeUploader:
@@ -387,8 +415,8 @@ class YouTubeUploader:
     def verify_upload_status(self, video_id: str) -> dict:
         """Check the processing status of an uploaded video."""
         try:
-            if not self._youtube:
-                self.authenticate()
+            if not self._youtube and not self.authenticate():
+                return {"status": "error", "error": "YouTube authentication failed"}
             response = self._youtube.videos().list(
                 part="status,processingDetails",
                 id=video_id,
@@ -453,7 +481,7 @@ class YouTubeUploader:
             if not result.success:
                 remaining.append(entry)
 
-        FAILED_QUEUE_PATH.write_text(json.dumps(remaining, indent=2))
+        _write_failed_queue(remaining)
         logger.info("Failed queue processed: %d retried, %d remaining", len(results), len(remaining))
         return results
 
@@ -477,11 +505,10 @@ class YouTubeUploader:
                 "category": config.category,
                 "failed_at": datetime.now().isoformat(),
             })
-            FAILED_QUEUE_PATH.parent.mkdir(parents=True, exist_ok=True)
-            FAILED_QUEUE_PATH.write_text(json.dumps(queue, indent=2))
+            _write_failed_queue(queue)
             logger.info("Queued failed upload: %s", config.title[:60])
         except Exception as exc:
-            logger.error("Failed to queue upload: %s", exc)
+            logger.error("Failed to queue upload '%s': %s", config.title[:60], exc)
 
 
 def upload_full(

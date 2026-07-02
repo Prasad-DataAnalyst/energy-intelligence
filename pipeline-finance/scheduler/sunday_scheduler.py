@@ -23,7 +23,25 @@ def _load_topic_library() -> dict:
 
 
 def _save_topic_library(data: dict) -> None:
-    TOPIC_LIBRARY_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    """Atomic write (temp file + rename) — the topic pool must never be truncated."""
+    import os
+    tmp = TOPIC_LIBRARY_PATH.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    os.replace(tmp, TOPIC_LIBRARY_PATH)
+
+
+def _mark_topic_used(topic_id: str) -> None:
+    """
+    Record a topic as used today. Re-loads the FULL on-disk library before
+    saving so a caller working with a filtered subset can never overwrite
+    (and thereby lose) the rest of the topic pool.
+    """
+    try:
+        library = _load_topic_library()
+        library.setdefault("last_used", {})[topic_id] = date.today().isoformat()
+        _save_topic_library(library)
+    except Exception as exc:
+        logger.warning("Could not persist last_used for topic '%s': %s", topic_id, exc)
 
 
 def _pick_topic(library: dict) -> dict:
@@ -37,7 +55,10 @@ def _pick_topic(library: dict) -> dict:
     last_used: dict = library.get("last_used", {})
 
     cutoff = (date.today() - timedelta(weeks=cooldown_weeks)).isoformat()
-    eligible = [t for t in topics if last_used.get(t["id"], "1970-01-01") < cutoff]
+    eligible = [
+        t for t in topics
+        if last_used.get(t.get("id", t.get("title", "")), "1970-01-01") < cutoff
+    ]
 
     if not eligible:
         logger.warning("All topics in cooldown — using full list")
@@ -52,9 +73,10 @@ def _pick_topic(library: dict) -> dict:
     chosen = random.choice(pool)
     logger.info("Selected Sunday topic: %s", chosen["title"])
 
-    # Mark as used
-    library["last_used"][chosen["id"]] = date.today().isoformat()
-    _save_topic_library(library)
+    # Mark as used (writes last_used against the full on-disk library)
+    topic_id = chosen.get("id")
+    if topic_id:
+        _mark_topic_used(topic_id)
 
     return chosen
 
@@ -82,8 +104,8 @@ class SundayScheduler:
             if _WEEK_CYCLE_FILE.exists():
                 data = json.loads(_WEEK_CYCLE_FILE.read_text())
                 return int(data.get("week_index", 0)) % len(_THEME_CYCLE)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Week-cycle file unreadable (%s) — deriving from ISO week", exc)
         return date.today().isocalendar()[1] % len(_THEME_CYCLE)
 
     def get_sunday_theme(self) -> str:

@@ -68,7 +68,7 @@ DISCLAIMER_PATTERNS = [
 
 
 def _rule_based_check(script: str) -> tuple[list[str], list[str], list[tuple[str, int]], bool]:
-    """Returns (issues, flagged_phrases, disclaimer_present)."""
+    """Returns (issues, warnings, flagged_phrases, disclaimer_present)."""
     script_lower = script.lower()
     issues = []
     flagged: list[tuple[str, int]] = []
@@ -282,7 +282,6 @@ def auto_fix_script(script: str, result: ComplianceResult) -> str:
     }
     for bad, good in replacements.items():
         if bad.lower() in fixed.lower():
-            import re
             fixed = re.sub(re.escape(bad), good, fixed, flags=re.IGNORECASE)
             logger.info("Auto-replaced '%s' → '%s'", bad, good)
 

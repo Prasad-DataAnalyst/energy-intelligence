@@ -441,8 +441,8 @@ class ScriptGenerator:
         if path.exists():
             try:
                 return json.loads(path.read_text())
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Could not load %s (%s) — using default", path.name, exc)
         return default
 
     def _save_json(self, path: Path, data) -> None:

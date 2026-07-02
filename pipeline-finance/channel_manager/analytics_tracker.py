@@ -299,17 +299,15 @@ class AnalyticsTracker:
             # Last complete week (Mon–Sun)
             last_monday = today - timedelta(days=today.weekday() + 7)
             last_sunday = last_monday + timedelta(days=6)
-            week_of = f"{last_monday.year}-W{last_monday.isocalendar()[1]:02d}"
+            iso = last_monday.isocalendar()
+            week_of = f"{iso[0]}-W{iso[1]:02d}"
             start_date = last_monday.isoformat()
             end_date = last_sunday.isoformat()
         else:
-            # Parse "2026-W26" format
+            # Parse "2026-W26" format — fromisocalendar handles all ISO edge
+            # cases (years starting mid-week, 53-week years) correctly.
             year, week_num = week_of.split("-W")
-            # Find Monday of that ISO week
-            from datetime import date as dt_date
-            jan4 = dt_date(int(year), 1, 4)  # always in week 1
-            week_start = jan4 + timedelta(weeks=int(week_num) - 1 - jan4.isocalendar()[1] + 1,
-                                          days=-jan4.weekday())
+            week_start = date.fromisocalendar(int(year), int(week_num), 1)
             start_date = week_start.isoformat()
             end_date = (week_start + timedelta(days=6)).isoformat()
 

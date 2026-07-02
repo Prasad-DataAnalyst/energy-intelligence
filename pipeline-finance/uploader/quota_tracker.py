@@ -6,12 +6,13 @@ This module prevents overages and logs all API usage.
 """
 import json
 import logging
+import os
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, date
 from pathlib import Path
 from typing import Optional
 
-from config.settings import settings
+from config.settings import MIN_QUOTA_TO_UPLOAD, settings
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,9 @@ class DailyQuotaState:
 
     @property
     def can_upload(self) -> bool:
-        return self.remaining >= QUOTA_COSTS["video.insert"]
+        # MIN_QUOTA_TO_UPLOAD (1700) includes the upload cost plus a buffer
+        # for the follow-up thumbnail.set / playlistItems.insert calls.
+        return self.remaining >= MIN_QUOTA_TO_UPLOAD
 
     @property
     def utilization_pct(self) -> float:
@@ -95,7 +98,14 @@ class QuotaTracker:
         )
 
     def _save(self) -> None:
-        self.log_path.write_text(json.dumps(asdict(self._state), indent=2))
+        """Atomically persist state: write to a temp file then rename.
+
+        Prevents a corrupted/truncated quota file if the process crashes
+        mid-write, which would otherwise reset the day's quota accounting.
+        """
+        tmp_path = self.log_path.with_suffix(".json.tmp")
+        tmp_path.write_text(json.dumps(asdict(self._state), indent=2))
+        os.replace(tmp_path, self.log_path)
 
     def _ensure_today(self) -> None:
         """Reset state if day has rolled over."""
@@ -113,7 +123,7 @@ class QuotaTracker:
     def can_upload(self) -> bool:
         self._ensure_today()
         allowed = (
-            self._state.remaining >= QUOTA_COSTS["video.insert"]
+            self._state.remaining >= MIN_QUOTA_TO_UPLOAD
             and self._state.uploads_today < settings.daily_upload_quota
         )
         if not allowed:

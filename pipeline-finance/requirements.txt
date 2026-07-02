@@ -18,6 +18,9 @@ numpy>=1.26.0
 
 # ── Audio ─────────────────────────────────────────────────────────────────
 pydub>=0.25.1
+edge-tts>=6.1.0            # primary TTS engine (free, no API key)
+gTTS>=2.5.0                # gTTS fallback engine
+mutagen>=1.47.0            # MP3 duration probing
 pyttsx3>=2.90              # offline TTS fallback
 # elevenlabs SDK is optional — we call the REST API directly with requests
 
@@ -41,6 +44,7 @@ google-auth-httplib2>=0.2.0
 
 # ── Scheduling ────────────────────────────────────────────────────────────
 APScheduler>=3.10.4
+pytz>=2024.1                # required by APScheduler 3.x for timezone handling
 tzdata>=2024.1              # timezone database
 
 # ── Testing ───────────────────────────────────────────────────────────────

@@ -192,9 +192,14 @@ def generate_sector_heatmap(sector_performance: dict[str, float]) -> ChartFile:
     items.sort(key=lambda i: i[2], reverse=True)
     colors = plt.cm.RdYlGn(np.interp([i[1] for i in items], [-3, 3], [0, 1]))
 
+    if not items:
+        logger.warning("generate_sector_heatmap: no sector data — rendering placeholder")
+        ax.text(0.5, 0.5, "Sector data unavailable", transform=ax.transAxes,
+                ha="center", va="center", fontsize=16, color=BRAND["text2"])
+
     n = len(items)
     cols = 4
-    rows = (n + cols - 1) // cols
+    rows = max(1, (n + cols - 1) // cols)   # never 0 — avoids ZeroDivisionError on empty data
     cell_w = w / cols
     cell_h = 6 / rows
 

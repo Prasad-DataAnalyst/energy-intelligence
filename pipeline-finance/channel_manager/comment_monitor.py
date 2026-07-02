@@ -108,6 +108,27 @@ class Comment:
             "reply_posted": self.reply_posted,
         }
 
+    @classmethod
+    def from_dict(cls, data: dict) -> "Comment":
+        """
+        Safe factory for raw JSON dicts. Ignores unknown keys and supplies
+        defaults for missing optional fields, so schema drift in saved
+        comment files can never raise TypeError.
+        """
+        return cls(
+            comment_id=data.get("comment_id", ""),
+            video_id=data.get("video_id", ""),
+            author=data.get("author", ""),
+            author_channel_id=data.get("author_channel_id", ""),
+            text=data.get("text", ""),
+            published_at=data.get("published_at", ""),
+            like_count=int(data.get("like_count", 0) or 0),
+            classification=data.get("classification"),
+            suggested_reply=data.get("suggested_reply"),
+            is_spam=bool(data.get("is_spam", False)),
+            reply_posted=bool(data.get("reply_posted", False)),
+        )
+
 
 def _get_youtube_service():
     from uploader.uploader import _get_authenticated_service
@@ -350,7 +371,7 @@ class CommentMonitor:
         try:
             raw = json.loads(data_file.read_text())
             return [
-                Comment(**c) for c in raw
+                Comment.from_dict(c) for c in raw
                 if c.get("suggested_reply") and not c.get("reply_posted") and not c.get("is_spam")
             ]
         except Exception as exc:

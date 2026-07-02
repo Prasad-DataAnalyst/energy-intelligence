@@ -512,8 +512,8 @@ class ShortsBuilder:
         if self.MUSIC_HISTORY_FILE.exists():
             try:
                 return json.loads(self.MUSIC_HISTORY_FILE.read_text())
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Music history unreadable (%s) — starting fresh", exc)
         return []
 
     def _save_music_history(self, history: list[str]) -> None:

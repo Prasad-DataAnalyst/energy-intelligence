@@ -801,7 +801,11 @@ def scrape_market() -> MarketSummary:
         top_losers=losers,
         high_volume=high_vol,
         sector_performance=sector_perf,
-        market_breadth={"advancing": advancing, "declining": len(sector_perf) - advancing, "unchanged": 0},
+        market_breadth={
+            "advancing": advancing,
+            "declining": declining,
+            "unchanged": len(sector_perf) - advancing - declining,
+        },
     )
 
 

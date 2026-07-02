@@ -236,6 +236,9 @@ class VideoBuilder:
         Apply a slow Ken Burns zoom-in effect to a static image.
         Returns a MoviePy clip or None if MoviePy unavailable.
         """
+        if duration <= 0:
+            logger.warning("create_ken_burns_clip: non-positive duration %.2fs — skipping", duration)
+            return None
         try:
             from moviepy.editor import ImageClip
             import numpy as np
@@ -387,10 +390,16 @@ class VideoBuilder:
                  "-of", "default=noprint_wrappers=1:nokey=1", str(video_path)],
                 capture_output=True, text=True, timeout=10,
             )
-            dur = float(result.stdout.strip())
+            stdout = result.stdout.strip()
+            if result.returncode != 0 or not stdout:
+                logger.error("ffprobe returned no duration for %s: %s",
+                             video_path, result.stderr.strip()[-200:])
+                return False, 0.0
+            dur = float(stdout)
             valid = MIN_DURATION <= dur <= MAX_DURATION
             if not valid:
-                logger.warning("Video duration %.1fs outside [%d, %d]s", dur, MIN_DURATION, MAX_DURATION)
+                logger.warning("Video duration %.1fs outside [%d, %d]s | path=%s",
+                               dur, MIN_DURATION, MAX_DURATION, video_path.name)
             return valid, dur
         except Exception as exc:
             logger.error("validate_duration failed: %s", exc)
@@ -428,6 +437,14 @@ class VideoBuilder:
 
 def build_video(assets: VideoAssets) -> BuiltVideo:
     """Main entry — build final video. Returns BuiltVideo metadata."""
+    if assets.duration_seconds <= 0:
+        # A zero/negative duration (e.g. failed audio generation or a bad
+        # ffprobe read) would produce zero-length clips and divide-by-zero
+        # frame math downstream — fail fast with a clear error instead.
+        raise ValueError(
+            f"Cannot build video '{assets.title}': non-positive duration "
+            f"{assets.duration_seconds:.2f}s (audio generation likely failed)"
+        )
     logger.info("Building video: '%s' (%s, %.1fs)", assets.title, assets.video_type, assets.duration_seconds)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

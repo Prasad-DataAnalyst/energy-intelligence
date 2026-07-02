@@ -58,11 +58,29 @@ def _run_sunday_in_process() -> None:
 
 
 def _run_isolated(target_fn, name: str) -> None:
-    """Spawn target_fn in a fresh child process for isolation."""
+    """Spawn target_fn in a fresh child process for isolation.
+
+    Uses the 'spawn' start method so the child gets a clean interpreter —
+    no inherited log file handles, API clients, or scheduler state from the
+    parent (fork would share all of these and risks deadlocks/races).
+    """
     logger.info("Spawning isolated process for: %s (PID parent: %d)", name, os.getpid())
-    proc = multiprocessing.Process(target=target_fn, name=name, daemon=False)
+    ctx = multiprocessing.get_context("spawn")
+    proc = ctx.Process(target=target_fn, name=name, daemon=False)
     proc.start()
     proc.join(timeout=7200)   # 2-hour hard timeout per pipeline run
+
+    if proc.is_alive():
+        # Timed out — terminate so a hung run can't block tomorrow's jobs
+        logger.error("Isolated process '%s' (PID %s) exceeded 2h timeout — terminating", name, proc.pid)
+        proc.terminate()
+        proc.join(timeout=30)
+        if proc.is_alive():
+            logger.error("Isolated process '%s' did not terminate — killing", name)
+            proc.kill()
+            proc.join(timeout=10)
+        return
+
     if proc.exitcode != 0:
         logger.error("Isolated process '%s' exited with code %s", name, proc.exitcode)
     else:

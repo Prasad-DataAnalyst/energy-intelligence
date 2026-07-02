@@ -95,6 +95,17 @@ def _apply_ssml_markup(text: str) -> str:
     - <emphasis level="strong"> around percentage figures
     - rate="slow" prosody on sentences containing multiple statistics
     """
+    # Idempotence guard — never double-wrap text that already contains SSML
+    if re.search(r"<(speak|emphasis|break|prosody)\b", text, re.IGNORECASE):
+        return text
+
+    # Escape XML special characters so the SSML document stays well-formed
+    text = (
+        text.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+    )
+
     # Wrap percentage figures with emphasis
     text = re.sub(
         r"(\d+\.?\d*\s*percent)",
@@ -102,20 +113,35 @@ def _apply_ssml_markup(text: str) -> str:
         text,
         flags=re.IGNORECASE,
     )
-    # Add pause after standalone numbers (e.g. "$3.2 billion", "145 points")
+    # Add pause after standalone numbers (e.g. "$3.2 billion", "145 points").
+    # NOTE: replacement must use single quotes — r"\"" in a raw string emits a
+    # literal backslash, which previously produced malformed SSML.
     text = re.sub(
         r"(\$\s*[\d,]+\.?\d*\s*(?:billion|million|trillion|thousand)?)",
-        r"\1<break time=\"0.3s\"/>",
+        r'\1<break time="0.3s"/>',
         text,
         flags=re.IGNORECASE,
     )
-    # Add pause after pure numbers followed by a space (standalone stats)
+
+    # Add pause after pure numbers followed by a space (standalone stats).
+    # Skip: 4-digit years ("in 2026 the market..."), numbers followed by
+    # "percent" (already emphasis-wrapped) or a magnitude word (mid-phrase),
+    # and digits inside already-inserted tags.
+    def _break_after_number(m: re.Match) -> str:
+        number, following = m.group(1), m.group(2)
+        if re.fullmatch(r"(19|20)\d{2}", number):
+            return m.group(0)   # years read naturally without a pause
+        return f'{number}<break time="0.3s"/>{following}'
+
     text = re.sub(
-        r"\b(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\b(\s)",
-        r"\1<break time=\"0.3s\"/>\2",
+        r"\b(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\b(\s)"
+        r"(?!(?:percent|billion|million|trillion|thousand)\b)"
+        r"(?![^<]*</emphasis>)",
+        _break_after_number,
         text,
+        flags=re.IGNORECASE,
     )
-    # Wrap stat-heavy sentences (≥2 numbers) in slower prosody
+    # Wrap stat-heavy sentences (≥3 numbers) in slower prosody
     sentences = re.split(r"(?<=[.!?])\s+", text)
     processed: list[str] = []
     for sentence in sentences:
@@ -186,8 +212,10 @@ def _elevenlabs_tts(text: str, output_path: Path) -> Optional[float]:
         except requests.RequestException as exc:
             wait = settings.retry_backoff_base ** attempt
             logger.warning("ElevenLabs attempt %d failed: %s — retry in %.1fs", attempt + 1, exc, wait)
-            time.sleep(wait)
+            if attempt < settings.max_retries - 1:
+                time.sleep(wait)
 
+    logger.error("ElevenLabs TTS failed after %d attempts", settings.max_retries)
     return None
 
 
@@ -215,23 +243,24 @@ def _pyttsx3_tts(text: str, output_path: Path) -> Optional[float]:
 
 def _merge_audio_files(segment_paths: list[Path], output_path: Path) -> Optional[float]:
     """Merge segment MP3 files using pydub or ffmpeg subprocess."""
+    valid = [p for p in segment_paths if p and p.exists()]
+    if not valid:
+        logger.warning("No valid audio segments to merge — skipping merge")
+        return None
+
     try:
         from pydub import AudioSegment as PydubSegment
         combined = PydubSegment.empty()
-        for p in segment_paths:
-            if p and p.exists():
-                seg = PydubSegment.from_file(str(p))
-                combined += seg
-                combined += PydubSegment.silent(duration=400)  # 400ms pause between segments
+        for p in valid:
+            seg = PydubSegment.from_file(str(p))
+            combined += seg
+            combined += PydubSegment.silent(duration=400)  # 400ms pause between segments
         combined.export(str(output_path), format="mp3", bitrate=settings.audio_bitrate)
         return len(combined) / 1000.0
     except ImportError:
         # Fallback: ffmpeg concat
         import subprocess
         list_file = output_path.parent / "concat_list.txt"
-        valid = [p for p in segment_paths if p and p.exists()]
-        if not valid:
-            return None
         list_file.write_text("\n".join(f"file '{p.resolve()}'" for p in valid))
         try:
             result = subprocess.run(
@@ -332,8 +361,13 @@ class AudioGenerator:
         merge_dur = _merge_audio_files(valid_paths, merged_path)
         total_dur = merge_dur or total_est
 
-        # Validate duration
-        if not (MIN_AUDIO_SECONDS <= total_dur <= MAX_AUDIO_SECONDS):
+        if not valid_paths:
+            logger.warning(
+                "No audio segments generated for %s (%d script segments) — "
+                "returning empty track", video_type, len(script_segments),
+            )
+        # Validate duration (only meaningful when real audio was produced)
+        elif not (MIN_AUDIO_SECONDS <= total_dur <= MAX_AUDIO_SECONDS):
             logger.warning(
                 "Audio duration %.1fs outside target [%d, %d]s — padding/trimming",
                 total_dur, MIN_AUDIO_SECONDS, MAX_AUDIO_SECONDS,
@@ -370,14 +404,14 @@ class AudioGenerator:
         try:
             from mutagen.mp3 import MP3
             return MP3(str(audio_path)).info.length
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("mutagen duration probe failed for %s: %s", audio_path.name, exc)
 
         try:
             from pydub import AudioSegment as Pydub
             return len(Pydub.from_file(str(audio_path))) / 1000.0
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("pydub duration probe failed for %s: %s", audio_path.name, exc)
 
         try:
             import subprocess
@@ -386,10 +420,10 @@ class AudioGenerator:
                  "-of", "default=noprint_wrappers=1:nokey=1", str(audio_path)],
                 capture_output=True, text=True, timeout=10,
             )
-            if result.returncode == 0:
+            if result.returncode == 0 and result.stdout.strip():
                 return float(result.stdout.strip())
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("ffprobe duration probe failed for %s: %s", audio_path.name, exc)
 
         # fallback: word-count estimate
         word_count = len(audio_path.stem.split())
