@@ -529,3 +529,66 @@ def generate_audio(script_segments: dict[str, str], video_type: str) -> AudioTra
 
     logger.info("Audio generation complete — %.1fs total, engine: %s", total_duration, engine_name)
     return track
+
+
+# ── Loudness Normalization ────────────────────────────────────────────────────
+
+_TARGET_LUFS = -16.0   # YouTube recommended loudness target
+_TRUE_PEAK_DB = -1.5   # YouTube true-peak ceiling
+
+
+def normalize_loudness(audio_path: Path, output_path: Optional[Path] = None) -> Optional[Path]:
+    """
+    Normalize audio to -16 LUFS / -1.5 dBTP using FFmpeg loudnorm filter.
+    If output_path is None, overwrites the input file in-place (via temp file).
+    Returns the output path on success, None on failure.
+
+    Requires: ffmpeg installed on system PATH.
+    """
+    import subprocess
+    import shutil
+
+    if output_path is None:
+        out = audio_path.with_suffix(".norm.mp3")
+    else:
+        out = output_path
+
+    ffmpeg_cmd = [
+        "ffmpeg", "-y",
+        "-i", str(audio_path),
+        "-af", f"loudnorm=I={_TARGET_LUFS}:TP={_TRUE_PEAK_DB}:LRA=11",
+        "-codec:a", "libmp3lame",
+        "-q:a", "2",
+        str(out),
+    ]
+
+    try:
+        result = subprocess.run(
+            ffmpeg_cmd,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.returncode != 0:
+            logger.error("FFmpeg loudnorm failed: %s", result.stderr[-500:])
+            return None
+
+        if output_path is None:
+            # Replace original with normalized version
+            import os
+            os.replace(out, audio_path)
+            logger.info("Loudness normalized in-place: %s (→ %.1f LUFS)", audio_path.name, _TARGET_LUFS)
+            return audio_path
+        else:
+            logger.info("Loudness normalized: %s → %s", audio_path.name, out.name)
+            return out
+
+    except FileNotFoundError:
+        logger.warning("ffmpeg not found — loudness normalization skipped")
+        return None
+    except subprocess.TimeoutExpired:
+        logger.error("FFmpeg loudnorm timed out for %s", audio_path.name)
+        return None
+    except Exception as exc:
+        logger.error("Loudness normalization error: %s", exc)
+        return None

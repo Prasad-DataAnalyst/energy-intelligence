@@ -384,6 +384,99 @@ class TitleGenerator:
         return title
 
 
+# ── Chapter Marker Generation ─────────────────────────────────────────────────
+
+_SECTION_HEADERS = re.compile(
+    r"^#+\s+(.+)$|^\*\*(.+)\*\*$|^=+\s*(.+?)\s*=+$",
+    re.MULTILINE,
+)
+
+# Sections to always include as chapters (if found in script)
+_FORCED_SECTIONS = [
+    "intro", "introduction", "market open", "overview",
+    "top movers", "gainers", "losers",
+    "sector", "economic", "earnings",
+    "outlook", "summary", "what to watch",
+]
+
+
+def generate_chapter_markers(script_text: str, audio_duration_seconds: float = 0.0) -> str:
+    """
+    Extract section headers from a script and generate YouTube chapter timestamps.
+
+    Chapter timestamps are estimated by distributing sections evenly across
+    the audio duration. If audio_duration_seconds is 0, uses word-count pacing.
+
+    Returns a string suitable for appending to a video description, e.g.:
+        0:00 Intro
+        0:45 Top Movers
+        2:10 Sector Performance
+        3:30 Economic Data
+        5:00 Outlook
+
+    YouTube requires the first chapter to start at 0:00.
+    """
+    headers: list[str] = []
+    for m in _SECTION_HEADERS.finditer(script_text):
+        label = (m.group(1) or m.group(2) or m.group(3) or "").strip()
+        if label:
+            headers.append(label)
+
+    if not headers:
+        # Fallback: try to detect implied sections via keyword scanning
+        lower = script_text.lower()
+        detected: list[str] = []
+        for sec in _FORCED_SECTIONS:
+            if sec in lower:
+                detected.append(sec.title())
+        headers = detected or ["Intro", "Market Recap", "Outlook"]
+
+    n = len(headers)
+    if audio_duration_seconds <= 0:
+        words = len(script_text.split())
+        audio_duration_seconds = max(words / (140 / 60), 30)
+
+    # Distribute headers evenly; first chapter always at 0:00
+    interval = audio_duration_seconds / n
+    lines: list[str] = []
+    for i, header in enumerate(headers):
+        offset = int(i * interval)
+        mins, secs = divmod(offset, 60)
+        lines.append(f"{mins}:{secs:02d} {header}")
+
+    return "\n".join(lines)
+
+
+def extract_script_tags(script_text: str) -> list[str]:
+    """
+    Scan a script for ticker symbols and named topics to use as YouTube tags.
+    Returns deduplicated list of uppercase ticker symbols + lowercase topic tags.
+    """
+    tags: list[str] = []
+
+    # Ticker symbols: 1-5 uppercase letters possibly preceded by $ or wrapped in parens
+    ticker_re = re.compile(r"\b(?:\$)?([A-Z]{1,5})\b")
+    for m in ticker_re.finditer(script_text):
+        sym = m.group(1)
+        # Basic filter: exclude common English words
+        if len(sym) >= 2 and sym not in {
+            "I", "A", "IS", "AN", "IN", "AT", "TO", "OR", "AND", "THE",
+            "FOR", "OF", "ON", "UP", "US", "ALL", "NEW", "NOW", "GDP",
+            "ETF", "ETFs", "VIX", "FED", "CEO", "CFO", "IPO", "SEC",
+        }:
+            tags.append(sym)
+
+    # Deduplicate preserving order
+    seen: set[str] = set()
+    unique_tags: list[str] = []
+    for t in tags:
+        if t not in seen:
+            seen.add(t)
+            unique_tags.append(t)
+
+    return unique_tags[:20]
+
+
 def log_title_performance(title: str, ctr: float, views: int) -> None:
     """Record observed CTR to a JSONL file for future scoring calibration."""
     record = {

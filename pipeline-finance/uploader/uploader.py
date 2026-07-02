@@ -529,3 +529,57 @@ def upload_full(
             add_to_playlist(result.video_id, config.playlist_id)
 
     return result
+
+
+# ── Upload Archive Manifest ───────────────────────────────────────────────────
+
+_UPLOAD_MANIFEST_PATH = settings.logs_dir / "upload_manifest.jsonl"
+
+
+def record_upload(result: "UploadResult", config: "UploadConfig") -> None:
+    """
+    Append a JSONL record to the upload archive manifest on successful upload.
+    Each line is a standalone JSON object for easy querying.
+    """
+    if not result.success or not result.video_id:
+        return
+    record = {
+        "video_id": result.video_id,
+        "title": config.title,
+        "video_type": config.video_type,
+        "uploaded_at": datetime.now().isoformat(),
+        "url": f"https://youtu.be/{result.video_id}",
+        "playlist_id": config.playlist_id,
+        "tags": config.tags[:10] if config.tags else [],
+        "quota_units_used": result.quota_used,
+    }
+    try:
+        _UPLOAD_MANIFEST_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(_UPLOAD_MANIFEST_PATH, "a", encoding="utf-8") as f:
+            import json as _json
+            f.write(_json.dumps(record) + "\n")
+        logger.info("Upload archived → manifest: %s (%s)", result.video_id, config.title[:50])
+    except Exception as exc:
+        logger.warning("Could not write upload manifest: %s", exc)
+
+
+def load_upload_manifest() -> list[dict]:
+    """
+    Load all JSONL records from the upload manifest.
+    Returns list of dicts, newest first (JSONL is append-order, so reverse).
+    """
+    import json as _json
+    if not _UPLOAD_MANIFEST_PATH.exists():
+        return []
+    records: list[dict] = []
+    try:
+        for line in _UPLOAD_MANIFEST_PATH.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line:
+                try:
+                    records.append(_json.loads(line))
+                except Exception:
+                    pass
+    except Exception as exc:
+        logger.warning("Could not read upload manifest: %s", exc)
+    return list(reversed(records))

@@ -449,6 +449,76 @@ class ScriptGenerator:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(data))
 
+    # ── Script Cache ──────────────────────────────────────────────────────────
+
+    def _cache_key(self, video_type: str, topic: str, tier: int) -> str:
+        """Stable cache key for a script request (sha256, first 16 chars)."""
+        import hashlib
+        raw = f"{video_type}:{topic.strip().lower()}:{tier}"
+        return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+    def _cache_path(self, cache_key: str) -> Path:
+        cache_dir = self.output_dir / "script_cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        return cache_dir / f"{cache_key}.json"
+
+    def get_cached_script(self, video_type: str, topic: str, tier: int) -> Optional["GeneratedScript"]:
+        """Return a cached GeneratedScript if one was saved today, else None."""
+        from datetime import date as _date
+        key = self._cache_key(video_type, topic, tier)
+        path = self._cache_path(key)
+        if not path.exists():
+            return None
+        try:
+            data = json.loads(path.read_text())
+            # Expire cache entries from previous days
+            cached_date = data.get("cached_date", "")
+            if cached_date != _date.today().isoformat():
+                path.unlink(missing_ok=True)
+                return None
+            return GeneratedScript(
+                video_type=data["video_type"],
+                title_draft=data.get("title_draft", ""),
+                script=data.get("script", ""),
+                word_count=data.get("word_count", 0),
+                estimated_duration_seconds=data.get("estimated_duration_seconds", 0),
+                segments=data.get("segments", {}),
+                tier=data.get("tier", str(tier)),
+                style=data.get("style", ""),
+                raw_prompt=data.get("raw_prompt", ""),
+                model=data.get("model", ""),
+                tokens_used=data.get("tokens_used", 0),
+            )
+        except Exception as exc:
+            logger.debug("Script cache miss for %s: %s", key, exc)
+            return None
+
+    def cache_script(self, script: "GeneratedScript", topic: str, tier: int) -> None:
+        """Persist a GeneratedScript to the day-scoped cache."""
+        from datetime import date as _date
+        key = self._cache_key(script.video_type, topic, tier)
+        path = self._cache_path(key)
+        data = {
+            "video_type": script.video_type,
+            "title_draft": script.title_draft,
+            "script": script.script,
+            "word_count": script.word_count,
+            "estimated_duration_seconds": script.estimated_duration_seconds,
+            "segments": script.segments,
+            "tier": script.tier,
+            "style": script.style,
+            "raw_prompt": script.raw_prompt,
+            "model": script.model,
+            "tokens_used": script.tokens_used,
+            "topic": topic,
+            "cached_date": _date.today().isoformat(),
+        }
+        try:
+            path.write_text(json.dumps(data, default=str))
+            logger.debug("Script cached: %s (%s/%s)", key, script.video_type, topic[:40])
+        except Exception as exc:
+            logger.warning("Script cache write failed: %s", exc)
+
 
 def select_best_topic(
     topics_json: str,

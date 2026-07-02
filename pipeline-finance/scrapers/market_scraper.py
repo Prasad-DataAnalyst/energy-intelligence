@@ -736,6 +736,47 @@ class MarketScraper:
         )
         return round(score, 2)
 
+    # ── VIX Pre-check ────────────────────────────────────────────────────────
+
+    def get_vix_level(self) -> Optional[float]:
+        """
+        Fetch current VIX (^VIX) level via yfinance.
+        Returns the float price or None if fetch fails.
+        """
+        try:
+            ticker = yf.Ticker("^VIX")
+            hist = ticker.history(period="1d", interval="1m")
+            if hist.empty:
+                return None
+            return float(hist["Close"].iloc[-1])
+        except Exception as exc:
+            logger.warning("VIX fetch failed: %s", exc)
+            return None
+
+    def vix_market_state(self) -> dict:
+        """
+        Return a dict describing VIX level and the implied script tone.
+
+        VIX < 18  → calm     (upbeat, matter-of-fact delivery)
+        18 ≤ VIX < 25 → moderate (neutral tone, mention elevated uncertainty)
+        VIX ≥ 25  → elevated (sober tone, emphasize risk, stress disclaimers)
+        VIX ≥ 35  → extreme  (crisis tone, reinforce not-advice strongly)
+        """
+        level = self.get_vix_level()
+        if level is None:
+            return {"level": None, "state": "unknown", "tone_hint": "neutral"}
+
+        if level >= 35:
+            state, tone = "extreme", "crisis"
+        elif level >= 25:
+            state, tone = "elevated", "sober"
+        elif level >= 18:
+            state, tone = "moderate", "measured"
+        else:
+            state, tone = "calm", "upbeat"
+
+        return {"level": round(level, 2), "state": state, "tone_hint": tone}
+
 
 # ── Backward-compat entry point (used by schedulers) ─────────────────────────
 
