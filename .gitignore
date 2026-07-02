@@ -29,3 +29,6 @@ pipeline-finance/config/youtube_token.json
 .vscode/
 .idea/
 *.swp
+
+# Claude Code internal metadata (worktree agent state)
+.claude/
