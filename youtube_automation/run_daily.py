@@ -200,8 +200,20 @@ def run_all_signs_pipeline(args) -> int:
                 sys.path.insert(0, str(Path(__file__).parent))
                 from youtube_uploader import (upload_video, upload_thumbnail,
                                               post_comment, pin_comment,
-                                              process_retry_queue)
+                                              process_retry_queue, find_uploaded,
+                                              quota_spent_today, DAILY_QUOTA_LIMIT)
                 import json as _json
+
+                # Idempotency: if this date was already uploaded, don't post a
+                # duplicate (and don't waste another ~1600 quota units). Repeated
+                # manual runs or a double cron are now safe. Use --force to override.
+                existing = find_uploaded(args.date)
+                if existing and not args.force:
+                    print(f"      SKIP: {args.date} already uploaded → "
+                          f"https://youtu.be/{existing} (use --force to re-upload)")
+                    upload_result = f"✅ youtu.be/{existing} (existing)"
+                    raise StopIteration  # jump to finally without treating as error
+
                 # Retry any videos queued from a previous quota-limited day.
                 try:
                     retried = process_retry_queue()
@@ -209,6 +221,8 @@ def run_all_signs_pipeline(args) -> int:
                         print(f"      [INFO] Uploaded {retried} queued video(s) from prior days")
                 except Exception as _qe:
                     print(f"      [INFO] Retry queue skipped: {_qe}")
+
+                print(f"      Quota used today: {quota_spent_today()}/{DAILY_QUOTA_LIMIT} units")
 
                 assets_json = f"outputs/{args.date}/DailyAll/daily_horoscope_{args.date}_assets.json"
                 assets  = _json.loads(Path(assets_json).read_text(encoding="utf-8"))
@@ -232,6 +246,8 @@ def run_all_signs_pipeline(args) -> int:
                 pin_comment(vid_id, cid)
                 print(f"      OK: https://youtu.be/{vid_id} — publishes {publish_at}")
                 upload_result = f"✅ youtu.be/{vid_id}"
+            except StopIteration:
+                pass  # already-uploaded skip — upload_result already set
             except Exception as _e:
                 print(f"      FAILED: {_e}")
                 upload_result = f"❌ {str(_e)[:80]}"
@@ -278,6 +294,8 @@ def main():
                         help="Reuse existing JSON files instead of regenerating")
     parser.add_argument("--upload",      action="store_true",
                         help="Auto-upload completed videos to YouTube")
+    parser.add_argument("--force",       action="store_true",
+                        help="Re-upload even if a video for this date already exists")
     parser.add_argument("--tiktok",      action="store_true",
                         help="Also cross-post to TikTok")
     args = parser.parse_args()

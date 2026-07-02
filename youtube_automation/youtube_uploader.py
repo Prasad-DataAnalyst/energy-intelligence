@@ -26,6 +26,15 @@ CHUNK = 5 * 1024 * 1024   # 5 MB resumable upload chunks
 # Upload retry queue — persisted so it survives restarts
 _QUEUE_FILE = Path(config.LOGS_DIR) / "upload_queue.json"
 _LOG_FILE   = Path(config.LOGS_DIR) / "uploads.json"
+_QUOTA_FILE = Path(config.LOGS_DIR) / "quota_usage.json"
+
+# YouTube Data API daily quota accounting (default project quota = 10,000 units/day,
+# reset at midnight Pacific). Costs are fixed per operation.
+DAILY_QUOTA_LIMIT  = 10000
+QUOTA_SAFE_CEILING = 9000     # leave headroom for reads/branding/retries
+COST_UPLOAD    = 1600
+COST_THUMBNAIL = 50
+COST_COMMENT   = 50
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -86,6 +95,15 @@ def upload_video(video_path: str, content: dict, seo_package: dict = None,
     """
     if not os.path.exists(video_path):
         raise FileNotFoundError(f"Video file not found: {video_path}")
+
+    # Quota guard: never blow the daily limit. Queue for tomorrow instead.
+    if _would_exceed_quota(COST_UPLOAD + COST_THUMBNAIL + COST_COMMENT):
+        _queue_for_retry(video_path, content, seo_package, publish_at)
+        raise RuntimeError(
+            f"Daily YouTube quota ceiling reached "
+            f"({quota_spent_today()}/{DAILY_QUOTA_LIMIT} units used) — "
+            f"video queued for retry at next reset."
+        )
 
     title       = _best(seo_package, "selected_title", content, "title",  "Mind Fuel Daily")
     description = _build_description(content, seo_package)
@@ -160,7 +178,9 @@ def upload_video(video_path: str, content: dict, seo_package: dict = None,
     log.info("Uploading: %s  (%.1f MB)", title, file_size / 1_048_576)
     video_id = _stream_upload(session, upload_url, video_path, file_size)
 
-    log.info("Upload complete → https://youtu.be/%s", video_id)
+    _record_quota(COST_UPLOAD)
+    log.info("Upload complete → https://youtu.be/%s  (quota %d/%d)",
+             video_id, quota_spent_today(), DAILY_QUOTA_LIMIT)
     _log_upload(video_path, video_id, title, content)
     return video_id
 
@@ -229,6 +249,7 @@ def upload_thumbnail(video_id: str, image_path: str) -> bool:
             data=img_data,
         )
         if resp.status_code in (200, 204):
+            _record_quota(COST_THUMBNAIL)
             log.info("Thumbnail uploaded for %s", video_id)
             return True
         log.warning("Thumbnail upload returned %d: %s", resp.status_code, resp.text[:200])
@@ -259,6 +280,7 @@ def post_comment(video_id: str, text: str) -> str:
             data=json.dumps(body),
         )
         if resp.status_code == 200:
+            _record_quota(COST_COMMENT)
             cid = resp.json()["id"]
             log.info("Comment posted: %s", cid)
             return cid
@@ -368,6 +390,69 @@ def process_retry_queue() -> int:
 
     _save_queue(remaining)
     return succeeded
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Quota accounting — never exceed the daily YouTube API limit
+# ─────────────────────────────────────────────────────────────────────────────
+# YouTube quota resets at midnight America/Los_Angeles. We track by that day so
+# our accounting lines up with Google's reset.
+
+def _quota_day_key() -> str:
+    # PT is UTC-8 (standard) / UTC-7 (DST); use -8 as a safe conservative bucket.
+    return (_utcnow() - datetime.timedelta(hours=8)).strftime("%Y%m%d")
+
+
+def quota_spent_today() -> int:
+    data = _read_json(_QUOTA_FILE, {})
+    return int(data.get(_quota_day_key(), 0))
+
+
+def quota_remaining() -> int:
+    return max(0, DAILY_QUOTA_LIMIT - quota_spent_today())
+
+
+def _record_quota(units: int) -> None:
+    data = _read_json(_QUOTA_FILE, {})
+    key  = _quota_day_key()
+    data[key] = int(data.get(key, 0)) + int(units)
+    # Keep only the most recent 14 days.
+    for k in sorted(data.keys())[:-14]:
+        data.pop(k, None)
+    _QUOTA_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _write_json(_QUOTA_FILE, data)
+
+
+def _would_exceed_quota(cost: int) -> bool:
+    return quota_spent_today() + cost > QUOTA_SAFE_CEILING
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Idempotency — one upload per date, so repeated runs don't duplicate videos
+# ─────────────────────────────────────────────────────────────────────────────
+
+def find_uploaded(date_tag: str) -> str:
+    """Return the video_id already uploaded for this date_tag, or '' if none.
+    Prevents a manual re-run (or double cron) from posting a duplicate video
+    and burning another 1600 quota units."""
+    for entry in _read_json(_LOG_FILE, []):
+        if str(entry.get("date")) == str(date_tag) and entry.get("video_id"):
+            return entry["video_id"]
+    return ""
+
+
+def _read_json(path: Path, default):
+    if Path(path).exists():
+        try:
+            return json.loads(Path(path).read_text())
+        except Exception:
+            pass
+    return default
+
+
+def _write_json(path: Path, obj) -> None:
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    Path(path).write_text(json.dumps(obj, indent=2))
 
 
 def _load_queue() -> list:
