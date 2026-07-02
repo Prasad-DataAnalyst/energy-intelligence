@@ -708,7 +708,11 @@ def assemble_video_motion(png_files: list, durations: list,
     prev = "v0"
     offset = 0.0
     for i in range(1, n):
-        offset += durations[i - 1] - T
+        # Accumulate full card durations (transition overlaps the tail) so the
+        # total video length stays ≈ sum(durations) and stays in sync with the
+        # 148s audio track. (Using dur-T here would shrink the video ~5s and
+        # progressively desync the voice from the cards.)
+        offset += durations[i - 1]
         label = f"x{i}"
         parts.append(
             f"[{prev}][v{i}]xfade=transition=fade:duration={T}:"

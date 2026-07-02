@@ -71,6 +71,32 @@ def check_assets(json_path: str) -> list:
     return errors
 
 
+def _silence_errors(path, duration: float) -> list:
+    """Use ffmpeg silencedetect to flag a track that is (almost) entirely silent
+    — the 'uploaded but no audio' failure that otherwise ships unnoticed."""
+    try:
+        r = subprocess.run(
+            ["ffmpeg", "-i", str(path), "-af",
+             "silencedetect=noise=-50dB:d=2", "-f", "null", "-"],
+            capture_output=True, text=True, timeout=60,
+        )
+        log = r.stderr or ""
+        total_silence = 0.0
+        for line in log.splitlines():
+            if "silence_duration:" in line:
+                try:
+                    total_silence += float(line.split("silence_duration:")[1].strip())
+                except Exception:
+                    pass
+        # If >90% of the video is silence, the audio is effectively dead.
+        if duration and total_silence > 0.90 * duration:
+            return [f"Audio is {total_silence:.0f}s silent of {duration:.0f}s "
+                    f"(track is effectively silent)"]
+    except Exception:
+        pass   # never block on the silence probe itself
+    return []
+
+
 def check_video(video_path: str) -> list:
     errors = []
     path = Path(video_path)
@@ -111,8 +137,18 @@ def check_video(video_path: str) -> list:
                 if (w, h) != (1080, 1920):
                     errors.append(f"Wrong dimensions: {w}×{h} (need 1080×1920)")
 
-            if not any(s.get("codec_type") == "audio" for s in streams):
+            astreams = [s for s in streams if s.get("codec_type") == "audio"]
+            if not astreams:
                 errors.append("No audio stream")
+            else:
+                # Audio/video sync: the audio track must span the video, else the
+                # voice drifts out of sync with the sign cards.
+                a_dur = float(astreams[0].get("duration", 0) or fmt.get("duration", 0))
+                if a_dur and abs(a_dur - duration) > 2.0:
+                    errors.append(f"Audio/video desync: audio {a_dur:.1f}s vs video "
+                                  f"{duration:.1f}s (>2s drift)")
+                # Silence check: catch the 'uploaded but no voice/music' failure.
+                errors += _silence_errors(path, duration)
 
     except subprocess.TimeoutExpired:
         errors.append("ffprobe timed out — VM may be under memory pressure")

@@ -152,6 +152,22 @@ def run_all_signs_pipeline(args) -> int:
     print(f"  Period: {args.period}  |  Started: {datetime.now():%H:%M:%S}")
     print(f"{'='*60}\n")
 
+    # ── Preflight: catch config/token/dep problems BEFORE wasting a render ──────
+    if not args.skip_doctor:
+        try:
+            sys.path.insert(0, str(Path(__file__).parent))
+            import doctor
+            healthy, lines = doctor.preflight(deep=False)
+            print("[0/4] Preflight health check:")
+            print("\n".join(lines))
+            if not healthy:
+                print("\n[ABORT] Preflight found critical issues — not rendering.", file=sys.stderr)
+                doctor._email_report(False, lines)
+                return 1
+            print("      OK — healthy\n")
+        except Exception as _de:
+            print(f"  [WARN] Preflight check skipped: {_de}")
+
     _daemon("stop")
     print("  [INFO] Daemon paused for rendering\n")
 
@@ -296,6 +312,8 @@ def main():
                         help="Auto-upload completed videos to YouTube")
     parser.add_argument("--force",       action="store_true",
                         help="Re-upload even if a video for this date already exists")
+    parser.add_argument("--skip-doctor",  action="store_true",
+                        help="Skip the preflight health check")
     parser.add_argument("--tiktok",      action="store_true",
                         help="Also cross-post to TikTok")
     args = parser.parse_args()
