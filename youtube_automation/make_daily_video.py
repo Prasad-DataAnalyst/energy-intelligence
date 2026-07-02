@@ -260,6 +260,30 @@ def render_intro_card(date_str: str) -> Image.Image:
     f_date = _font(54, bold=False)
     w = _tw(date_str, f_date)
     draw.text(((WIDTH - w) // 2, y), date_str, font=f_date, fill=SILVER)
+    y += _th(f_date) + 60
+
+    # ── Hook + CTA — the first 4s decide retention on Shorts ────────────────────
+    f_hook = _font(64, bold=True)
+    hook   = "FIND YOUR SIGN"
+    w = _tw(hook, f_hook)
+    draw.text(((WIDTH - w) // 2 + 2, y + 2), hook, font=f_hook, fill=(0, 0, 0, 160))
+    draw.text(((WIDTH - w) // 2,     y),     hook, font=f_hook, fill=WHITE)
+    y += _th(f_hook) + 16
+
+    f_arrow = _glyph_font(72)
+    arrow   = "↓ ↓ ↓"
+    w = _tw(arrow, f_arrow)
+    draw.text(((WIDTH - w) // 2, y), arrow, font=f_arrow, fill=GOLD)
+
+    # CTA pill above the channel tag
+    f_cta = _font(46, bold=True)
+    cta   = "COMMENT YOUR SIGN"
+    cw    = _tw(cta, f_cta)
+    cx    = (WIDTH - cw) // 2
+    cy    = HEIGHT - 188
+    draw.rounded_rectangle([cx - 30, cy - 14, cx + cw + 30, cy + _th(f_cta) + 20],
+                           radius=18, fill=GOLD)
+    draw.text((cx, cy), cta, font=f_cta, fill=(10, 5, 30))
 
     f_ch = _font(50, bold=False)
     w = _tw(CHANNEL_TAG, f_ch)
@@ -500,14 +524,34 @@ def _voice_script(sign: str, fields: dict) -> str:
     )
 
 
-async def _tts_async(text: str, out_path: str, rate: str = "+0%") -> bool:
+# A rotation of pleasant, free English neural voices so all 12 signs don't sound
+# identical. Assigned deterministically by sign index.
+VOICES = [
+    "en-US-AriaNeural",     "en-GB-SoniaNeural",   "en-US-JennyNeural",
+    "en-IE-EmilyNeural",    "en-AU-NatashaNeural", "en-US-MichelleNeural",
+    "en-GB-LibbyNeural",    "en-CA-ClaraNeural",   "en-US-AnaNeural",
+    "en-GB-MaisieNeural",   "en-US-SaraNeural",    "en-AU-CarlyNeural",
+]
+DEFAULT_VOICE = "en-IE-EmilyNeural"
+
+
+async def _tts_async(text: str, out_path: str, rate: str = "+0%",
+                     voice: str = DEFAULT_VOICE) -> bool:
     try:
         import edge_tts
-        comm = edge_tts.Communicate(text, voice="en-IE-EmilyNeural", rate=rate)
+        comm = edge_tts.Communicate(text, voice=voice, rate=rate)
         await comm.save(out_path)
         return Path(out_path).exists() and Path(out_path).stat().st_size > 512
     except Exception as e:
-        print(f"[WARN] edge-tts: {e}", file=sys.stderr)
+        print(f"[WARN] edge-tts ({voice}): {e}", file=sys.stderr)
+        # Retry once with the default voice in case a rotation voice is unavailable.
+        if voice != DEFAULT_VOICE:
+            try:
+                import edge_tts
+                await edge_tts.Communicate(text, voice=DEFAULT_VOICE, rate=rate).save(out_path)
+                return Path(out_path).exists() and Path(out_path).stat().st_size > 512
+            except Exception:
+                pass
         return False
 
 
@@ -545,10 +589,11 @@ def _generate_silence(duration: float, out_path: str) -> bool:
         return False
 
 
-def _generate_sign_voice(text: str, out_path: str, target_secs: float) -> bool:
+def _generate_sign_voice(text: str, out_path: str, target_secs: float,
+                         voice: str = DEFAULT_VOICE) -> bool:
     """TTS → speed up to fit target_secs (avoids mid-sentence cut) → pad/trim exact."""
     raw = out_path.replace(".mp3", "_raw.mp3")
-    ok = asyncio.run(_tts_async(text, raw))
+    ok = asyncio.run(_tts_async(text, raw, voice=voice))
     if not ok:
         Path(raw).unlink(missing_ok=True)
         return _generate_silence(target_secs, out_path)
@@ -558,7 +603,7 @@ def _generate_sign_voice(text: str, out_path: str, target_secs: float) -> bool:
     dur = _audio_dur(raw)
     if dur > target_secs + 0.3:
         rate_pct = min(60, int((dur / target_secs - 1) * 100) + 3)
-        asyncio.run(_tts_async(text, raw, rate=f"+{rate_pct}%"))  # overwrite raw, sped up
+        asyncio.run(_tts_async(text, raw, rate=f"+{rate_pct}%", voice=voice))  # overwrite raw
 
     cmd = [
         "ffmpeg", "-y", "-loglevel", "error",
@@ -619,6 +664,77 @@ def _mix_voice_ambient(voice_path: str, ambient_path: str, out_path: str) -> boo
         return r.returncode == 0
     except Exception:
         return False
+
+
+# Motion is CPU-heavy (xfade re-encodes every frame). Off by default so the
+# e2-micro cron stays within its render budget; enable once on a bigger VM.
+MOTION_ENABLED = os.getenv("MOTION_ENABLED", "false").lower() == "true"
+XFADE_SECS     = 0.5
+
+
+def _mux_audio(tmp_video: str, audio_path: str | None, out_path: str) -> bool:
+    """Attach audio to a finished silent video (or move it if no audio)."""
+    if audio_path and Path(audio_path).exists():
+        cmd = [
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-i", tmp_video, "-i", audio_path,
+            "-map", "0:v", "-map", "1:a",
+            "-c:v", "copy", "-c:a", "aac", "-b:a", "128k",
+            "-shortest", "-movflags", "+faststart", out_path,
+        ]
+        return _sp.run(cmd, capture_output=True, timeout=120).returncode == 0
+    import shutil
+    shutil.move(tmp_video, out_path)
+    return True
+
+
+def assemble_video_motion(png_files: list, durations: list,
+                          audio_path: str | None, out_path: str) -> bool:
+    """Crossfade each card into the next for a smooth, 'alive' feel.
+    Falls back to the static assembler on any failure."""
+    tmp_video = out_path.replace(".mp4", "_motion.mp4")
+    n = len(png_files)
+    T = XFADE_SECS
+    inputs = []
+    for png, dur in zip(png_files, durations):
+        inputs += ["-loop", "1", "-t", str(dur + T), "-i", png]
+
+    # Normalize every still, then chain xfades with cumulative offsets.
+    parts = [
+        f"[{i}:v]scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=disable,"
+        f"setsar=1,fps={FPS},settb=AVTB,format=yuv420p[v{i}]"
+        for i in range(n)
+    ]
+    prev = "v0"
+    offset = 0.0
+    for i in range(1, n):
+        offset += durations[i - 1] - T
+        label = f"x{i}"
+        parts.append(
+            f"[{prev}][v{i}]xfade=transition=fade:duration={T}:"
+            f"offset={offset:.3f}[{label}]"
+        )
+        prev = label
+    filt = ";".join(parts)
+
+    cmd = [
+        "ffmpeg", "-y", "-loglevel", "error",
+        *inputs, "-filter_complex", filt, "-map", f"[{prev}]",
+        "-pix_fmt", "yuv420p", "-c:v", "libx264", "-preset", "ultrafast",
+        "-crf", "23", "-threads", "0", "-movflags", "+faststart", tmp_video,
+    ]
+    try:
+        r = _sp.run(cmd, capture_output=True, timeout=1800)
+        if r.returncode != 0:
+            print(f"[WARN] Motion assembly failed, using static: "
+                  f"{r.stderr.decode()[-200:]}", file=sys.stderr)
+            return False
+        return _mux_audio(tmp_video, audio_path, out_path)
+    except Exception as e:
+        print(f"[WARN] Motion assembly exception, using static: {e}", file=sys.stderr)
+        return False
+    finally:
+        Path(tmp_video).unlink(missing_ok=True)
 
 
 # ── Video assembly ─────────────────────────────────────────────────────────────
@@ -737,10 +853,11 @@ def process(json_path: str) -> str:
         for idx, sign in enumerate(SIGNS):
             fields = signs_data.get(sign, {})
             script = _voice_script(sign, fields)
+            voice  = VOICES[idx % len(VOICES)]
             vpath  = str(tmp / f"voice_{idx + 1:02d}_{sign}.mp3")
-            if _generate_sign_voice(script, vpath, SIGN_SECS):
+            if _generate_sign_voice(script, vpath, SIGN_SECS, voice=voice):
                 voice_clips.append(vpath)
-                print(f"      [{sign.title():<14}]  {SIGN_SECS}s")
+                print(f"      [{sign.title():<14}]  {SIGN_SECS}s  ({voice.split('-',2)[-1]})")
             else:
                 sil2 = str(tmp / f"sil_{idx + 1:02d}.mp3")
                 _generate_silence(SIGN_SECS, sil2)
@@ -783,8 +900,13 @@ def process(json_path: str) -> str:
             print("      [WARN] No audio — video will be silent")
 
         # 4. Assemble
-        print(f"\n[4/5] Assembling {WIDTH}x{HEIGHT} @ {FPS}fps...")
-        ok = assemble_video(png_files, durations, audio_path, video_path)
+        mode = "motion (crossfade)" if MOTION_ENABLED else "static"
+        print(f"\n[4/5] Assembling {WIDTH}x{HEIGHT} @ {FPS}fps  [{mode}]...")
+        ok = False
+        if MOTION_ENABLED:
+            ok = assemble_video_motion(png_files, durations, audio_path, video_path)
+        if not ok:
+            ok = assemble_video(png_files, durations, audio_path, video_path)
         if not ok:
             print("[ERROR] Assembly failed", file=sys.stderr)
             sys.exit(1)
