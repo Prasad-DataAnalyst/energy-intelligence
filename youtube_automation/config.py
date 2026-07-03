@@ -26,8 +26,11 @@ YOUTUBE_SCOPES      = [
     "https://www.googleapis.com/auth/youtube.force-ssl",  # needed for comments
 ]
 CHANNEL_ID          = os.getenv("YOUTUBE_CHANNEL_ID", "")
-# 27 = Education (highest CPM tier), 26 = How-to & Style, 22 = People & Blogs
-CATEGORY_ID         = os.getenv("YOUTUBE_CATEGORY_ID", "27")
+# 24 = Entertainment — where the horoscope competitive set lives, which is the
+# category signal the recommender learns from. (The old "27 Education = highest
+# CPM" rationale doesn't apply to Shorts: revenue is pooled by engaged views,
+# not category CPM.) Override with YOUTUBE_CATEGORY_ID in .env.
+CATEGORY_ID         = os.getenv("YOUTUBE_CATEGORY_ID", "24")
 PRIVACY_STATUS      = os.getenv("YOUTUBE_PRIVACY_STATUS", "public")
 TOKEN_FILE          = "youtube_token.json"
 

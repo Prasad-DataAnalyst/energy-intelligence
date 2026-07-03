@@ -90,18 +90,26 @@ def _check_youtube_token() -> tuple:
     if not token_path.exists():
         return False, "critical", f"No YouTube token ({config.TOKEN_FILE}). Run reauth_youtube.py"
 
+    # Scope check — MUST read the raw file: passing scopes= to
+    # from_authorized_user_file OVERRIDES the file's scopes field, so checking
+    # creds.scopes afterwards always "passes" (and each refresh re-serializes
+    # the overridden list, laundering the file). force-ssl is required for
+    # comments.
+    try:
+        import json as _json
+        raw_scopes = set(_json.loads(token_path.read_text()).get("scopes") or [])
+    except Exception:
+        raw_scopes = set()
+    required = set(config.YOUTUBE_SCOPES)
+    if raw_scopes and not required.issubset(raw_scopes):
+        miss = {s.rsplit("/", 1)[-1] for s in required - raw_scopes}
+        return False, "warn", (f"Token missing scopes {miss} — comments will "
+                               f"403. Re-run reauth_youtube.py")
+
     try:
         creds = Credentials.from_authorized_user_file(str(token_path), config.YOUTUBE_SCOPES)
     except Exception as e:
         return False, "critical", f"Token unreadable: {str(e)[:80]}. Run reauth_youtube.py"
-
-    # Scope check — force-ssl is required for comments.
-    granted = set(getattr(creds, "scopes", None) or [])
-    required = set(config.YOUTUBE_SCOPES)
-    if granted and not required.issubset(granted):
-        miss = required - granted
-        return False, "warn", (f"Token missing scopes {miss}. "
-                               f"Comments will 403 — re-run reauth_youtube.py")
 
     if creds.valid:
         exp = getattr(creds, "expiry", None)
@@ -146,20 +154,37 @@ def _check_fonts() -> tuple:
 
 
 def _check_edge_tts() -> tuple:
-    """Confirm edge-tts can actually reach the service (network dependency)."""
+    """Confirm edge-tts can actually reach the service (network dependency).
+    Hard 30s cap — a network black hole must not stall the 5:00/5:30 runs —
+    and the temp dir is cleaned up (mkdtemp leaked one per invocation)."""
     try:
         import asyncio, tempfile, edge_tts
-        out = Path(tempfile.mkdtemp()) / "t.mp3"
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td) / "t.mp3"
 
-        async def _go():
-            await edge_tts.Communicate("test", voice="en-IE-EmilyNeural").save(str(out))
+            async def _go():
+                await asyncio.wait_for(
+                    edge_tts.Communicate("test", voice="en-IE-EmilyNeural").save(str(out)),
+                    timeout=30,
+                )
 
-        asyncio.run(_go())
-        if out.exists() and out.stat().st_size > 256:
-            return True, "ok", "edge-tts reachable"
+            asyncio.run(_go())
+            if out.exists() and out.stat().st_size > 256:
+                return True, "ok", "edge-tts reachable"
         return True, "warn", "edge-tts produced no audio (video will use ambient only)"
     except Exception as e:
         return True, "warn", f"edge-tts unreachable ({str(e)[:60]}) — ambient-only fallback"
+
+
+def _check_alerting() -> tuple:
+    """If email isn't configured, every failure alert (doctor, summary,
+    heartbeat) is a silent no-op — the exact blind spot this system exists to
+    remove. Not critical (the video still renders) but must be visible."""
+    if os.getenv("GMAIL_APP_PASSWORD", "").replace(" ", ""):
+        hc = "on" if os.getenv("HEALTHCHECK_URL", "").strip() else "off (optional)"
+        return True, "ok", f"Email alerts configured; external healthcheck {hc}"
+    return True, "warn", ("GMAIL_APP_PASSWORD not set — failure emails and the "
+                          "dead-man's-switch alert CANNOT send")
 
 
 # ── Orchestration ────────────────────────────────────────────────────────────
@@ -174,6 +199,7 @@ def preflight(deep: bool = False) -> tuple:
         ("Disk space",    _check_disk()),
         ("Fonts",         _check_fonts()),
         ("edge-tts",      _check_edge_tts()),
+        ("Alerting",      _check_alerting()),
     ]
     lines, critical_ok = [], True
     for name, (ok, level, msg) in checks:

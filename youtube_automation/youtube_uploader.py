@@ -149,6 +149,7 @@ def upload_video(video_path: str, content: dict, seo_package: dict = None,
             "Content-Type":            "application/json",
         },
         data=json.dumps(metadata),
+        timeout=60,
     )
     if init_resp.status_code == 403:
         reason = ""
@@ -202,6 +203,7 @@ def _stream_upload(session, upload_url: str, video_path: str, file_size: int) ->
                             "Content-Length": str(len(chunk)),
                         },
                         data=chunk,
+                        timeout=300,   # 5 MB chunk; a TCP stall must not hang forever
                     )
                     break
                 except Exception:
@@ -245,7 +247,8 @@ def verify_upload(video_id: str, expect_publish_at: str = None,
             session, _ = _authed_session()
             resp = session.get(
                 "https://www.googleapis.com/youtube/v3/videos"
-                f"?part=status,processingDetails&id={video_id}"
+                f"?part=status,processingDetails&id={video_id}",
+                timeout=60,
             )
             _record_quota(1)
             if not resp.ok:
@@ -304,6 +307,7 @@ def upload_thumbnail(video_id: str, image_path: str) -> bool:
             f"?videoId={video_id}&uploadType=media",
             headers={"Content-Type": mime, "Content-Length": str(len(img_data))},
             data=img_data,
+            timeout=60,
         )
         if resp.status_code in (200, 204):
             _record_quota(COST_THUMBNAIL)
@@ -335,13 +339,19 @@ def post_comment(video_id: str, text: str) -> str:
             "https://www.googleapis.com/youtube/v3/commentThreads?part=snippet",
             headers={"Content-Type": "application/json"},
             data=json.dumps(body),
+            timeout=60,
         )
         if resp.status_code == 200:
             _record_quota(COST_COMMENT)
             cid = resp.json()["id"]
             log.info("Comment posted: %s", cid)
             return cid
-        log.warning("Comment post returned %d: %s", resp.status_code, resp.text[:200])
+        if resp.status_code == 403:
+            # Most common cause: video is still private (scheduled publish) —
+            # comments are rejected until it goes public. Caller should queue.
+            log.warning("Comment post 403 (video private/scheduled?): %s", resp.text[:200])
+        else:
+            log.warning("Comment post returned %d: %s", resp.status_code, resp.text[:200])
     except Exception as exc:
         log.warning("Post comment failed: %s", exc)
     return ""
@@ -358,30 +368,90 @@ def pin_comment(video_id: str, comment_id: str) -> bool:
 
 
 def post_community_post(text: str) -> bool:
-    """
-    Post a YouTube Community post.
-    Note: Community Posts API requires channel membership and specific OAuth scopes.
-    This uses the posts.insert endpoint (available for eligible channels).
-    """
+    """No-op stub: there is NO public Data API endpoint for Community posts
+    (the old /youtube/v3/posts call 404'd on every invocation). Community
+    posts must be made in the YouTube app/Studio."""
+    log.info("Community posts are not supported by the Data API — skipped")
+    return False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Deferred comments — a scheduled (private) video rejects comments until it
+# publishes, so we queue the pinned comment and post it after publish time.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_PENDING_COMMENTS = Path(config.LOGS_DIR) / "pending_comments.json"
+
+
+def queue_comment(video_id: str, text: str, post_after_iso: str) -> None:
+    """Queue a comment to be posted once the video is public.
+    post_after_iso: ISO-8601 UTC with trailing Z, e.g. the publishAt + margin."""
+    if not video_id or not text:
+        return
+    items = _read_json(_PENDING_COMMENTS, [])
+    items.append({"video_id": video_id, "text": text,
+                  "post_after": post_after_iso, "attempts": 0})
+    _write_json(_PENDING_COMMENTS, items)
+    log.info("Comment queued for %s (after %s)", video_id, post_after_iso)
+
+
+def process_pending_comments() -> int:
+    """Post any queued comments whose post_after has passed. Returns count posted.
+    Called from the 12:00 heartbeat cron (video publishes at 10:00) and from the
+    next day's upload step as a fallback."""
+    items = _read_json(_PENDING_COMMENTS, [])
+    if not items:
+        return 0
+    now = _utcnow_iso()
+    remaining, posted = [], 0
+    for it in items:
+        if it.get("post_after", "9999") > now:
+            remaining.append(it)
+            continue
+        if it.get("attempts", 0) >= 3:
+            log.warning("Comment abandoned after 3 attempts: %s", it.get("video_id"))
+            continue
+        it["attempts"] = it.get("attempts", 0) + 1
+        if post_comment(it["video_id"], it["text"]):
+            posted += 1
+        else:
+            remaining.append(it)   # retry on a later pass
+    _write_json(_PENDING_COMMENTS, remaining)
+    return posted
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Playlist — add each daily video to the channel's running playlist (50 units)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def add_to_playlist(video_id: str, playlist_id: str = None) -> bool:
+    """Insert the video into a playlist. Uses YOUTUBE_PLAYLIST_ID from .env when
+    not passed explicitly; silently skips if unset. Playlists are one of the few
+    binge/session levers that work for Shorts via channel page + search."""
+    playlist_id = playlist_id or os.environ.get("YOUTUBE_PLAYLIST_ID", "").strip()
+    if not playlist_id or not video_id:
+        return False
     try:
         session, _ = _authed_session()
         body = {
             "snippet": {
-                "type": "textPost",
-                "textOriginal": text[:2000],
+                "playlistId": playlist_id,
+                "resourceId": {"kind": "youtube#video", "videoId": video_id},
             }
         }
         resp = session.post(
-            "https://www.googleapis.com/youtube/v3/posts?part=snippet",
+            "https://www.googleapis.com/youtube/v3/playlistItems?part=snippet",
             headers={"Content-Type": "application/json"},
             data=json.dumps(body),
+            timeout=60,
         )
         if resp.status_code == 200:
-            log.info("Community post published")
+            _record_quota(50)
+            log.info("Added %s to playlist %s", video_id, playlist_id)
             return True
-        log.warning("Community post returned %d: %s", resp.status_code, resp.text[:200])
+        log.warning("Playlist insert returned %d: %s", resp.status_code, resp.text[:200])
     except Exception as exc:
-        log.warning("Community post failed: %s", exc)
+        log.warning("Playlist insert failed: %s", exc)
     return False
 
 
@@ -595,13 +665,14 @@ def _build_tags(content: dict, seo_package: dict) -> list:
         if tag:
             cleaned.append(tag)
 
-    # Hard caps: ≤10 tags and ≤400 total characters across all tags
+    # Hard caps: ≤15 tags, ≤480 chars total (YouTube's field limit is 500 chars;
+    # keep a small margin). Weak ranking signal, but no reason to waste it.
     result, total = [], 0
     for tag in cleaned:
-        if len(result) >= 10:
+        if len(result) >= 15:
             break
         addition = len(tag) + (1 if result else 0)
-        if total + addition > 400:
+        if total + addition > 480:
             break
         result.append(tag)
         total += addition
@@ -617,7 +688,7 @@ def _build_tags(content: dict, seo_package: dict) -> list:
 CHANNEL_BIO = """🌙 Daily horoscopes for ALL 12 zodiac signs — Aries through Pisces.
 
 Fresh cosmic readings every morning:
-✨ Daily Horoscope — posted every day at 1 AM ET
+✨ Daily Horoscope — live every morning at 6 AM ET
 📅 Weekly Horoscope — every Monday
 🌟 Monthly Horoscope — first of each month
 🌕 Special Events — eclipses, retrogrades, full moons & more

@@ -192,6 +192,13 @@ def run_all_signs_pipeline(args) -> int:
                 print(f"      FAILED: {out[-200:]}", file=sys.stderr)
 
         if not assets_ok:
+            # The most likely failure stages must still email — otherwise the
+            # owner's primary "did it work" signal never fires exactly when it
+            # matters most.
+            send_summary_email(args.date, {"all_signs": {
+                "assets": "❌ generation failed", "video": "—", "quality": "—",
+                "upload": "",
+            }}, int(time.time() - t_start), args.upload)
             return 1
 
         # ── 2. Render slideshow video (retry once — transient ffmpeg/OOM/network
@@ -204,6 +211,10 @@ def run_all_signs_pipeline(args) -> int:
             ok = run_live([PYTHON, "make_daily_video.py", json_file], timeout=1800)
         if not ok:
             print("      FAILED (after retry)", file=sys.stderr)
+            send_summary_email(args.date, {"all_signs": {
+                "assets": "✅", "video": "❌ render failed (after retry)",
+                "quality": "—", "upload": "",
+            }}, int(time.time() - t_start), args.upload)
             return 1
         print("      OK")
 
@@ -220,11 +231,26 @@ def run_all_signs_pipeline(args) -> int:
             try:
                 sys.path.insert(0, str(Path(__file__).parent))
                 from youtube_uploader import (upload_video, upload_thumbnail,
-                                              post_comment, pin_comment,
+                                              queue_comment, process_pending_comments,
                                               process_retry_queue, find_uploaded,
-                                              verify_upload,
+                                              verify_upload, add_to_playlist,
                                               quota_spent_today, DAILY_QUOTA_LIMIT)
                 import json as _json
+
+                # Housekeeping first — these must run even when today's upload
+                # is skipped as a duplicate:
+                # (a) retry videos queued from a previous quota-limited day,
+                # (b) post yesterday's pinned comment if it's due (fallback for
+                #     the 12:00 heartbeat pass).
+                try:
+                    retried = process_retry_queue()
+                    if retried:
+                        print(f"      [INFO] Uploaded {retried} queued video(s) from prior days")
+                    posted = process_pending_comments()
+                    if posted:
+                        print(f"      [INFO] Posted {posted} pending comment(s)")
+                except Exception as _qe:
+                    print(f"      [INFO] Housekeeping skipped: {_qe}")
 
                 # Idempotency: if this date was already uploaded, don't post a
                 # duplicate (and don't waste another ~1600 quota units). Repeated
@@ -235,14 +261,6 @@ def run_all_signs_pipeline(args) -> int:
                           f"https://youtu.be/{existing} (use --force to re-upload)")
                     upload_result = f"✅ youtu.be/{existing} (existing)"
                     raise StopIteration  # jump to finally without treating as error
-
-                # Retry any videos queued from a previous quota-limited day.
-                try:
-                    retried = process_retry_queue()
-                    if retried:
-                        print(f"      [INFO] Uploaded {retried} queued video(s) from prior days")
-                except Exception as _qe:
-                    print(f"      [INFO] Retry queue skipped: {_qe}")
 
                 print(f"      Quota used today: {quota_spent_today()}/{DAILY_QUOTA_LIMIT} units")
 
@@ -255,17 +273,28 @@ def run_all_signs_pipeline(args) -> int:
                     "date":           args.date,
                     "privacy_status": "public",
                 }
-                # Publish at 10 AM UTC (6 AM EST). If that moment is already past
-                # (late/manual run), schedule ASAP — YouTube rejects past publishAt.
-                pub_dt = datetime.strptime(args.date, "%Y%m%d").replace(hour=10, minute=0, second=0)
+                # Publish hour (UTC) is configurable: 10 = 6 AM ET (US morning).
+                # If Analytics shows a big India/Europe audience, set
+                # PUBLISH_HOUR_UTC=4 or 5 in .env (morning IST). If the moment is
+                # already past (late/manual run), schedule ASAP — YouTube rejects
+                # a publishAt in the past.
+                pub_hour = int(os.environ.get("PUBLISH_HOUR_UTC", "10"))
+                pub_dt = datetime.strptime(args.date, "%Y%m%d").replace(
+                    hour=pub_hour, minute=0, second=0)
                 if pub_dt <= _utcnow():
                     pub_dt = _utcnow() + timedelta(minutes=15)
                 publish_at = pub_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
                 vid_id     = upload_video(video_path, content, publish_at=publish_at)
                 thumb_path = f"outputs/{args.date}/DailyAll/daily_horoscope_{args.date}_thumbnail.jpg"
                 upload_thumbnail(vid_id, thumb_path)
-                cid = post_comment(vid_id, assets.get("pinned_comment", ""))
-                pin_comment(vid_id, cid)
+                add_to_playlist(vid_id)   # no-op unless YOUTUBE_PLAYLIST_ID set
+
+                # Comments are rejected while the video is private (scheduled),
+                # so queue the pinned comment for after publish; the 12:00
+                # heartbeat cron posts it.
+                comment_after = (pub_dt + timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+                queue_comment(vid_id, assets.get("pinned_comment", ""), comment_after)
+                print(f"      Comment queued for {comment_after}")
 
                 # Post-upload verification: confirm YouTube accepted it and the
                 # scheduled publish is actually set (catches failed/rejected
@@ -306,6 +335,10 @@ def run_all_signs_pipeline(args) -> int:
             heartbeat.record_success()
         except Exception as _he:
             print(f"  [INFO] Heartbeat stamp skipped: {_he}")
+        try:
+            _prune_old_outputs()
+        except Exception as _pe:
+            print(f"  [INFO] Output pruning skipped: {_pe}")
 
     send_summary_email(
         args.date,
@@ -320,7 +353,28 @@ def run_all_signs_pipeline(args) -> int:
     return 0 if all_ok else 1
 
 
+def _prune_old_outputs(keep_days: int = 14) -> None:
+    """Delete outputs/<date>/ dirs and daily_horoscope_*.json older than
+    keep_days so the 20 GB disk never silently fills up."""
+    import shutil as _sh
+    cutoff = (_utcnow() - timedelta(days=keep_days)).strftime("%Y%m%d")
+    out_root = Path("outputs")
+    if out_root.is_dir():
+        for d in out_root.iterdir():
+            if d.is_dir() and d.name.isdigit() and d.name < cutoff:
+                _sh.rmtree(d, ignore_errors=True)
+    for f in Path(".").glob("daily_horoscope_*.json"):
+        tag = f.stem.split("_")[-1]
+        if tag.isdigit() and tag < cutoff:
+            f.unlink(missing_ok=True)
+
+
 def main():
+    # Anchor to the script's directory: every relative path in the pipeline
+    # (.env, youtube_token.json, logs/, outputs/) assumes it. Cron does
+    # `cd $REPO` already; this makes manual runs from anywhere safe too.
+    os.chdir(Path(__file__).parent)
+
     parser = argparse.ArgumentParser(description="Daily GetMindFuelNow Shorts pipeline")
     parser.add_argument("--date",        required=True, metavar="YYYYMMDD")
     parser.add_argument("--period",      required=True, help="e.g. 'June 2026'")

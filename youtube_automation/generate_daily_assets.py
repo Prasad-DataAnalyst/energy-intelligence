@@ -69,7 +69,9 @@ def _validate(data: dict) -> None:
 
 
 def generate(period: str, date_tag: str = None) -> str:
-    client   = anthropic.Anthropic()
+    # 90s per attempt: the runner caps this whole script at 300s, so the SDK's
+    # default 600s timeout would let one hung attempt eat the entire budget.
+    client   = anthropic.Anthropic(timeout=90)
     if date_tag:
         today = datetime.strptime(date_tag, "%Y%m%d").strftime("%B %d, %Y")
     else:
@@ -83,7 +85,7 @@ Period: {period}
 Return this EXACT JSON structure (fill in all 12 signs):
 {{
   "date": "{today}",
-  "title": "Daily Horoscope All 12 Signs — {today}",
+  "title": "Daily Horoscope Today, {today} — All 12 Zodiac Signs (Love, Career, Money)",
   "description": "Complete daily horoscope for all 12 zodiac signs — {today}. Love, career, money, lucky numbers and colors. Subscribe for daily cosmic guidance. #horoscope #astrology #zodiac #dailyhoroscope",
   "hashtags": ["#horoscope", "#astrology", "#zodiac", "#dailyhoroscope", "#allsigns", "#lovehoroscope", "#careerhoroscope"],
   "tags": ["daily horoscope", "all 12 signs horoscope", "horoscope today", "astrology today", "zodiac reading", "love horoscope today", "daily astrology", "horoscope {today}"],

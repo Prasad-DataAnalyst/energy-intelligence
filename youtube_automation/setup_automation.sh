@@ -43,17 +43,26 @@ echo "  OK: python3 found at $VENV_PYTHON"
 echo ""
 echo "[2/4] Configuring passwordless sudo for daemon control..."
 
-SUDOERS_LINE="prasad2t ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop getmindfuelnow, /usr/bin/systemctl start getmindfuelnow, /bin/systemctl stop getmindfuelnow, /bin/systemctl start getmindfuelnow"
+# Use the ACTUAL login user — on GCP with OS Login the account is e.g.
+# prasad2t_gmail_com, not prasad2t; a hardcoded name silently disables the
+# daemon pause and the render then competes with the daemon for RAM.
+RUN_USER="$(id -un)"
+SUDOERS_LINE="$RUN_USER ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop getmindfuelnow, /usr/bin/systemctl start getmindfuelnow, /bin/systemctl stop getmindfuelnow, /bin/systemctl start getmindfuelnow"
 SUDOERS_FILE="/etc/sudoers.d/horoscope-daemon"
 
-# Always rewrite so path fixes (/usr/bin vs /bin systemctl) are picked up on re-run.
-echo "$SUDOERS_LINE" | sudo tee "$SUDOERS_FILE" > /dev/null
-sudo chmod 440 "$SUDOERS_FILE"
-sudo visudo -c -f "$SUDOERS_FILE" && echo "  OK: sudoers configured" || {
-    echo "  ERROR: sudoers syntax error — removing"
-    sudo rm -f "$SUDOERS_FILE"
-    exit 1
-}
+# Best-effort: a failed sudo here must not abort the script before the cron
+# jobs are installed (set -e is active).
+if echo "$SUDOERS_LINE" | sudo tee "$SUDOERS_FILE" > /dev/null 2>&1; then
+    sudo chmod 440 "$SUDOERS_FILE"
+    if sudo visudo -c -f "$SUDOERS_FILE" > /dev/null 2>&1; then
+        echo "  OK: sudoers configured for user $RUN_USER"
+    else
+        echo "  WARN: sudoers syntax error — removing (daemon pause disabled)"
+        sudo rm -f "$SUDOERS_FILE"
+    fi
+else
+    echo "  WARN: could not write sudoers (no sudo?) — daemon pause disabled"
+fi
 
 # ── 3. Install cron job ───────────────────────────────────────────────────────
 echo ""

@@ -31,7 +31,10 @@ HERE = Path(__file__).parent
 load_dotenv(HERE / ".env")
 
 STAMP_FILE    = HERE / "logs" / "last_success.txt"
-MAX_AGE_HOURS = 30   # daily cadence + generous slack for late/retried runs
+# 28h, not 30: a slow (retried) run stamps ~7:00 UTC, so at the next day's
+# 12:00 check a failure is 29h old — 30 would wave it through and the alert
+# would arrive a full day late.
+MAX_AGE_HOURS = 28
 
 
 def _utcnow() -> datetime:
@@ -113,8 +116,23 @@ def check(alert: bool = True) -> bool:
     return True
 
 
+def _post_due_comments() -> None:
+    """The 12:00 cron runs after the 10:00 publish — post any queued pinned
+    comments now that the video is public."""
+    try:
+        import os as _os
+        _os.chdir(HERE)          # uploader paths (logs/, token) are CWD-relative
+        from youtube_uploader import process_pending_comments
+        n = process_pending_comments()
+        if n:
+            print(f"  [INFO] Posted {n} pending comment(s)")
+    except Exception as e:
+        print(f"  [INFO] Pending comments skipped: {e}")
+
+
 def main():
     if "--check" in sys.argv:
+        _post_due_comments()
         sys.exit(0 if check(alert=True) else 1)
     # No args: just report status without emailing.
     check(alert=False)

@@ -188,13 +188,21 @@ PAD = 64
 CW  = WIDTH - 2 * PAD   # 952 px
 
 
-def _gradient_img(sign: str) -> Image.Image:
-    top, bot = SIGN_GRADIENTS.get(sign, ((8, 4, 20), (16, 8, 40)))
-    a = np.zeros((HEIGHT, WIDTH, 3), dtype=np.float32)
-    ys = np.linspace(0, 1, HEIGHT)[:, None]
+def _vgrad(w: int, h: int, top: tuple, bot: tuple) -> Image.Image:
+    """Vertical gradient with fine dither. The cards are very dark, low-level
+    gradients — the worst case for 8-bit banding; ±1 LSB noise before
+    quantization removes the bands at the source for free."""
+    a = np.zeros((h, w, 3), dtype=np.float32)
+    ys = np.linspace(0, 1, h)[:, None]
     for c in range(3):
         a[:, :, c] = top[c] * (1 - ys) + bot[c] * ys
+    a += np.random.default_rng(0).uniform(-1.0, 1.0, size=a.shape).astype(np.float32)
     return Image.fromarray(np.clip(a, 0, 255).astype(np.uint8))
+
+
+def _gradient_img(sign: str) -> Image.Image:
+    top, bot = SIGN_GRADIENTS.get(sign, ((8, 4, 20), (16, 8, 40)))
+    return _vgrad(WIDTH, HEIGHT, top, bot)
 
 
 def _stars(draw: ImageDraw.Draw, seed: int = 0) -> None:
@@ -209,12 +217,7 @@ def _stars(draw: ImageDraw.Draw, seed: int = 0) -> None:
 
 # ── Intro card ─────────────────────────────────────────────────────────────────
 def render_intro_card(date_str: str) -> Image.Image:
-    top, bot = (5, 2, 18), (12, 5, 35)
-    a = np.zeros((HEIGHT, WIDTH, 3), dtype=np.float32)
-    ys = np.linspace(0, 1, HEIGHT)[:, None]
-    for c in range(3):
-        a[:, :, c] = top[c] * (1 - ys) + bot[c] * ys
-    img  = Image.fromarray(np.clip(a, 0, 255).astype(np.uint8)).convert("RGBA")
+    img  = _vgrad(WIDTH, HEIGHT, (5, 2, 18), (12, 5, 35)).convert("RGBA")
     draw = ImageDraw.Draw(img)
 
     _stars(draw, seed=42)
@@ -417,12 +420,7 @@ def render_sign_card(sign: str, fields: dict, idx: int) -> Image.Image:
 # ── Thumbnail (1280×720) ───────────────────────────────────────────────────────
 def render_thumbnail(date_str: str, out_path: str) -> None:
     TW, TH = 1280, 720
-    top, bot = (5, 2, 18), (12, 5, 35)
-    a = np.zeros((TH, TW, 3), dtype=np.float32)
-    ys = np.linspace(0, 1, TH)[:, None]
-    for c in range(3):
-        a[:, :, c] = top[c] * (1 - ys) + bot[c] * ys
-    img  = Image.fromarray(np.clip(a, 0, 255).astype(np.uint8))
+    img  = _vgrad(TW, TH, (5, 2, 18), (12, 5, 35))
     draw = ImageDraw.Draw(img)
 
     rng = random.Random(7)
@@ -486,18 +484,30 @@ def render_thumbnail(date_str: str, out_path: str) -> None:
 
 # ── Audio ──────────────────────────────────────────────────────────────────────
 def _generate_ambient(duration: float, out_path: str) -> bool:
+    """Cosmic pad: mid-register detuned major triad (A3+C#4+A4, with a 0.5 Hz
+    beating pair for shimmer) + band-passed pink-noise 'air', slow tremolo.
+
+    Replaces the old 55-165 Hz sine stack: phone speakers (the dominant Shorts
+    device) reproduce almost nothing below ~300 Hz, and 165 Hz sat right in the
+    female-TTS fundamental range, masking the voice. normalize=0 keeps the
+    explicit weights (default amix scales every input by 1/n).
+    Output is WAV so no lossy generation is added before the final AAC encode."""
     fade_start = max(1, int(duration) - 5)
     cmd = [
         "ffmpeg", "-y", "-loglevel", "error",
-        "-f", "lavfi", "-t", str(duration + 2), "-i", "sine=frequency=55:sample_rate=44100",
-        "-f", "lavfi", "-t", str(duration + 2), "-i", "sine=frequency=82:sample_rate=44100",
-        "-f", "lavfi", "-t", str(duration + 2), "-i", "sine=frequency=110:sample_rate=44100",
-        "-f", "lavfi", "-t", str(duration + 2), "-i", "sine=frequency=165:sample_rate=44100",
+        "-f", "lavfi", "-t", str(duration + 2), "-i", "sine=frequency=220:sample_rate=44100",
+        "-f", "lavfi", "-t", str(duration + 2), "-i", "sine=frequency=277.18:sample_rate=44100",
+        "-f", "lavfi", "-t", str(duration + 2), "-i", "sine=frequency=440:sample_rate=44100",
+        "-f", "lavfi", "-t", str(duration + 2), "-i", "sine=frequency=440.5:sample_rate=44100",
+        "-f", "lavfi", "-t", str(duration + 2), "-i", "anoisesrc=color=pink:amplitude=0.15:sample_rate=44100",
         "-filter_complex",
-        f"[0:a]volume=0.35[a0];[1:a]volume=0.22[a1];[2:a]volume=0.18[a2];[3:a]volume=0.12[a3];"
-        f"[a0][a1][a2][a3]amix=inputs=4:duration=shortest[mix];"
-        f"[mix]afade=t=in:ss=0:d=5,afade=t=out:st={fade_start}:d=5[out]",
-        "-map", "[out]", "-t", str(duration), out_path,
+        f"[4:a]highpass=f=300,lowpass=f=1200[nz];"
+        f"[0:a][1:a][2:a][3:a][nz]amix=inputs=5:duration=shortest:normalize=0:"
+        f"weights='0.20 0.14 0.08 0.08 0.35'[mix];"
+        f"[mix]tremolo=f=0.1:d=0.5,afade=t=in:ss=0:d=5,afade=t=out:st={fade_start}:d=5[out]",
+        "-map", "[out]", "-t", str(duration),
+        "-ar", _AR, "-ac", _AC, "-c:a", "pcm_s16le",
+        out_path,
     ]
     try:
         r = _sp.run(cmd, capture_output=True, timeout=90)
@@ -508,31 +518,44 @@ def _generate_ambient(duration: float, out_path: str) -> bool:
 
 # ── Voice narration (edge-tts, free) ──────────────────────────────────────────
 def _voice_script(sign: str, fields: dict) -> str:
+    """Spoken line per sign. Deliberately SHORTER than the on-screen text:
+    the full 6-field card is ~19-20s of speech but the slot is 12s, which
+    forced heavy speed-up + tail clipping. Money/lucky stay on screen only."""
     love   = fields.get("love",   "")
     career = fields.get("career", "")
-    money  = fields.get("money",  "")
-    num    = fields.get("lucky_number", "")
-    color  = fields.get("lucky_color",  "")
     note   = fields.get("note",   "")
     return (
         f"{sign.title()}. "
         f"Love: {love}. "
         f"Career: {career}. "
-        f"Money: {money}. "
-        f"Lucky number {num}, lucky color {color}. "
         f"{note}."
     )
 
 
-# A rotation of pleasant, free English neural voices so all 12 signs don't sound
-# identical. Assigned deterministically by sign index.
+def _intro_script(date_str: str) -> str:
+    """The first 4 seconds decide the swipe — never open with dead air."""
+    return f"Your daily horoscope for {date_str}. Find your sign."
+
+
+# Curated ADULT neural voices (no child voices — en-US-Ana and en-GB-Maisie are
+# Microsoft's child voices and must not read horoscopes). ONE voice per day,
+# rotated by date: a consistent narrator inside each video reads as production
+# value; per-sign accent whiplash reads as randomness.
 VOICES = [
-    "en-US-AriaNeural",     "en-GB-SoniaNeural",   "en-US-JennyNeural",
-    "en-IE-EmilyNeural",    "en-AU-NatashaNeural", "en-US-MichelleNeural",
-    "en-GB-LibbyNeural",    "en-CA-ClaraNeural",   "en-US-AnaNeural",
-    "en-GB-MaisieNeural",   "en-US-SaraNeural",    "en-AU-CarlyNeural",
+    "en-US-AriaNeural",   "en-GB-SoniaNeural",  "en-US-JennyNeural",
+    "en-IE-EmilyNeural",  "en-AU-NatashaNeural", "en-US-MichelleNeural",
+    "en-GB-LibbyNeural",  "en-CA-ClaraNeural",  "en-US-AvaNeural",
+    "en-US-EmmaNeural",   "en-US-SaraNeural",   "en-AU-CarlyNeural",
 ]
 DEFAULT_VOICE = "en-IE-EmilyNeural"
+
+
+def _day_voice(date_tag: str) -> str:
+    """Deterministic voice-of-the-day."""
+    try:
+        return VOICES[int(date_tag) % len(VOICES)]
+    except Exception:
+        return DEFAULT_VOICE
 
 
 async def _tts_async(text: str, out_path: str, rate: str = "+0%",
@@ -573,13 +596,16 @@ _AR = "44100"
 _AC = "2"
 
 
+# Intermediates are WAV (pcm_s16le): the old chain re-encoded the voice through
+# 4 lossy mp3/aac generations before upload. Now AAC is encoded exactly once.
+
 def _generate_silence(duration: float, out_path: str) -> bool:
     cmd = [
         "ffmpeg", "-y", "-loglevel", "error",
         "-f", "lavfi", "-t", str(duration),
         "-i", f"anullsrc=channel_layout=stereo:sample_rate={_AR}",
         "-ar", _AR, "-ac", _AC,
-        "-acodec", "libmp3lame", "-b:a", "64k",
+        "-c:a", "pcm_s16le",
         out_path,
     ]
     try:
@@ -591,18 +617,20 @@ def _generate_silence(duration: float, out_path: str) -> bool:
 
 def _generate_sign_voice(text: str, out_path: str, target_secs: float,
                          voice: str = DEFAULT_VOICE) -> bool:
-    """TTS → speed up to fit target_secs (avoids mid-sentence cut) → pad/trim exact."""
-    raw = out_path.replace(".mp3", "_raw.mp3")
+    """TTS → speed up slightly if needed → pad/trim to exactly target_secs.
+
+    Rate is capped at +20%: beyond that the narration sounds rushed. The spoken
+    script is sized to fit at normal speed; a big overrun means the script is
+    too long and should be shortened, not chipmunked."""
+    raw = out_path.rsplit(".", 1)[0] + "_raw.mp3"
     ok = asyncio.run(_tts_async(text, raw, voice=voice))
     if not ok:
         Path(raw).unlink(missing_ok=True)
         return _generate_silence(target_secs, out_path)
 
-    # If the narration overruns the slide, re-synthesize faster (cap +60%) so the
-    # whole line is spoken within the window instead of being chopped off.
     dur = _audio_dur(raw)
     if dur > target_secs + 0.3:
-        rate_pct = min(60, int((dur / target_secs - 1) * 100) + 3)
+        rate_pct = min(20, int((dur / target_secs - 1) * 100) + 3)
         asyncio.run(_tts_async(text, raw, rate=f"+{rate_pct}%", voice=voice))  # overwrite raw
 
     cmd = [
@@ -610,7 +638,7 @@ def _generate_sign_voice(text: str, out_path: str, target_secs: float,
         "-i", raw,
         "-af", f"apad,atrim=end={target_secs}",
         "-ar", _AR, "-ac", _AC,
-        "-acodec", "libmp3lame", "-b:a", "128k",
+        "-c:a", "pcm_s16le",
         out_path,
     ]
     try:
@@ -638,7 +666,7 @@ def _concat_audio(clips: list, out_path: str) -> bool:
         "ffmpeg", "-y", "-loglevel", "error",
         *inputs, "-filter_complex", flt,
         "-map", "[out]",
-        "-acodec", "libmp3lame", "-b:a", "128k",
+        "-c:a", "pcm_s16le",
         out_path,
     ]
     try:
@@ -649,14 +677,20 @@ def _concat_audio(clips: list, out_path: str) -> bool:
 
 
 def _mix_voice_ambient(voice_path: str, ambient_path: str, out_path: str) -> bool:
-    """Mix voice (85%) with ambient (15%)."""
+    """Mix voice over the ambient bed and master to YouTube's loudness target.
+
+    normalize=0 is load-bearing: amix's default scales EVERY input by 1/n,
+    which silently played the voice at 42% and made the bed inaudible.
+    loudnorm to -14 LUFS matters because YouTube turns loud audio down but
+    never turns quiet audio up — quiet Shorts get swiped."""
     cmd = [
         "ffmpeg", "-y", "-loglevel", "error",
         "-i", voice_path, "-i", ambient_path,
         "-filter_complex",
-        "[0:a]volume=0.85[v];[1:a]volume=0.15[a];[v][a]amix=inputs=2:duration=first[out]",
+        "[0:a][1:a]amix=inputs=2:duration=first:normalize=0:weights='1 0.35',"
+        "loudnorm=I=-14:TP=-1.5:LRA=11,aresample=44100[out]",
         "-map", "[out]",
-        "-acodec", "aac", "-b:a", "128k",
+        "-c:a", "aac", "-b:a", "160k",
         out_path,
     ]
     try:
@@ -672,6 +706,14 @@ MOTION_ENABLED = os.getenv("MOTION_ENABLED", "false").lower() == "true"
 XFADE_SECS     = 0.5
 
 
+def _audio_mux_args(audio_path: str) -> list:
+    """Stream-copy when the track is already AAC (the mixed master); encode
+    once from WAV otherwise. Avoids a pointless extra lossy generation."""
+    if audio_path.endswith((".m4a", ".aac")):
+        return ["-c:a", "copy"]
+    return ["-c:a", "aac", "-b:a", "160k"]
+
+
 def _mux_audio(tmp_video: str, audio_path: str | None, out_path: str) -> bool:
     """Attach audio to a finished silent video (or move it if no audio)."""
     if audio_path and Path(audio_path).exists():
@@ -679,7 +721,7 @@ def _mux_audio(tmp_video: str, audio_path: str | None, out_path: str) -> bool:
             "ffmpeg", "-y", "-loglevel", "error",
             "-i", tmp_video, "-i", audio_path,
             "-map", "0:v", "-map", "1:a",
-            "-c:v", "copy", "-c:a", "aac", "-b:a", "128k",
+            "-c:v", "copy", *_audio_mux_args(audio_path),
             "-shortest", "-movflags", "+faststart", out_path,
         ]
         return _sp.run(cmd, capture_output=True, timeout=120).returncode == 0
@@ -724,8 +766,8 @@ def assemble_video_motion(png_files: list, durations: list,
     cmd = [
         "ffmpeg", "-y", "-loglevel", "error",
         *inputs, "-filter_complex", filt, "-map", f"[{prev}]",
-        "-pix_fmt", "yuv420p", "-c:v", "libx264", "-preset", "ultrafast",
-        "-crf", "23", "-threads", "0", "-movflags", "+faststart", tmp_video,
+        "-pix_fmt", "yuv420p", "-c:v", "libx264", "-preset", "veryfast",
+        "-crf", "20", "-threads", "0", "-movflags", "+faststart", tmp_video,
     ]
     try:
         r = _sp.run(cmd, capture_output=True, timeout=1800)
@@ -753,12 +795,17 @@ def assemble_video(png_files: list, durations: list,
             f.write(f"file '{img_path}'\nduration {dur}\n")
         f.write(f"file '{png_files[-1]}'\n")
 
+    # Static path: identical frames encode as skip-blocks, so a better preset
+    # costs almost nothing here. The dark gradients are 8-bit banding's worst
+    # case — ultrafast made it worse; veryfast+crf19+stillimage gives YouTube's
+    # VP9 re-encode much cleaner input.
     cmd1 = [
         "ffmpeg", "-y", "-loglevel", "error",
         "-f", "concat", "-safe", "0", "-i", concat_txt,
         "-vf", f"fps={FPS},scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=disable",
         "-pix_fmt", "yuv420p",
-        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "19",
+        "-tune", "stillimage",
         "-threads", "0",
         "-movflags", "+faststart",
         tmp_video,
@@ -775,7 +822,7 @@ def assemble_video(png_files: list, durations: list,
                 "ffmpeg", "-y", "-loglevel", "error",
                 "-i", tmp_video, "-i", audio_path,
                 "-map", "0:v", "-map", "1:a",
-                "-c:v", "copy", "-c:a", "aac", "-b:a", "128k",
+                "-c:v", "copy", *_audio_mux_args(audio_path),
                 "-shortest", "-movflags", "+faststart",
                 out_path,
             ]
@@ -843,32 +890,34 @@ def process(json_path: str) -> str:
             durations.append(SIGN_SECS)
             print(f"      [{sign.title():<14}]  {SIGN_SECS}s")
 
-        # 2. Voice narration (edge-tts, free)
-        print(f"\n[2/5] Generating voice narration (edge-tts)...")
+        # 2. Voice narration (edge-tts, free) — one narrator per day
+        day_voice = _day_voice(date_tag)
+        print(f"\n[2/5] Generating voice narration (edge-tts, voice: {day_voice})...")
         voice_clips: list = []
 
-        sil_path = str(tmp / "voice_00_intro.mp3")
-        if _generate_silence(INTRO_SECS, sil_path):
-            voice_clips.append(sil_path)
-            print(f"      [intro]  {INTRO_SECS}s silence")
+        # Narrated intro — never open a Short with 4s of dead air.
+        intro_voice = str(tmp / "voice_00_intro.wav")
+        if _generate_sign_voice(_intro_script(date_str), intro_voice,
+                                INTRO_SECS, voice=day_voice):
+            voice_clips.append(intro_voice)
+            print(f"      [intro]  {INTRO_SECS}s narrated hook")
         else:
             voice_clips.append(None)
 
         for idx, sign in enumerate(SIGNS):
             fields = signs_data.get(sign, {})
             script = _voice_script(sign, fields)
-            voice  = VOICES[idx % len(VOICES)]
-            vpath  = str(tmp / f"voice_{idx + 1:02d}_{sign}.mp3")
-            if _generate_sign_voice(script, vpath, SIGN_SECS, voice=voice):
+            vpath  = str(tmp / f"voice_{idx + 1:02d}_{sign}.wav")
+            if _generate_sign_voice(script, vpath, SIGN_SECS, voice=day_voice):
                 voice_clips.append(vpath)
-                print(f"      [{sign.title():<14}]  {SIGN_SECS}s  ({voice.split('-',2)[-1]})")
+                print(f"      [{sign.title():<14}]  {SIGN_SECS}s")
             else:
-                sil2 = str(tmp / f"sil_{idx + 1:02d}.mp3")
+                sil2 = str(tmp / f"sil_{idx + 1:02d}.wav")
                 _generate_silence(SIGN_SECS, sil2)
                 voice_clips.append(sil2)
                 print(f"      [{sign.title():<14}]  (TTS failed, silence)")
 
-        voice_concat_path = str(tmp / "voice_all.mp3")
+        voice_concat_path = str(tmp / "voice_all.wav")
         valid_clips = [c for c in voice_clips if c and Path(c).exists()]
         voice_ok = (len(valid_clips) == len(voice_clips) and
                     _concat_audio(valid_clips, voice_concat_path))
@@ -879,19 +928,19 @@ def process(json_path: str) -> str:
 
         # 3. Ambient music
         print(f"\n[3/5] Generating ambient music ({total_dur}s)...")
-        ambient_path = str(tmp / "ambient.mp3")
+        ambient_path = str(tmp / "ambient.wav")
         ambient_ok = _generate_ambient(total_dur, ambient_path)
         if ambient_ok:
             print("      OK")
         else:
             print("      [WARN] Ambient failed")
 
-        # Mix voice + ambient
+        # Mix voice + ambient (single AAC encode, loudness-mastered to -14 LUFS)
         if voice_ok and ambient_ok:
-            mixed_path = str(tmp / "audio_final.aac")
+            mixed_path = str(tmp / "audio_final.m4a")
             if _mix_voice_ambient(voice_concat_path, ambient_path, mixed_path):
                 audio_path: str | None = mixed_path
-                print("      Voice + ambient mixed")
+                print("      Voice + ambient mixed (loudnorm -14 LUFS)")
             else:
                 audio_path = ambient_path
                 print("      [WARN] Mix failed — ambient only")
@@ -921,15 +970,31 @@ def process(json_path: str) -> str:
     print(f"\n[5/5] Thumbnail...")
     render_thumbnail(date_str, thumb_path)
 
+    # Per-sign chapters: derived from the same constants as the video, so they
+    # can never drift. In regular search/watch surfaces they render a chapter
+    # bar, and the 12 "<sign>" lines are 12 long-tail keyword matches.
+    def _ts(secs: int) -> str:
+        return f"{secs // 60}:{secs % 60:02d}"
+
+    chapter_lines = ["0:00 Intro"] + [
+        f"{_ts(INTRO_SECS + i * SIGN_SECS)} {s.title()}" for i, s in enumerate(SIGNS)
+    ]
+    chapters_block = "\n".join(chapter_lines)
+
+    description = data.get("description", "")
+    if "0:00" not in description:
+        description = f"{description}\n\n⏱ Find your sign:\n{chapters_block}"
+
     # Save metadata for uploader
     meta = {
-        "title":       data.get("title", f"Daily Horoscope All 12 Signs — {date_str}"),
-        "description": data.get("description", ""),
+        "title":       data.get("title", f"Daily Horoscope Today, {date_str} — All 12 Zodiac Signs"),
+        "description": description,
         "tags":        data.get("tags", []),
         "hashtags":    data.get("hashtags", []),
         "date":        date_tag,
         "pinned_comment": (
-            f"Which sign are you? Drop it below!\n"
+            f"Which sign are you? Drop it below! ⬇️\n\n"
+            f"⏱ Jump to your sign:\n{chapters_block}\n\n"
             f"Like + Subscribe for daily cosmic guidance every morning "
             f"#horoscope #astrology #zodiac"
         ),
