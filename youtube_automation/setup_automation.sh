@@ -39,6 +39,20 @@ fi
 echo "  OK: run_daily.py found"
 echo "  OK: python3 found at $VENV_PYTHON"
 
+# The cron will run with THIS interpreter — verify it can import the pipeline's
+# dependencies NOW instead of failing at 5:30 AM. (A .venv detected here does
+# NOT see packages installed with the system pip3.)
+if "$VENV_PYTHON" -c "import anthropic, edge_tts, PIL, numpy, dotenv, googleapiclient, requests" 2>/dev/null; then
+    echo "  OK: pipeline dependencies import with $VENV_PYTHON"
+else
+    echo ""
+    echo "  ERROR: $VENV_PYTHON cannot import the pipeline's dependencies."
+    echo "  Install them into that interpreter first:"
+    echo "    $VENV_PYTHON -m pip install -r $REPO/requirements-core.txt"
+    echo "  Then re-run: bash setup_automation.sh"
+    exit 1
+fi
+
 # ── 2. Allow passwordless sudo for systemctl stop/start daemon ────────────────
 echo ""
 echo "[2/4] Configuring passwordless sudo for daemon control..."
