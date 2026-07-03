@@ -12,8 +12,14 @@ schedule==1.2.1
 tqdm==4.66.4
 PyYAML>=6.0.1
 
+# Claude content generation (ACTIVE daily pipeline)
+anthropic>=0.40.0,<1.0
+
 # Cinematic pipeline — broadcast audio
-edge-tts>=6.1.9
+# edge-tts is pinned with an upper bound: it tracks an unofficial Microsoft
+# endpoint and breaking changes between majors have broken TTS before.
+# Known-good: 7.2.x. Bump deliberately, then run: python3 doctor.py
+edge-tts>=7.0.0,<8.0
 noisereduce>=3.0.0
 pyloudnorm>=0.1.1
 soundfile>=0.12.1

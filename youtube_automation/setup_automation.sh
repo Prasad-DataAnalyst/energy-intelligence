@@ -64,15 +64,18 @@ echo "[3/4] Installing cron job (runs daily at 5:30 AM UTC — all 12 signs, aut
 DOCTOR_CMD="0 5 * * * cd $REPO && $VENV_PYTHON doctor.py --email >> $LOG 2>&1"
 # Main pipeline at 5:30 AM.
 CRON_CMD="30 5 * * * cd $REPO && $VENV_PYTHON run_daily.py --date \$(date +\\%Y\\%m\\%d) --period \"\$(date +'\\%B \\%Y')\" --upload >> $LOG 2>&1"
+# Heartbeat check at 12:00 — emails an alert if no successful run in >30h
+# (catches: cron never fired, pipeline failing every day, crontab wiped).
+HEARTBEAT_CMD="0 12 * * * cd $REPO && $VENV_PYTHON heartbeat.py --check >> $LOG 2>&1"
 
 # Remove any old version of these cron jobs first (both the current runner and
 # the legacy daily_runner.py 3 PM job installed by first_time_setup.py).
-( crontab -l 2>/dev/null | grep -v -e "run_daily.py" -e "daily_runner.py" -e "doctor.py" ) | crontab - 2>/dev/null || true
+( crontab -l 2>/dev/null | grep -v -e "run_daily.py" -e "daily_runner.py" -e "doctor.py" -e "heartbeat.py" ) | crontab - 2>/dev/null || true
 
-# Add doctor (5:00) + main pipeline (5:30)
-( crontab -l 2>/dev/null; echo "$DOCTOR_CMD"; echo "$CRON_CMD" ) | crontab -
+# Add doctor (5:00) + main pipeline (5:30) + heartbeat (12:00)
+( crontab -l 2>/dev/null; echo "$DOCTOR_CMD"; echo "$CRON_CMD"; echo "$HEARTBEAT_CMD" ) | crontab -
 
-echo "  OK: cron jobs installed (doctor 5:00, pipeline 5:30)"
+echo "  OK: cron jobs installed (doctor 5:00, pipeline 5:30, heartbeat 12:00)"
 
 # ── 3b. Log rotation so $LOG doesn't grow without bound ───────────────────────
 echo ""

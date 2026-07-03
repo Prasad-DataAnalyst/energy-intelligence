@@ -228,6 +228,63 @@ def _stream_upload(session, upload_url: str, video_path: str, file_size: int) ->
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Post-upload verification
+# ─────────────────────────────────────────────────────────────────────────────
+
+def verify_upload(video_id: str, expect_publish_at: str = None,
+                  tries: int = 3, wait_secs: int = 20) -> tuple:
+    """Confirm YouTube actually accepted the video: it exists, isn't
+    failed/rejected, and (if scheduled) carries the expected publishAt.
+
+    Costs 1 quota unit per poll. Returns (ok: bool, detail: str).
+    Polls up to `tries` times because processing starts asynchronously.
+    """
+    last = "no response"
+    for attempt in range(1, tries + 1):
+        try:
+            session, _ = _authed_session()
+            resp = session.get(
+                "https://www.googleapis.com/youtube/v3/videos"
+                f"?part=status,processingDetails&id={video_id}"
+            )
+            _record_quota(1)
+            if not resp.ok:
+                last = f"videos.list HTTP {resp.status_code}"
+            else:
+                items = resp.json().get("items", [])
+                if not items:
+                    # Video not visible yet right after upload — retry.
+                    last = "video not found (may still be registering)"
+                else:
+                    st   = items[0].get("status", {})
+                    proc = items[0].get("processingDetails", {})
+                    up   = st.get("uploadStatus", "")
+                    pst  = proc.get("processingStatus", "")
+
+                    if up in ("failed", "rejected"):
+                        reason = st.get("failureReason") or st.get("rejectionReason") or "?"
+                        return False, f"YouTube {up}: {reason}"
+
+                    if expect_publish_at and st.get("privacyStatus") == "private" \
+                            and not st.get("publishAt"):
+                        return False, ("video is private with NO publishAt — "
+                                       "it will never go public on its own")
+
+                    if up == "processed" or pst == "succeeded":
+                        return True, f"verified: processed (privacy={st.get('privacyStatus')})"
+                    # uploaded/processing — normal transient state
+                    last = f"uploadStatus={up or '?'} processing={pst or '?'}"
+                    if up == "uploaded":
+                        return True, f"verified: accepted, still processing ({last})"
+        except Exception as exc:
+            last = f"verify exception: {str(exc)[:100]}"
+        if attempt < tries:
+            time.sleep(wait_secs)
+    # Could not positively confirm — report as unverified, not failed.
+    return False, f"unverified after {tries} checks ({last})"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Thumbnail upload
 # ─────────────────────────────────────────────────────────────────────────────
 

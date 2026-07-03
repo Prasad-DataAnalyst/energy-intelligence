@@ -194,11 +194,16 @@ def run_all_signs_pipeline(args) -> int:
         if not assets_ok:
             return 1
 
-        # ── 2. Render slideshow video ──────────────────────────────────────────
+        # ── 2. Render slideshow video (retry once — transient ffmpeg/OOM/network
+        #       hiccups shouldn't kill the whole day) ─────────────────────────────
         print(f"\n[2/4] Video    — rendering slideshow...")
         ok = run_live([PYTHON, "make_daily_video.py", json_file], timeout=1800)
         if not ok:
-            print("      FAILED", file=sys.stderr)
+            print("      FAILED — retrying once in 60s...", file=sys.stderr)
+            time.sleep(60)
+            ok = run_live([PYTHON, "make_daily_video.py", json_file], timeout=1800)
+        if not ok:
+            print("      FAILED (after retry)", file=sys.stderr)
             return 1
         print("      OK")
 
@@ -217,6 +222,7 @@ def run_all_signs_pipeline(args) -> int:
                 from youtube_uploader import (upload_video, upload_thumbnail,
                                               post_comment, pin_comment,
                                               process_retry_queue, find_uploaded,
+                                              verify_upload,
                                               quota_spent_today, DAILY_QUOTA_LIMIT)
                 import json as _json
 
@@ -260,8 +266,17 @@ def run_all_signs_pipeline(args) -> int:
                 upload_thumbnail(vid_id, thumb_path)
                 cid = post_comment(vid_id, assets.get("pinned_comment", ""))
                 pin_comment(vid_id, cid)
+
+                # Post-upload verification: confirm YouTube accepted it and the
+                # scheduled publish is actually set (catches failed/rejected
+                # processing and private-forever videos).
+                v_ok, v_detail = verify_upload(vid_id, expect_publish_at=publish_at)
+                print(f"      Verify: {'OK' if v_ok else 'PROBLEM'} — {v_detail}")
                 print(f"      OK: https://youtu.be/{vid_id} — publishes {publish_at}")
-                upload_result = f"✅ youtu.be/{vid_id}"
+                if v_ok:
+                    upload_result = f"✅ youtu.be/{vid_id}"
+                else:
+                    upload_result = f"❌ uploaded but {v_detail[:60]} (youtu.be/{vid_id})"
             except StopIteration:
                 pass  # already-uploaded skip — upload_result already set
             except Exception as _e:
@@ -282,6 +297,15 @@ def run_all_signs_pipeline(args) -> int:
         print(f"  Upload: {upload_result}")
     print(f"  Output: outputs/{args.date}/DailyAll/")
     print(f"{'='*60}\n")
+
+    if all_ok:
+        # Heartbeat: stamp success + ping the external healthcheck (if set)
+        # so the dead-man's switch knows today's run happened.
+        try:
+            import heartbeat
+            heartbeat.record_success()
+        except Exception as _he:
+            print(f"  [INFO] Heartbeat stamp skipped: {_he}")
 
     send_summary_email(
         args.date,
