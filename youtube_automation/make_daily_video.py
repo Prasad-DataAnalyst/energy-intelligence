@@ -76,6 +76,60 @@ SIGN_NEON = {
 }
 
 # ── Font management ────────────────────────────────────────────────────────────
+# Bundled OFL fonts (assets/fonts/, licenses included) — same look everywhere:
+#   Cinzel  (variable, Roman serif)  → titles & sign names
+#   Poppins (geometric sans)         → labels & body text
+_BUNDLED = Path(__file__).parent / "assets" / "fonts"
+
+_dcache: dict = {}
+_ucache: dict = {}
+
+
+def _display_font(size: int, weight: int = 700) -> ImageFont.FreeTypeFont:
+    """Title font: Cinzel (variable weight) → Marcellus → legacy chain."""
+    key = (size, weight)
+    if key not in _dcache:
+        f = None
+        p = _BUNDLED / "Cinzel-var.ttf"
+        if p.exists():
+            try:
+                f = ImageFont.truetype(str(p), size)
+                try:
+                    f.set_variation_by_axes([weight])
+                except Exception:
+                    pass
+            except Exception:
+                f = None
+        if f is None:
+            p2 = _BUNDLED / "Marcellus-Regular.ttf"
+            if p2.exists():
+                try:
+                    f = ImageFont.truetype(str(p2), size)
+                except Exception:
+                    f = None
+        _dcache[key] = f or _font(size, bold=(weight >= 600))
+    return _dcache[key]
+
+
+def _ui_font(size: int, weight: int = 400) -> ImageFont.FreeTypeFont:
+    """Body font: Poppins at the nearest bundled weight → legacy chain."""
+    key = (size, weight)
+    if key not in _ucache:
+        name = ("Poppins-Bold.ttf" if weight >= 700 else
+                "Poppins-SemiBold.ttf" if weight >= 600 else
+                "Poppins-Medium.ttf" if weight >= 500 else
+                "Poppins-Regular.ttf")
+        p = _BUNDLED / name
+        f = None
+        if p.exists():
+            try:
+                f = ImageFont.truetype(str(p), size)
+            except Exception:
+                f = None
+        _ucache[key] = f or _font(size, bold=(weight >= 600))
+    return _ucache[key]
+
+
 _FONT_DIR = Path.home() / ".local" / "share" / "fonts"
 _CINZEL_B = _FONT_DIR / "Cinzel-Bold.ttf"
 _CINZEL_R = _FONT_DIR / "Cinzel-Regular.ttf"
@@ -205,43 +259,81 @@ def _gradient_img(sign: str) -> Image.Image:
     return _vgrad(WIDTH, HEIGHT, top, bot)
 
 
-def _stars(draw: ImageDraw.Draw, seed: int = 0) -> None:
+def _stars(draw: ImageDraw.Draw, seed: int = 0,
+           w: int = None, h: int = None) -> None:
+    """Layered starfield: dense faint dust + a few bright 4-point sparkles."""
+    w, h = w or WIDTH, h or HEIGHT
     rng = random.Random(seed)
-    for _ in range(260):
-        x, y = rng.randint(0, WIDTH), rng.randint(0, HEIGHT)
-        b = rng.randint(90, 210)
+    for _ in range(300):
+        x, y = rng.randint(0, w), rng.randint(0, h)
+        b = rng.randint(70, 200)
         r = rng.choice([1, 1, 1, 2])
-        col = (b, int(b * 0.84), 0) if rng.random() < 0.1 else (b, b, b)
+        col = (b, int(b * 0.84), 0) if rng.random() < 0.08 else (b, b, b)
         draw.ellipse([x - r, y - r, x + r, y + r], fill=col)
+    for _ in range(14):     # bright sparkle stars
+        x, y = rng.randint(30, w - 30), rng.randint(30, h - 30)
+        s = rng.randint(7, 14)
+        col = (255, 244, 214)
+        draw.line([x - s, y, x + s, y], fill=col, width=2)
+        draw.line([x, y - s, x, y + s], fill=col, width=2)
+        draw.ellipse([x - 3, y - 3, x + 3, y + 3], fill=(255, 255, 255))
+
+
+def _cosmic_bg(w: int, h: int, top: tuple, bot: tuple,
+               neon: tuple, seed: int = 0) -> Image.Image:
+    """Cinematic backdrop: gradient + two blurred nebula glows in the sign's
+    accent color + starfield + corner vignette. Returns RGBA."""
+    from PIL import ImageFilter
+    img = _vgrad(w, h, top, bot).convert("RGBA")
+
+    # Nebula glows (drawn small + blurred = soft light)
+    neb = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    nd  = ImageDraw.Draw(neb)
+    rng = random.Random(seed + 7)
+    cx1, cy1 = int(w * 0.82), int(h * rng.uniform(0.10, 0.22))
+    cx2, cy2 = int(w * 0.12), int(h * rng.uniform(0.68, 0.82))
+    nd.ellipse([cx1 - 340, cy1 - 300, cx1 + 340, cy1 + 300], fill=(*neon, 34))
+    nd.ellipse([cx2 - 380, cy2 - 320, cx2 + 380, cy2 + 320], fill=(90, 60, 200, 26))
+    neb = neb.filter(ImageFilter.GaussianBlur(160))
+    img = Image.alpha_composite(img, neb)
+
+    _stars(ImageDraw.Draw(img), seed=seed, w=w, h=h)
+
+    # Vignette — darkened corners focus the eye on the content
+    yy, xx = np.mgrid[0:h, 0:w]
+    d2 = (((xx - w / 2) / (w / 2)) ** 2 + ((yy - h / 2) / (h / 2)) ** 2)
+    alpha = np.clip((d2 - 0.55) * 110, 0, 120).astype(np.uint8)
+    vig = Image.fromarray(np.dstack([np.zeros((h, w, 3), dtype=np.uint8), alpha]), "RGBA")
+    img = Image.alpha_composite(img, vig)
+    return img
 
 
 # ── Intro card ─────────────────────────────────────────────────────────────────
 def render_intro_card(date_str: str) -> Image.Image:
-    img  = _vgrad(WIDTH, HEIGHT, (5, 2, 18), (12, 5, 35)).convert("RGBA")
+    img  = _cosmic_bg(WIDTH, HEIGHT, (6, 3, 22), (14, 6, 40),
+                      (170, 120, 255), seed=42)
     draw = ImageDraw.Draw(img)
-
-    _stars(draw, seed=42)
 
     draw.rectangle([0, 0, WIDTH, 8], fill=GOLD)
     draw.rectangle([0, HEIGHT - 8, WIDTH, HEIGHT], fill=GOLD)
 
-    y = 300
-    f_big = _font(116, bold=True)
+    y = 250
+    f_big = _display_font(122, weight=700)
     for line in ["DAILY", "HOROSCOPE"]:
         w = _tw(line, f_big)
         draw.text(((WIDTH - w) // 2 + 3, y + 3), line, font=f_big, fill=(0, 0, 0, 170))
         draw.text(((WIDTH - w) // 2,     y),     line, font=f_big, fill=GOLD)
-        y += _th(f_big) + 10
-    y += 28
+        y += _th(f_big) + 14
+    y += 26
 
-    f_sub = _font(70, bold=True)
+    f_sub = _ui_font(62, 600)
     txt = "ALL 12 SIGNS"
     w = _tw(txt, f_sub)
     draw.text(((WIDTH - w) // 2, y), txt, font=f_sub, fill=WHITE)
-    y += _th(f_sub) + 48
+    y += _th(f_sub) + 44
 
     draw.rectangle([PAD, y, WIDTH - PAD, y + 4], fill=(*GOLD, 200))
-    y += 36
+    y += 34
 
     # All 12 zodiac glyphs — 2 rows of 6
     glyphs = [SIGN_EMOJIS[s] for s in SIGNS]
@@ -255,23 +347,30 @@ def render_intro_card(date_str: str) -> Image.Image:
             draw.text((gx - gw // 2, y), g, font=f_g, fill=GOLD)
             gx += col_w
         y += _th(f_g) + 14
-    y += 30
+    y += 28
 
     draw.rectangle([PAD, y, WIDTH - PAD, y + 4], fill=(*GOLD, 200))
-    y += 40
+    y += 38
 
-    f_date = _font(54, bold=False)
+    f_date = _ui_font(52, 500)
     w = _tw(date_str, f_date)
     draw.text(((WIDTH - w) // 2, y), date_str, font=f_date, fill=SILVER)
-    y += _th(f_date) + 60
+    y += _th(f_date) + 26
+
+    # The 5 things viewers came for
+    f_cats = _ui_font(40, 500)
+    cats   = "Love  •  Career  •  Money  •  Health  •  Lucky"
+    w = _tw(cats, f_cats)
+    draw.text(((WIDTH - w) // 2, y), cats, font=f_cats, fill=(220, 210, 255))
+    y += _th(f_cats) + 56
 
     # ── Hook + CTA — the first 4s decide retention on Shorts ────────────────────
-    f_hook = _font(64, bold=True)
+    f_hook = _ui_font(64, 700)
     hook   = "FIND YOUR SIGN"
     w = _tw(hook, f_hook)
     draw.text(((WIDTH - w) // 2 + 2, y + 2), hook, font=f_hook, fill=(0, 0, 0, 160))
     draw.text(((WIDTH - w) // 2,     y),     hook, font=f_hook, fill=WHITE)
-    y += _th(f_hook) + 16
+    y += _th(f_hook) + 18
 
     f_arrow = _glyph_font(72)
     arrow   = "↓ ↓ ↓"
@@ -279,7 +378,7 @@ def render_intro_card(date_str: str) -> Image.Image:
     draw.text(((WIDTH - w) // 2, y), arrow, font=f_arrow, fill=GOLD)
 
     # CTA pill above the channel tag
-    f_cta = _font(46, bold=True)
+    f_cta = _ui_font(46, 700)
     cta   = "COMMENT YOUR SIGN"
     cw    = _tw(cta, f_cta)
     cx    = (WIDTH - cw) // 2
@@ -288,7 +387,7 @@ def render_intro_card(date_str: str) -> Image.Image:
                            radius=18, fill=GOLD)
     draw.text((cx, cy), cta, font=f_cta, fill=(10, 5, 30))
 
-    f_ch = _font(50, bold=False)
+    f_ch = _ui_font(46, 500)
     w = _tw(CHANNEL_TAG, f_ch)
     draw.text(((WIDTH - w) // 2, HEIGHT - 96), CHANNEL_TAG, font=f_ch, fill=SILVER)
 
@@ -296,100 +395,150 @@ def render_intro_card(date_str: str) -> Image.Image:
 
 
 # ── Sign card ──────────────────────────────────────────────────────────────────
-def render_sign_card(sign: str, fields: dict, idx: int) -> Image.Image:
-    img  = _gradient_img(sign).convert("RGBA")
-    neon = SIGN_NEON.get(sign, WHITE)
+# The 5 things people actually check in a daily horoscope, each in its own
+# glass panel: Love, Career, Money, Health, and a Lucky Guidance block
+# (number • color • best time + advice).
 
-    # Faint zodiac glyph watermark
-    glyph   = SIGN_EMOJIS.get(sign, "")
-    wm_font = _glyph_font(360)
+def _icon(sym: str, fallback: str, size: int) -> tuple:
+    """Return (symbol, font) — validated so icons never render as tofu."""
+    gf = _glyph_font(size)
+    try:
+        if _tw(sym, gf) > 2:
+            return sym, gf
+    except Exception:
+        pass
+    return fallback, _ui_font(size, 600)
+
+
+def render_sign_card(sign: str, fields: dict, idx: int) -> Image.Image:
+    neon     = SIGN_NEON.get(sign, WHITE)
+    top, bot = SIGN_GRADIENTS.get(sign, ((8, 4, 20), (16, 8, 40)))
+    img      = _cosmic_bg(WIDTH, HEIGHT, top, bot, neon, seed=hash(sign) % 65536)
+
+    glyph = SIGN_EMOJIS.get(sign, "")
+
+    # Faint watermark glyph behind the panels
+    wm_font = _glyph_font(430)
     try:
         wm_w = _tw(glyph, wm_font)
         ov   = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
         ImageDraw.Draw(ov).text(
-            ((WIDTH - wm_w) // 2, HEIGHT // 2 - 140),
-            glyph, font=wm_font, fill=(*neon, 18),
+            ((WIDTH - wm_w) // 2, HEIGHT // 2 - 260),
+            glyph, font=wm_font, fill=(*neon, 16),
         )
         img = Image.alpha_composite(img, ov)
     except Exception:
         pass
 
-    draw = ImageDraw.Draw(img)
-    _stars(draw, seed=hash(sign) % 65536)
+    # ── Glass panels (translucent, rounded, neon accent bar) ──────────────────
+    panels = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
+    pd     = ImageDraw.Draw(panels)
 
-    # Gold bars
+    P_X0, P_X1 = 44, WIDTH - 44
+    y      = 256
+    P_H    = 244          # four category panels
+    P_GAP  = 22
+    LUCK_H = 356          # lucky guidance panel
+
+    cat_rects = []
+    for _ in range(4):
+        pd.rounded_rectangle([P_X0, y, P_X1, y + P_H], radius=26,
+                             fill=(255, 255, 255, 16))
+        pd.rounded_rectangle([P_X0, y, P_X0 + 10, y + P_H], radius=5,
+                             fill=(*neon, 220))
+        cat_rects.append(y)
+        y += P_H + P_GAP
+
+    luck_y = y
+    pd.rounded_rectangle([P_X0, luck_y, P_X1, luck_y + LUCK_H], radius=26,
+                         fill=(255, 215, 0, 22))
+    pd.rounded_rectangle([P_X0, luck_y, P_X1, luck_y + 10], radius=5,
+                         fill=(*GOLD, 230))
+
+    img  = Image.alpha_composite(img, panels)
+    draw = ImageDraw.Draw(img)
+
+    # Top & bottom frame lines
     draw.rectangle([0, 0, WIDTH, 6], fill=GOLD)
     draw.rectangle([0, HEIGHT - 6, WIDTH, HEIGHT], fill=GOLD)
 
-    # Header strip
-    draw.rectangle([0, 0, WIDTH, 224], fill=(0, 0, 0, 150))
-    draw.rectangle([0, 224, WIDTH, 230], fill=GOLD)
-    # Draw name in the display font, flanking glyphs in a glyph-capable font,
-    # so the zodiac symbols never render as tofu when Cinzel is installed.
-    hf     = _font(84, bold=True)
-    gf     = _glyph_font(84)
+    # ── Header: neon glyph badge + Cinzel sign name ────────────────────────────
+    hf     = _display_font(96, weight=700)
     name   = sign.upper()
-    gap    = 28
     name_w = _tw(name, hf)
-    gly_w  = _tw(glyph, gf)
-    total  = gly_w + gap + name_w + gap + gly_w
+    bad_r  = 58
+    gap    = 30
+    total  = bad_r * 2 + gap + name_w
     x0     = (WIDTH - total) // 2
-    parts  = [(glyph, gf, gly_w), (name, hf, name_w), (glyph, gf, gly_w)]
-    for dx, dy, col in [(3, 57, (0, 0, 0, 155)), (0, 54, GOLD)]:
-        gx = x0 + dx
-        for txt, fnt, w in parts:
-            draw.text((gx, dy), txt, font=fnt, fill=col)
-            gx += w + gap
+    bcx, bcy = x0 + bad_r, 118
 
-    # ── Content ────────────────────────────────────────────────────────────────
-    y   = 248
-    lf  = _font(50, bold=True)    # category label font
-    vf  = _font(64, bold=False)   # value font
+    draw.ellipse([bcx - bad_r, bcy - bad_r, bcx + bad_r, bcy + bad_r],
+                 fill=(0, 0, 0, 130), outline=(*neon, 255), width=5)
+    bgf  = _glyph_font(66)
+    gw_  = _tw(glyph, bgf)
+    draw.text((bcx - gw_ // 2, bcy - _th(bgf) // 2 - 10), glyph, font=bgf, fill=neon)
+
+    nx = x0 + bad_r * 2 + gap
+    draw.text((nx + 3, 71), name, font=hf, fill=(0, 0, 0, 170))
+    draw.text((nx,     68), name, font=hf, fill=GOLD)
+    draw.rectangle([nx, 196, nx + name_w, 201], fill=(*neon, 220))
+
+    # ── Category panels content ────────────────────────────────────────────────
+    lf  = _ui_font(42, 600)      # label
+    vf  = _ui_font(56, 400)      # value
     lh_ = _th(lf)
     vh_ = _th(vf)
+    TXT_X  = P_X0 + 42
+    TXT_W  = P_X1 - TXT_X - 30
 
-    def field(label: str, value: str, val_col=WHITE):
-        nonlocal y
-        draw.text((PAD, y), label, font=lf, fill=GOLD)
-        y += lh_ + 8
-        for ln in _wrap(value, vf, CW - 20):
-            draw.text((PAD + 16, y), ln, font=vf, fill=val_col)
-            y += vh_ + 4
-        y += 20
+    cats = [
+        ("♥", "❤", "LOVE",   fields.get("love",   "—")),
+        ("★", "*", "CAREER", fields.get("career", "—")),
+        ("$", "$", "MONEY",  fields.get("money",  "—")),
+        ("✚", "+", "HEALTH", fields.get("health", "—")),
+    ]
+    for (sym, fb, label, value), py in zip(cats, cat_rects):
+        iy = py + 32
+        isym, ifont = _icon(sym, fb, 40)
+        draw.text((TXT_X, iy), isym, font=ifont, fill=neon)
+        draw.text((TXT_X + 56, iy), label, font=lf, fill=GOLD)
+        ty = py + 32 + lh_ + 20
+        for ln in _wrap(str(value), vf, TXT_W)[:2]:
+            draw.text((TXT_X, ty), ln, font=vf, fill=WHITE)
+            ty += vh_ + 10
 
-    field("LOVE",   fields.get("love",   "—"))
-    draw.rectangle([PAD, y, WIDTH - PAD, y + 2], fill=(*GOLD, 80))
-    y += 14
+    # ── Lucky Guidance panel ───────────────────────────────────────────────────
+    isym, ifont = _icon("☾", "★", 40)
+    ly = luck_y + 30
+    draw.text((TXT_X, ly), isym, font=ifont, fill=GOLD)
+    draw.text((TXT_X + 56, ly), "LUCKY GUIDANCE", font=lf, fill=GOLD)
+    ly += lh_ + 30
 
-    field("CAREER", fields.get("career", "—"))
-    draw.rectangle([PAD, y, WIDTH - PAD, y + 2], fill=(*GOLD, 80))
-    y += 14
+    klf = _ui_font(32, 500)      # mini label
+    kvf = _ui_font(52, 600)      # mini value
+    col_w = (P_X1 - P_X0) // 3
+    minis = [
+        ("NUMBER", str(fields.get("lucky_number", "?"))),
+        ("COLOR",  str(fields.get("lucky_color",  "?"))),
+        ("TIME",   str(fields.get("best_time",    "—"))),
+    ]
+    for i, (ml, mv) in enumerate(minis):
+        cx = P_X0 + col_w * i + col_w // 2
+        draw.text((cx - _tw(ml, klf) // 2, ly), ml, font=klf, fill=(*SILVER, 235))
+        # shrink to fit the column if a color name is long
+        f_fit, mv_w = kvf, _tw(mv, kvf)
+        if mv_w > col_w - 24:
+            f_fit = _ui_font(40, 600)
+            mv_w  = _tw(mv, f_fit)
+        draw.text((cx - mv_w // 2, ly + _th(klf) + 12), mv, font=f_fit, fill=neon)
+    ly += _th(klf) + 12 + _th(kvf) + 26
 
-    field("MONEY",  fields.get("money",  "—"))
-
-    # Heavy divider
-    draw.rectangle([PAD, y + 4, WIDTH - PAD, y + 10], fill=(*GOLD, 200))
-    y += 30
-
-    # Lucky row — two columns
-    klf  = _font(46, bold=True)
-    kvf  = _font(60, bold=False)
-    klh  = _th(klf)
-    kvh  = _th(kvf)
-    mid  = WIDTH // 2 + 20
-
-    draw.text((PAD,   y), "LUCKY NUMBER", font=klf, fill=GOLD)
-    draw.text((mid,   y), "LUCKY COLOR",  font=klf, fill=GOLD)
-    y += klh + 8
-    draw.text((PAD + 16, y), str(fields.get("lucky_number", "?")), font=kvf, fill=neon)
-    draw.text((mid  + 16, y), str(fields.get("lucky_color",  "?")), font=kvf, fill=neon)
-    y += kvh + 28
-
-    # Heavy divider
-    draw.rectangle([PAD, y, WIDTH - PAD, y + 6], fill=(*GOLD, 200))
-    y += 22
-
-    field("TODAY'S MESSAGE", fields.get("note", "—"))
+    advice = str(fields.get("advice", fields.get("note", "—")))
+    af = _ui_font(46, 500)
+    for ln in _wrap(advice, af, TXT_W)[:2]:
+        w_ = _tw(ln, af)
+        draw.text(((WIDTH - w_) // 2, ly), ln, font=af, fill=WHITE)
+        ly += _th(af) + 8
 
     # ── Progress dots ──────────────────────────────────────────────────────────
     dot_r  = 9
@@ -402,17 +551,19 @@ def render_sign_card(sign: str, fields: dict, idx: int) -> Image.Image:
         if i == idx:
             draw.ellipse([cx - dot_r - 3, dot_y - dot_r - 3,
                           cx + dot_r + 3, dot_y + dot_r + 3], fill=GOLD)
+        elif i < idx:
+            draw.ellipse([cx - dot_r + 2, dot_y - dot_r + 2,
+                          cx + dot_r - 2, dot_y + dot_r - 2], fill=(*neon, 160))
         else:
             draw.ellipse([cx - dot_r, dot_y - dot_r,
                           cx + dot_r, dot_y + dot_r],
                          outline=(*SILVER, 130), width=2)
 
     # Footer
-    draw.rectangle([0, HEIGHT - 110, WIDTH, HEIGHT - 6], fill=(0, 0, 0, 140))
-    ff  = _font(44, bold=False)
+    ff  = _ui_font(40, 500)
     tag = f"{CHANNEL_TAG}  •  {idx + 1} of 12"
     fw  = _tw(tag, ff)
-    draw.text(((WIDTH - fw) // 2, HEIGHT - 90), tag, font=ff, fill=(*SILVER, 230))
+    draw.text(((WIDTH - fw) // 2, HEIGHT - 92), tag, font=ff, fill=(*SILVER, 235))
 
     return img.convert("RGB")
 
@@ -435,7 +586,7 @@ def render_thumbnail(date_str: str, out_path: str) -> None:
     draw.rectangle([0, TH - 6, TW, TH], fill=GOLD)
 
     # Title
-    f_big = _font(128, bold=True)
+    f_big = _display_font(124, weight=700)
     title = "DAILY HOROSCOPES"
     tw_   = _tw(title, f_big)
     tx    = (TW - tw_) // 2
@@ -457,26 +608,26 @@ def render_thumbnail(date_str: str, out_path: str) -> None:
     draw.rectangle([40, 316, TW - 40, 320], fill=(*GOLD, 200))
 
     # Date + subtitle
-    f_sm = _font(46, bold=False)
+    f_sm = _ui_font(44, 500)
     dw   = _tw(date_str, f_sm)
     draw.text(((TW - dw) // 2, 336), date_str, font=f_sm, fill=SILVER)
 
-    f_desc = _font(44, bold=False)
-    desc   = "Love  •  Career  •  Money  •  Lucky Number & Color"
+    f_desc = _ui_font(42, 500)
+    desc   = "Love  •  Career  •  Money  •  Health  •  Lucky Guidance"
     dw2    = _tw(desc, f_desc)
     draw.text(((TW - dw2) // 2, 402), desc, font=f_desc, fill=WHITE)
 
     # CTA button
-    f_cta = _font(54, bold=True)
+    f_cta = _ui_font(52, 700)
     cta   = "DAILY UPDATES"
     cw    = _tw(cta, f_cta)
     cx    = (TW - cw) // 2
-    draw.rectangle([cx - 22, 488, cx + cw + 22, 556], fill=GOLD)
-    draw.text((cx, 492), cta, font=f_cta, fill=(0, 0, 0))
+    draw.rounded_rectangle([cx - 26, 486, cx + cw + 26, 560], radius=16, fill=GOLD)
+    draw.text((cx, 494), cta, font=f_cta, fill=(10, 5, 30))
 
-    f_ch = _font(40, bold=False)
+    f_ch = _ui_font(38, 500)
     chw  = _tw(CHANNEL_TAG, f_ch)
-    draw.text(((TW - chw) // 2, 590), CHANNEL_TAG, font=f_ch, fill=SILVER)
+    draw.text(((TW - chw) // 2, 592), CHANNEL_TAG, font=f_ch, fill=SILVER)
 
     img.save(out_path, "JPEG", quality=95)
     print(f"[INFO] Thumbnail → {out_path}")
@@ -519,16 +670,16 @@ def _generate_ambient(duration: float, out_path: str) -> bool:
 # ── Voice narration (edge-tts, free) ──────────────────────────────────────────
 def _voice_script(sign: str, fields: dict) -> str:
     """Spoken line per sign. Deliberately SHORTER than the on-screen text:
-    the full 6-field card is ~19-20s of speech but the slot is 12s, which
-    forced heavy speed-up + tail clipping. Money/lucky stay on screen only."""
+    the full card is ~20s of speech but the slot is 12s, which would force
+    heavy speed-up + tail clipping. Money/health/lucky stay on screen only."""
     love   = fields.get("love",   "")
     career = fields.get("career", "")
-    note   = fields.get("note",   "")
+    advice = fields.get("advice", fields.get("note", ""))
     return (
         f"{sign.title()}. "
         f"Love: {love}. "
         f"Career: {career}. "
-        f"{note}."
+        f"{advice}."
     )
 
 
@@ -812,7 +963,7 @@ def assemble_video(png_files: list, durations: list,
     ]
 
     try:
-        r1 = _sp.run(cmd1, capture_output=True, timeout=1800)
+        r1 = _sp.run(cmd1, capture_output=True, timeout=2400)
         if r1.returncode != 0:
             print(f"[ERROR] Video assembly: {r1.stderr.decode()[-300:]}", file=sys.stderr)
             return False

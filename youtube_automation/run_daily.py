@@ -204,11 +204,14 @@ def run_all_signs_pipeline(args) -> int:
         # ── 2. Render slideshow video (retry once — transient ffmpeg/OOM/network
         #       hiccups shouldn't kill the whole day) ─────────────────────────────
         print(f"\n[2/4] Video    — rendering slideshow...")
-        ok = run_live([PYTHON, "make_daily_video.py", json_file], timeout=1800)
+        # 45 min per attempt: the e2-micro's sustained CPU is a fraction of a
+        # core, and the higher-quality encoder needs headroom. Even worst case
+        # (2 x 45 min) finishes well before the 10:00 UTC publish.
+        ok = run_live([PYTHON, "make_daily_video.py", json_file], timeout=2700)
         if not ok:
             print("      FAILED — retrying once in 60s...", file=sys.stderr)
             time.sleep(60)
-            ok = run_live([PYTHON, "make_daily_video.py", json_file], timeout=1800)
+            ok = run_live([PYTHON, "make_daily_video.py", json_file], timeout=2700)
         if not ok:
             print("      FAILED (after retry)", file=sys.stderr)
             send_summary_email(args.date, {"all_signs": {

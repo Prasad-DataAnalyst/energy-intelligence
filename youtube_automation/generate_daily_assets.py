@@ -25,26 +25,32 @@ SIGNS = [
 
 SYSTEM_PROMPT = """You are a professional astrologer creating daily horoscope cards for all 12 zodiac signs.
 
+Cover the 5 things people actually check in a daily horoscope:
+Love & Relationships, Career & Business, Money & Finance, Health & Energy, and Lucky Guidance.
+
 For each sign provide SHORT punchy predictions. Each text field must be MAX 10 words — it appears on screen for 12 seconds.
 
 Fields per sign:
-- love:         romantic energy today (max 10 words)
-- career:       work energy today (max 10 words)
-- money:        financial energy today (max 10 words)
+- love:         romance, relationships, connections today (max 10 words)
+- career:       job, business, workplace energy today (max 10 words)
+- money:        income, spending, investments today (max 10 words)
+- health:       physical energy, stress, mood today (max 10 words)
 - lucky_number: one integer 1-99
 - lucky_color:  one color name (1-2 words)
-- note:         one important message today (max 12 words)
+- best_time:    the luckiest time of day, e.g. "4 PM" or "Early Morning" (1-3 words)
+- advice:       one simple actionable tip or remedy for today (max 10 words)
 
 Style rules:
 - Direct. Specific. No generic fluff.
 - Each line must feel personal and true TODAY.
 - Vary tone across signs — not all positive, some have warnings.
-- lucky_number and lucky_color must be a single value (no lists).
+- lucky_number, lucky_color and best_time must be single values (no lists).
 
 Return ONLY valid raw JSON. No markdown. No explanation. No code fences."""
 
 
-_REQUIRED_FIELDS = ("love", "career", "money", "lucky_number", "lucky_color", "note")
+_REQUIRED_FIELDS = ("love", "career", "money", "health",
+                    "lucky_number", "lucky_color", "best_time", "advice")
 
 
 def _validate(data: dict) -> None:
@@ -86,22 +92,22 @@ Return this EXACT JSON structure (fill in all 12 signs):
 {{
   "date": "{today}",
   "title": "Daily Horoscope Today, {today} — All 12 Zodiac Signs (Love, Career, Money)",
-  "description": "Complete daily horoscope for all 12 zodiac signs — {today}. Love, career, money, lucky numbers and colors. Subscribe for daily cosmic guidance. #horoscope #astrology #zodiac #dailyhoroscope",
+  "description": "Complete daily horoscope for all 12 zodiac signs — {today}. Love, career, money, health, lucky number, lucky color and best time of day. Subscribe for daily cosmic guidance. #horoscope #astrology #zodiac #dailyhoroscope",
   "hashtags": ["#horoscope", "#astrology", "#zodiac", "#dailyhoroscope", "#allsigns", "#lovehoroscope", "#careerhoroscope"],
-  "tags": ["daily horoscope", "all 12 signs horoscope", "horoscope today", "astrology today", "zodiac reading", "love horoscope today", "daily astrology", "horoscope {today}"],
+  "tags": ["daily horoscope", "all 12 signs horoscope", "horoscope today", "astrology today", "zodiac reading", "love horoscope today", "health horoscope", "money horoscope today", "daily astrology", "horoscope {today}"],
   "signs": {{
-    "aries":       {{"love": "...", "career": "...", "money": "...", "lucky_number": 7,  "lucky_color": "Red",        "note": "..."}},
-    "taurus":      {{"love": "...", "career": "...", "money": "...", "lucky_number": 4,  "lucky_color": "Forest Green","note": "..."}},
-    "gemini":      {{"love": "...", "career": "...", "money": "...", "lucky_number": 11, "lucky_color": "Yellow",     "note": "..."}},
-    "cancer":      {{"love": "...", "career": "...", "money": "...", "lucky_number": 2,  "lucky_color": "Silver",     "note": "..."}},
-    "leo":         {{"love": "...", "career": "...", "money": "...", "lucky_number": 1,  "lucky_color": "Gold",       "note": "..."}},
-    "virgo":       {{"love": "...", "career": "...", "money": "...", "lucky_number": 6,  "lucky_color": "Navy Blue",  "note": "..."}},
-    "libra":       {{"love": "...", "career": "...", "money": "...", "lucky_number": 9,  "lucky_color": "Rose Pink",  "note": "..."}},
-    "scorpio":     {{"love": "...", "career": "...", "money": "...", "lucky_number": 8,  "lucky_color": "Deep Red",   "note": "..."}},
-    "sagittarius": {{"love": "...", "career": "...", "money": "...", "lucky_number": 3,  "lucky_color": "Purple",     "note": "..."}},
-    "capricorn":   {{"love": "...", "career": "...", "money": "...", "lucky_number": 10, "lucky_color": "Dark Brown", "note": "..."}},
-    "aquarius":    {{"love": "...", "career": "...", "money": "...", "lucky_number": 5,  "lucky_color": "Electric Blue","note":"..."}},
-    "pisces":      {{"love": "...", "career": "...", "money": "...", "lucky_number": 12, "lucky_color": "Sea Green",  "note": "..."}}
+    "aries":       {{"love": "...", "career": "...", "money": "...", "health": "...", "lucky_number": 7,  "lucky_color": "Red",         "best_time": "4 PM",  "advice": "..."}},
+    "taurus":      {{"love": "...", "career": "...", "money": "...", "health": "...", "lucky_number": 4,  "lucky_color": "Forest Green","best_time": "10 AM", "advice": "..."}},
+    "gemini":      {{"love": "...", "career": "...", "money": "...", "health": "...", "lucky_number": 11, "lucky_color": "Yellow",      "best_time": "2 PM",  "advice": "..."}},
+    "cancer":      {{"love": "...", "career": "...", "money": "...", "health": "...", "lucky_number": 2,  "lucky_color": "Silver",      "best_time": "9 PM",  "advice": "..."}},
+    "leo":         {{"love": "...", "career": "...", "money": "...", "health": "...", "lucky_number": 1,  "lucky_color": "Gold",        "best_time": "Noon",  "advice": "..."}},
+    "virgo":       {{"love": "...", "career": "...", "money": "...", "health": "...", "lucky_number": 6,  "lucky_color": "Navy Blue",   "best_time": "8 AM",  "advice": "..."}},
+    "libra":       {{"love": "...", "career": "...", "money": "...", "health": "...", "lucky_number": 9,  "lucky_color": "Rose Pink",   "best_time": "5 PM",  "advice": "..."}},
+    "scorpio":     {{"love": "...", "career": "...", "money": "...", "health": "...", "lucky_number": 8,  "lucky_color": "Deep Red",    "best_time": "11 PM", "advice": "..."}},
+    "sagittarius": {{"love": "...", "career": "...", "money": "...", "health": "...", "lucky_number": 3,  "lucky_color": "Purple",      "best_time": "3 PM",  "advice": "..."}},
+    "capricorn":   {{"love": "...", "career": "...", "money": "...", "health": "...", "lucky_number": 10, "lucky_color": "Dark Brown",  "best_time": "7 AM",  "advice": "..."}},
+    "aquarius":    {{"love": "...", "career": "...", "money": "...", "health": "...", "lucky_number": 5,  "lucky_color": "Electric Blue","best_time": "6 PM", "advice": "..."}},
+    "pisces":      {{"love": "...", "career": "...", "money": "...", "health": "...", "lucky_number": 12, "lucky_color": "Sea Green",   "best_time": "Sunset","advice": "..."}}
   }}
 }}"""
 
@@ -113,7 +119,7 @@ Return this EXACT JSON structure (fill in all 12 signs):
         try:
             response = client.messages.create(
                 model="claude-sonnet-4-6",
-                max_tokens=4000,
+                max_tokens=6000,
                 system=SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": user_msg}],
             )
