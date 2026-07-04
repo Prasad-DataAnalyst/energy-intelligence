@@ -946,16 +946,19 @@ def assemble_video(png_files: list, durations: list,
             f.write(f"file '{img_path}'\nduration {dur}\n")
         f.write(f"file '{png_files[-1]}'\n")
 
-    # Static path: identical frames encode as skip-blocks, so a better preset
-    # costs almost nothing here. The dark gradients are 8-bit banding's worst
-    # case — ultrafast made it worse; veryfast+crf19+stillimage gives YouTube's
-    # VP9 re-encode much cleaner input.
+    # Static path encoder.
+    # PROVEN CONSTRAINT: veryfast+crf19@24fps blew the 30-min render window
+    # TWICE on the production e2-micro (2026-07-04 run: 65m, both attempts
+    # timed out). The slideshow has only 13 unique frames, so 12 fps is
+    # visually identical and halves the encode work (measured 2.0x). Quality
+    # comes from crf20 + stillimage + the source dither in _vgrad.
+    static_fps = min(FPS, 12)
     cmd1 = [
         "ffmpeg", "-y", "-loglevel", "error",
         "-f", "concat", "-safe", "0", "-i", concat_txt,
-        "-vf", f"fps={FPS},scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=disable",
+        "-vf", f"fps={static_fps},scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=disable",
         "-pix_fmt", "yuv420p",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "19",
+        "-c:v", "libx264", "-preset", "superfast", "-crf", "20",
         "-tune", "stillimage",
         "-threads", "0",
         "-movflags", "+faststart",
