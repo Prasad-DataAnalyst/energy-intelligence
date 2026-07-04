@@ -666,9 +666,12 @@ def _generate_ambient(duration: float, out_path: str) -> bool:
         out_path,
     ]
     try:
-        r = _sp.run(cmd, capture_output=True, timeout=90)
+        r = _sp.run(cmd, capture_output=True, timeout=300)
+        if r.returncode != 0:
+            print(f"[WARN] Ambient: {r.stderr.decode()[-200:]}", file=sys.stderr)
         return r.returncode == 0
-    except Exception:
+    except Exception as e:
+        print(f"[WARN] Ambient exception: {e}", file=sys.stderr)
         return False
 
 
@@ -837,34 +840,52 @@ def _concat_audio(clips: list, out_path: str) -> bool:
         out_path,
     ]
     try:
-        r = _sp.run(cmd, capture_output=True, timeout=120)
+        r = _sp.run(cmd, capture_output=True, timeout=300)
+        if r.returncode != 0:
+            print(f"[WARN] Voice concat: {r.stderr.decode()[-200:]}", file=sys.stderr)
         return r.returncode == 0
-    except Exception:
+    except Exception as e:
+        print(f"[WARN] Voice concat exception: {e}", file=sys.stderr)
         return False
 
 
 def _mix_voice_ambient(voice_path: str, ambient_path: str, out_path: str) -> bool:
     """Mix voice over the ambient bed and master to YouTube's loudness target.
 
-    normalize=0 is load-bearing: amix's default scales EVERY input by 1/n,
-    which silently played the voice at 42% and made the bed inaudible.
-    loudnorm to -14 LUFS matters because YouTube turns loud audio down but
-    never turns quiet audio up — quiet Shorts get swiped."""
-    cmd = [
-        "ffmpeg", "-y", "-loglevel", "error",
-        "-i", voice_path, "-i", ambient_path,
-        "-filter_complex",
-        "[0:a][1:a]amix=inputs=2:duration=first:normalize=0:weights='1 0.35',"
-        "loudnorm=I=-14:TP=-1.5:LRA=11,aresample=44100[out]",
-        "-map", "[out]",
-        "-c:a", "aac", "-b:a", "160k",
-        out_path,
+    Two tiers:
+      1. amix normalize=0 + loudnorm to -14 LUFS (best; needs ffmpeg >= 4.3
+         and enough CPU — loudnorm resamples internally and is heavy on a
+         throttled vCPU, hence the generous timeout).
+      2. Compatibility mix that works on ANY ffmpeg and is cheap: pre-scale
+         the inputs 2x/0.7x so amix's built-in 1/n halving lands at exactly
+         1.0 voice / 0.35 ambient. No loudnorm, but voice at full scale.
+    Never returns a music-only result — the caller falls back to voice."""
+    tiers = [
+        ("[0:a][1:a]amix=inputs=2:duration=first:normalize=0:weights='1 0.35',"
+         "loudnorm=I=-14:TP=-1.5:LRA=11,aresample=44100[out]"),
+        ("[0:a]volume=2.0[v];[1:a]volume=0.7[a];"
+         "[v][a]amix=inputs=2:duration=first[out]"),
     ]
-    try:
-        r = _sp.run(cmd, capture_output=True, timeout=120)
-        return r.returncode == 0
-    except Exception:
-        return False
+    for i, flt in enumerate(tiers, 1):
+        cmd = [
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-i", voice_path, "-i", ambient_path,
+            "-filter_complex", flt,
+            "-map", "[out]",
+            "-c:a", "aac", "-b:a", "160k",
+            out_path,
+        ]
+        try:
+            r = _sp.run(cmd, capture_output=True, timeout=600)
+            if r.returncode == 0:
+                if i > 1:
+                    print(f"      [INFO] Mix used compatibility tier {i}")
+                return True
+            print(f"[WARN] Mix tier {i} failed: {r.stderr.decode()[-200:]}",
+                  file=sys.stderr)
+        except Exception as e:
+            print(f"[WARN] Mix tier {i} exception: {e}", file=sys.stderr)
+    return False
 
 
 # Motion is CPU-heavy (xfade re-encodes every frame). Off by default so the
@@ -963,19 +984,22 @@ def assemble_video(png_files: list, durations: list,
         f.write(f"file '{png_files[-1]}'\n")
 
     # Static path encoder.
-    # PROVEN CONSTRAINT: veryfast+crf19@24fps blew the 30-min render window
-    # TWICE on the production e2-micro (2026-07-04 run: 65m, both attempts
-    # timed out). The slideshow has only 13 unique frames, so 12 fps is
-    # visually identical and halves the encode work (measured 2.0x). Quality
-    # comes from crf20 + stillimage + the source dither in _vgrad.
+    # HARD-WON PRODUCTION CONSTRAINT (do not "improve" without testing on the
+    # actual VM): the e2-micro timed out at 30-40 min with veryfast@24fps
+    # (2026-07-04 05:30) AND with superfast+stillimage@12fps (2026-07-04
+    # 13:29). The ONLY encoder proven to finish there is ultrafast (June 25,
+    # twice, ~10-15 min at 24fps). ultrafast + 12fps + crf22 keeps that proven
+    # base with half the frames; visible quality is protected by the gradient
+    # dither in _vgrad (banding was the real artifact, and it's fixed at the
+    # source). Set ENCODER_PRESET in .env only on a bigger machine.
     static_fps = min(FPS, 12)
+    preset = os.getenv("ENCODER_PRESET", "ultrafast")
     cmd1 = [
         "ffmpeg", "-y", "-loglevel", "error",
         "-f", "concat", "-safe", "0", "-i", concat_txt,
         "-vf", f"fps={static_fps},scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=disable",
         "-pix_fmt", "yuv420p",
-        "-c:v", "libx264", "-preset", "superfast", "-crf", "20",
-        "-tune", "stillimage",
+        "-c:v", "libx264", "-preset", preset, "-crf", "22",
         "-threads", "0",
         "-movflags", "+faststart",
         tmp_video,
@@ -1105,19 +1129,24 @@ def process(json_path: str) -> str:
         else:
             print("      [WARN] Ambient failed")
 
-        # Mix voice + ambient (single AAC encode, loudness-mastered to -14 LUFS)
+        # Mix voice + ambient (single AAC encode, loudness-mastered to -14 LUFS).
+        # Fallback priority: mixed > VOICE-only > ambient-only. The narration
+        # is the product — a music-only video must never ship while a voice
+        # track exists.
         if voice_ok and ambient_ok:
             mixed_path = str(tmp / "audio_final.m4a")
             if _mix_voice_ambient(voice_concat_path, ambient_path, mixed_path):
                 audio_path: str | None = mixed_path
-                print("      Voice + ambient mixed (loudnorm -14 LUFS)")
+                print("      Voice + ambient mixed")
             else:
-                audio_path = ambient_path
-                print("      [WARN] Mix failed — ambient only")
-        elif ambient_ok:
-            audio_path = ambient_path
+                audio_path = voice_concat_path
+                print("      [WARN] Mix failed — using voice-only (no music)")
         elif voice_ok:
             audio_path = voice_concat_path
+            print("      Voice-only (no ambient)")
+        elif ambient_ok:
+            audio_path = ambient_path
+            print("      [WARN] No voice — ambient only")
         else:
             audio_path = None
             print("      [WARN] No audio — video will be silent")
