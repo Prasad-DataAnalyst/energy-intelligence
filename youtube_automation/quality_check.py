@@ -78,7 +78,7 @@ def _silence_errors(path, duration: float) -> list:
         r = subprocess.run(
             ["ffmpeg", "-i", str(path), "-af",
              "silencedetect=noise=-50dB:d=2", "-f", "null", "-"],
-            capture_output=True, text=True, timeout=60,
+            capture_output=True, text=True, timeout=180,
         )
         log = r.stderr or ""
         total_silence = 0.0
@@ -114,7 +114,7 @@ def check_video(video_path: str) -> list:
         result = subprocess.run(
             ["ffprobe", "-v", "quiet", "-print_format", "json",
              "-show_streams", "-show_format", str(path)],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True, text=True, timeout=60,
         )
         if result.returncode != 0:
             errors.append(f"ffprobe error: {result.stderr[:200]}")

@@ -222,9 +222,11 @@ def run_all_signs_pipeline(args) -> int:
         print("      OK")
 
         # ── 3. Quality check ───────────────────────────────────────────────────
+        # 300s: the silence/sync checks decode the full 172s audio track, which
+        # takes >60s on the e2-micro's throttled CPU (timed out 2026-07-04).
         video_path = f"outputs/{args.date}/DailyAll/daily_horoscope_{args.date}.mp4"
         print(f"\n[3/4] QC       — checking {video_path}...")
-        ok, out = run_captured([PYTHON, "quality_check.py", video_path], timeout=60)
+        ok, out = run_captured([PYTHON, "quality_check.py", video_path], timeout=300)
         qc_ok = ok
         print(f"      {'PASS' if ok else 'FAIL'}" + (f": {out}" if not ok else ""))
 
