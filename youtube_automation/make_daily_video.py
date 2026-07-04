@@ -26,7 +26,9 @@ load_dotenv()
 
 WIDTH, HEIGHT  = 1080, 1920
 FPS            = 24
-SIGN_SECS      = 12
+# 4 + 12x14 = 172s (2m52s) — under the 3-minute Shorts limit, and 14s gives
+# the narration room to read ALL five categories per sign at natural speed.
+SIGN_SECS      = 14
 INTRO_SECS     = 4
 CHANNEL_TAG    = "GetMindFuelNow"
 
@@ -284,6 +286,9 @@ def _cosmic_bg(w: int, h: int, top: tuple, bot: tuple,
     """Cinematic backdrop: gradient + two blurred nebula glows in the sign's
     accent color + starfield + corner vignette. Returns RGBA."""
     from PIL import ImageFilter
+    # Richer color: brighten the gradient floor so each sign's hue actually
+    # reads on phone screens (the raw palette was near-black).
+    bot = tuple(min(72, int(c * 1.6)) for c in bot)
     img = _vgrad(w, h, top, bot).convert("RGBA")
 
     # Nebula glows (drawn small + blurred = soft light)
@@ -669,18 +674,29 @@ def _generate_ambient(duration: float, out_path: str) -> bool:
 
 # ── Voice narration (edge-tts, free) ──────────────────────────────────────────
 def _voice_script(sign: str, fields: dict) -> str:
-    """Spoken line per sign. Deliberately SHORTER than the on-screen text:
-    the full card is ~20s of speech but the slot is 12s, which would force
-    heavy speed-up + tail clipping. Money/health/lucky stay on screen only."""
+    """Complete narration: ALL five categories per sign. Budget: fields are
+    generated at max ~6 words each (see generate_daily_assets SYSTEM_PROMPT),
+    so the full script is ~40 words ≈ 15s — fits the 14s slot with at most a
+    small (+10-15%) rate adjustment, never chipmunk speed."""
     love   = fields.get("love",   "")
     career = fields.get("career", "")
+    money  = fields.get("money",  "")
+    health = fields.get("health", "")
+    num    = fields.get("lucky_number", "")
+    color  = fields.get("lucky_color",  "")
+    btime  = fields.get("best_time",    "")
     advice = fields.get("advice", fields.get("note", ""))
-    return (
-        f"{sign.title()}. "
-        f"Love: {love}. "
-        f"Career: {career}. "
-        f"{advice}."
-    )
+
+    parts = [f"{sign.title()}."]
+    if love:   parts.append(f"Love: {love}.")
+    if career: parts.append(f"Career: {career}.")
+    if money:  parts.append(f"Money: {money}.")
+    if health: parts.append(f"Health: {health}.")
+    lucky_bits = ", ".join(str(x) for x in (num, color, btime) if x)
+    if lucky_bits:
+        parts.append(f"Lucky: {lucky_bits}.")
+    if advice: parts.append(f"{advice}.")
+    return " ".join(parts)
 
 
 def _intro_script(date_str: str) -> str:
