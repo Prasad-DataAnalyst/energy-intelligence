@@ -880,11 +880,15 @@ def _mix_voice_ambient(voice_path: str, ambient_path: str, out_path: str) -> boo
          the inputs 2x/0.7x so amix's built-in 1/n halving lands at exactly
          1.0 voice / 0.35 ambient. No loudnorm, but voice at full scale.
     Never returns a music-only result — the caller falls back to voice."""
+    # loudnorm resamples to 192 kHz internally; on ffmpeg 4.4 an in-graph
+    # `aresample=44100` after it triggers "Error reinitializing filters". Fix:
+    # drop the resample FILTER and let the encoder resample via the `-ar 44100`
+    # OUTPUT option instead. Tier 2 is the no-loudnorm compatibility fallback.
     tiers = [
-        ("[0:a][1:a]amix=inputs=2:duration=first:normalize=0:weights='1 0.35',"
-         "loudnorm=I=-14:TP=-1.5:LRA=11,aresample=44100[out]"),
-        ("[0:a]volume=2.0[v];[1:a]volume=0.7[a];"
-         "[v][a]amix=inputs=2:duration=first[out]"),
+        "[0:a][1:a]amix=inputs=2:duration=first:normalize=0:weights='1 0.35',"
+        "loudnorm=I=-14:TP=-1.5:LRA=11[out]",
+        "[0:a]volume=2.0[v];[1:a]volume=0.7[a];"
+        "[v][a]amix=inputs=2:duration=first[out]",
     ]
     for i, flt in enumerate(tiers, 1):
         cmd = [
@@ -892,6 +896,7 @@ def _mix_voice_ambient(voice_path: str, ambient_path: str, out_path: str) -> boo
             "-i", voice_path, "-i", ambient_path,
             "-filter_complex", flt,
             "-map", "[out]",
+            "-ar", _AR,                      # encoder resample (4.4-safe)
             "-c:a", "aac", "-b:a", "160k",
             out_path,
         ]
@@ -899,7 +904,7 @@ def _mix_voice_ambient(voice_path: str, ambient_path: str, out_path: str) -> boo
             r = _sp.run(cmd, capture_output=True, timeout=600)
             if r.returncode == 0:
                 if i > 1:
-                    print(f"      [INFO] Mix used compatibility tier {i}")
+                    print(f"      [INFO] Mix used compatibility tier {i} (no loudness master)")
                 return True
             print(f"[WARN] Mix tier {i} failed: {r.stderr.decode()[-200:]}",
                   file=sys.stderr)
