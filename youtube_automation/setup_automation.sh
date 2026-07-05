@@ -86,14 +86,28 @@ fi
 # therefore: mask the unit (can never start again — stronger than disable),
 # then SIGKILL every related process and its watchdog.
 echo ""
-echo "[2b] Retiring the old getmindfuelnow daemon (cron pipeline is now the only uploader)..."
-if systemctl list-unit-files 2>/dev/null | grep -q '^getmindfuelnow'; then
-    sudo systemctl disable --now getmindfuelnow 2>/dev/null || true
-    sudo systemctl mask getmindfuelnow 2>/dev/null \
-        && echo "  OK: getmindfuelnow stopped, disabled and MASKED (cannot restart)" \
-        || echo "  WARN: could not mask getmindfuelnow — run: sudo systemctl mask getmindfuelnow"
+echo "[2b] Retiring the old daemon (cron pipeline is now the only uploader)..."
+# There have been MULTIPLE service names launching the same daemon
+# (getmindfuelnow.service AND horoscope-daemon.service). Discover EVERY unit
+# that references the daemon/watchdog, plus the known names, and mask them all
+# so none can restart it on boot.
+UNITS="getmindfuelnow horoscope-daemon"
+for f in $(sudo grep -rl "horoscope_daemon\|start_scheduler\|automation_daemon" \
+           /etc/systemd/system/ 2>/dev/null); do
+    UNITS="$UNITS $(basename "$f")"
+done
+MASKED=""
+for unit in $(echo "$UNITS" | tr ' ' '\n' | sort -u); do
+    [ -z "$unit" ] && continue
+    if systemctl list-unit-files 2>/dev/null | grep -q "^${unit}"; then
+        sudo systemctl disable --now "$unit" 2>/dev/null || true
+        sudo systemctl mask "$unit" 2>/dev/null && MASKED="$MASKED $unit"
+    fi
+done
+if [ -n "$MASKED" ]; then
+    echo "  OK: stopped + masked (cannot restart):$MASKED"
 else
-    echo "  OK: no getmindfuelnow service registered"
+    echo "  OK: no daemon services registered"
 fi
 # SIGKILL the watchdog FIRST (so it can't respawn the daemon), then the daemon.
 sudo pkill -9 -f "start_scheduler.sh"   2>/dev/null && echo "  OK: killed start_scheduler.sh" || true
