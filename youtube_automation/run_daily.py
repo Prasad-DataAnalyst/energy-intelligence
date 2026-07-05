@@ -77,6 +77,34 @@ def _daemon(action: str) -> None:
                    capture_output=True, text=True)
 
 
+def _publish_utc_dt(date_tag: str) -> datetime:
+    """UTC datetime at which the video should go public, targeting a real
+    US-morning hour so it's live when the US audience wakes up.
+
+    Default: PUBLISH_ET_HOUR (7) AM US Eastern, DST-AWARE — so it stays 7 AM ET
+    year-round instead of drifting an hour between EDT and EST. A fixed
+    PUBLISH_HOUR_UTC in .env overrides (advanced use)."""
+    d = datetime.strptime(date_tag, "%Y%m%d")
+
+    if os.environ.get("PUBLISH_HOUR_UTC"):
+        return d.replace(hour=int(os.environ["PUBLISH_HOUR_UTC"]), minute=0, second=0)
+
+    et_hour = int(os.environ.get("PUBLISH_ET_HOUR", "7"))
+    try:
+        from zoneinfo import ZoneInfo
+        et = datetime(d.year, d.month, d.day, et_hour, 0, tzinfo=ZoneInfo("America/New_York"))
+        return et.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+    except Exception:
+        # Manual US DST fallback: EDT (UTC-4) from 2nd Sun Mar to 1st Sun Nov,
+        # else EST (UTC-5). tzdata-free, deterministic.
+        mar1 = datetime(d.year, 3, 1)
+        mar_2nd_sun = mar1 + timedelta(days=((6 - mar1.weekday()) % 7) + 7)
+        nov1 = datetime(d.year, 11, 1)
+        nov_1st_sun = nov1 + timedelta(days=(6 - nov1.weekday()) % 7)
+        offset = 4 if (mar_2nd_sun <= d < nov_1st_sun) else 5
+        return d.replace(hour=et_hour, minute=0, second=0) + timedelta(hours=offset)
+
+
 def run_live(cmd: list, timeout: int = 1800) -> bool:
     try:
         r = subprocess.run(cmd, timeout=timeout)
@@ -292,14 +320,10 @@ def run_all_signs_pipeline(args) -> int:
                     "date":           run_key,
                     "privacy_status": "public",
                 }
-                # Publish hour (UTC) is configurable: 10 = 6 AM ET (US morning).
-                # If Analytics shows a big India/Europe audience, set
-                # PUBLISH_HOUR_UTC=4 or 5 in .env (morning IST). If the moment is
-                # already past (late/manual run), schedule ASAP — YouTube rejects
-                # a publishAt in the past.
-                pub_hour = int(os.environ.get("PUBLISH_HOUR_UTC", "10"))
-                pub_dt = datetime.strptime(args.date, "%Y%m%d").replace(
-                    hour=pub_hour, minute=0, second=0)
+                # Publish at 7 AM US Eastern (DST-aware) so it's live when the US
+                # audience wakes up. If that moment is already past (late/manual
+                # run), schedule ASAP — YouTube rejects a publishAt in the past.
+                pub_dt = _publish_utc_dt(args.date)
                 if pub_dt <= _utcnow():
                     pub_dt = _utcnow() + timedelta(minutes=15)
                 publish_at = pub_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
