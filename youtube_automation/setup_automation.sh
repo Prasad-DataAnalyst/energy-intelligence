@@ -78,6 +78,23 @@ else
     echo "  WARN: could not write sudoers (no sudo?) — daemon pause disabled"
 fi
 
+# ── 2b. RETIRE the old standalone daemon ──────────────────────────────────────
+# core/horoscope_daemon.py (the `getmindfuelnow` service) was a SECOND, parallel
+# uploader that produced the old-format 7-minute videos and per-sign shorts. The
+# cron pipeline below is now the single source of truth, so stop + disable it.
+echo ""
+echo "[2b] Retiring the old getmindfuelnow daemon (cron pipeline is now the only uploader)..."
+if systemctl list-unit-files 2>/dev/null | grep -q '^getmindfuelnow'; then
+    sudo systemctl disable --now getmindfuelnow 2>/dev/null \
+        && echo "  OK: getmindfuelnow stopped and disabled" \
+        || echo "  WARN: could not disable getmindfuelnow (may need: sudo systemctl disable --now getmindfuelnow)"
+else
+    echo "  OK: no getmindfuelnow service registered (nothing to retire)"
+fi
+# Also kill any stray watchdog started via nohup start_scheduler.sh
+pkill -f "start_scheduler.sh" 2>/dev/null && echo "  OK: stopped stray start_scheduler.sh" || true
+pkill -f "horoscope_daemon.py" 2>/dev/null && echo "  OK: stopped stray horoscope_daemon.py" || true
+
 # ── 3. Install cron job ───────────────────────────────────────────────────────
 echo ""
 echo "[3/4] Installing cron job (runs daily at 5:30 AM UTC — all 12 signs, auto-upload)..."
@@ -85,9 +102,15 @@ echo "[3/4] Installing cron job (runs daily at 5:30 AM UTC — all 12 signs, aut
 # Preflight doctor at 5:00 AM — emails you 30 min early if anything is broken
 # (bad key, expired token, low disk) so you can fix it before the 5:30 run.
 DOCTOR_CMD="0 5 * * * cd $REPO && $VENV_PYTHON doctor.py --email >> $LOG 2>&1"
-# Main pipeline at 5:30 AM.
+# DAILY pipeline at 5:30 AM (every day) → publishes 10:00 UTC as a Short.
 CRON_CMD="30 5 * * * cd $REPO && $VENV_PYTHON run_daily.py --date \$(date +\\%Y\\%m\\%d) --period \"\$(date +'\\%B \\%Y')\" --upload >> $LOG 2>&1"
-# Heartbeat check at 12:00 — emails an alert if no successful run in >30h
+# WEEKLY pipeline — Sundays 07:30 (after the daily finishes, so the 1-core VM
+# never renders two videos at once). "This week" outlook, still a Short.
+WEEKLY_CMD="30 7 * * 0 cd $REPO && $VENV_PYTHON run_daily.py --type weekly --date \$(date +\\%Y\\%m\\%d) --period \"\$(date +'\\%B \\%Y')\" --upload >> $LOG 2>&1"
+# MONTHLY pipeline — 1st of the month 08:00. "This month" deep-dive; longer
+# (~4.5 min) so YouTube treats it as a regular video (better watch-time credit).
+MONTHLY_CMD="0 8 1 * * cd $REPO && $VENV_PYTHON run_daily.py --type monthly --date \$(date +\\%Y\\%m\\%d) --period \"\$(date +'\\%B \\%Y')\" --upload >> $LOG 2>&1"
+# Heartbeat check at 12:00 — emails an alert if no successful run in >28h
 # (catches: cron never fired, pipeline failing every day, crontab wiped).
 HEARTBEAT_CMD="0 12 * * * cd $REPO && $VENV_PYTHON heartbeat.py --check >> $LOG 2>&1"
 
@@ -95,10 +118,10 @@ HEARTBEAT_CMD="0 12 * * * cd $REPO && $VENV_PYTHON heartbeat.py --check >> $LOG 
 # the legacy daily_runner.py 3 PM job installed by first_time_setup.py).
 ( crontab -l 2>/dev/null | grep -v -e "run_daily.py" -e "daily_runner.py" -e "doctor.py" -e "heartbeat.py" ) | crontab - 2>/dev/null || true
 
-# Add doctor (5:00) + main pipeline (5:30) + heartbeat (12:00)
-( crontab -l 2>/dev/null; echo "$DOCTOR_CMD"; echo "$CRON_CMD"; echo "$HEARTBEAT_CMD" ) | crontab -
+# Add doctor (5:00) + daily (5:30) + weekly (Sun 7:30) + monthly (1st 8:00) + heartbeat (12:00)
+( crontab -l 2>/dev/null; echo "$DOCTOR_CMD"; echo "$CRON_CMD"; echo "$WEEKLY_CMD"; echo "$MONTHLY_CMD"; echo "$HEARTBEAT_CMD" ) | crontab -
 
-echo "  OK: cron jobs installed (doctor 5:00, pipeline 5:30, heartbeat 12:00)"
+echo "  OK: cron jobs installed (doctor 5:00, daily 5:30, weekly Sun 7:30, monthly 1st 8:00, heartbeat 12:00)"
 
 # ── 3b. Log rotation so $LOG doesn't grow without bound ───────────────────────
 echo ""
