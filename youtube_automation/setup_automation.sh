@@ -78,22 +78,34 @@ else
     echo "  WARN: could not write sudoers (no sudo?) — daemon pause disabled"
 fi
 
-# ── 2b. RETIRE the old standalone daemon ──────────────────────────────────────
+# ── 2b. RETIRE the old standalone daemon (bulletproof) ────────────────────────
 # core/horoscope_daemon.py (the `getmindfuelnow` service) was a SECOND, parallel
-# uploader that produced the old-format 7-minute videos and per-sign shorts. The
-# cron pipeline below is now the single source of truth, so stop + disable it.
+# uploader that produced the old-format 7-minute videos and per-sign shorts.
+# It TRAPS SIGTERM for a "graceful" shutdown and can sit in D (uninterruptible)
+# state mid-upload, so a gentle stop leaves it alive and still uploading. We
+# therefore: mask the unit (can never start again — stronger than disable),
+# then SIGKILL every related process and its watchdog.
 echo ""
 echo "[2b] Retiring the old getmindfuelnow daemon (cron pipeline is now the only uploader)..."
 if systemctl list-unit-files 2>/dev/null | grep -q '^getmindfuelnow'; then
-    sudo systemctl disable --now getmindfuelnow 2>/dev/null \
-        && echo "  OK: getmindfuelnow stopped and disabled" \
-        || echo "  WARN: could not disable getmindfuelnow (may need: sudo systemctl disable --now getmindfuelnow)"
+    sudo systemctl disable --now getmindfuelnow 2>/dev/null || true
+    sudo systemctl mask getmindfuelnow 2>/dev/null \
+        && echo "  OK: getmindfuelnow stopped, disabled and MASKED (cannot restart)" \
+        || echo "  WARN: could not mask getmindfuelnow — run: sudo systemctl mask getmindfuelnow"
 else
-    echo "  OK: no getmindfuelnow service registered (nothing to retire)"
+    echo "  OK: no getmindfuelnow service registered"
 fi
-# Also kill any stray watchdog started via nohup start_scheduler.sh
-pkill -f "start_scheduler.sh" 2>/dev/null && echo "  OK: stopped stray start_scheduler.sh" || true
-pkill -f "horoscope_daemon.py" 2>/dev/null && echo "  OK: stopped stray horoscope_daemon.py" || true
+# SIGKILL the watchdog FIRST (so it can't respawn the daemon), then the daemon.
+sudo pkill -9 -f "start_scheduler.sh"   2>/dev/null && echo "  OK: killed start_scheduler.sh" || true
+sudo pkill -9 -f "horoscope_daemon.py"  2>/dev/null && echo "  OK: killed horoscope_daemon.py" || true
+sleep 2
+if pgrep -f "horoscope_daemon.py" >/dev/null 2>&1; then
+    echo "  WARN: horoscope_daemon.py STILL running (likely stuck in D-state I/O)."
+    echo "        It cannot restart (service masked) but is finishing current I/O."
+    echo "        Reboot to clear it fully:  sudo reboot"
+else
+    echo "  OK: no horoscope_daemon.py process remaining"
+fi
 
 # ── 3. Install cron job ───────────────────────────────────────────────────────
 echo ""
