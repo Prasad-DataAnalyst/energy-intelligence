@@ -394,6 +394,19 @@ def run_daemon() -> None:
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    # ── RETIRED ────────────────────────────────────────────────────────────────
+    # This standalone daemon was a SECOND, parallel uploader that produced the
+    # old-format 7-minute videos and per-sign shorts. It is retired: the cron
+    # pipeline (run_daily.py) is now the single source of truth. Whatever
+    # relaunches this (a stray systemd unit, a root @reboot cron, rc.local, or
+    # the start_scheduler.sh watchdog) now hits this guard and exits WITHOUT
+    # uploading anything. Escape hatch for debugging only: ALLOW_LEGACY_DAEMON=1.
+    if os.getenv("ALLOW_LEGACY_DAEMON") != "1":
+        print("[RETIRED] horoscope_daemon.py is disabled — the cron pipeline "
+              "(run_daily.py) is the only uploader. Exiting without action.",
+              file=sys.stderr)
+        sys.exit(0)
+
     import argparse
     parser = argparse.ArgumentParser(description="GetMindFuelNow Horoscope Daemon")
     parser.add_argument("--schedule", action="store_true", help="Alias for running the daemon (default behavior)")

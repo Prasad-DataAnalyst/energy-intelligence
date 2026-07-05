@@ -233,4 +233,11 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    import os as _os, sys as _sys
+    # RETIRED — see core/horoscope_daemon.py. The cron pipeline (run_daily.py)
+    # is the only uploader. Exit without action unless explicitly overridden.
+    if _os.getenv("ALLOW_LEGACY_DAEMON") != "1":
+        print("[RETIRED] automation_daemon.py is disabled — use run_daily.py. "
+              "Exiting without action.", file=_sys.stderr)
+        _sys.exit(0)
     main()

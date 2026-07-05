@@ -11,6 +11,16 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# ── RETIRED ────────────────────────────────────────────────────────────────────
+# This watchdog respawned core/horoscope_daemon.py — a second, parallel uploader
+# that produced the old-format videos/shorts. The cron pipeline (run_daily.py) is
+# now the only uploader. Exit immediately so nothing relaunches the old daemon.
+# Escape hatch for debugging only: ALLOW_LEGACY_DAEMON=1 bash start_scheduler.sh
+if [ "${ALLOW_LEGACY_DAEMON:-0}" != "1" ]; then
+    echo "[RETIRED] start_scheduler.sh is disabled — the cron pipeline (run_daily.py) is the only uploader."
+    exit 0
+fi
+
 LOG_FILE="logs/scheduler.log"
 PID_FILE="logs/daemon.pid"
 PYTHON="python3"
