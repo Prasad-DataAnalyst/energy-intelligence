@@ -28,9 +28,15 @@ WIDTH, HEIGHT  = 1080, 1920
 FPS            = 24
 # 4 + 12x14 = 172s (2m52s) — under the 3-minute Shorts limit, and 14s gives
 # the narration room to read ALL five categories per sign at natural speed.
+# Overridden per-run from the JSON's "sign_secs" (weekly=14, monthly=22).
 SIGN_SECS      = 14
 INTRO_SECS     = 4
 CHANNEL_TAG    = "GetMindFuelNow"
+
+# Set by process() from the JSON so the shared card renderer can label the
+# timeframe (daily/weekly/monthly) without threading params through every call.
+CONTENT_TYPE   = "daily"
+PERIOD_LABEL   = "TODAY"
 
 SIGNS = [
     "aries","taurus","gemini","cancer","leo","virgo",
@@ -324,7 +330,7 @@ def render_intro_card(date_str: str) -> Image.Image:
 
     y = 250
     f_big = _display_font(122, weight=700)
-    for line in ["DAILY", "HOROSCOPE"]:
+    for line in [CONTENT_TYPE.upper(), "HOROSCOPE"]:
         w = _tw(line, f_big)
         draw.text(((WIDTH - w) // 2 + 3, y + 3), line, font=f_big, fill=(0, 0, 0, 170))
         draw.text(((WIDTH - w) // 2,     y),     line, font=f_big, fill=GOLD)
@@ -487,6 +493,18 @@ def render_sign_card(sign: str, fields: dict, idx: int) -> Image.Image:
     draw.text((nx + 3, 71), name, font=hf, fill=(0, 0, 0, 170))
     draw.text((nx,     68), name, font=hf, fill=GOLD)
     draw.rectangle([nx, 196, nx + name_w, 201], fill=(*neon, 220))
+
+    # Period-label pill (TODAY / THIS WEEK / THIS MONTH), centered in the gap
+    # between the name underline (~201) and the first panel (~256) so it always
+    # shows regardless of the sign name's width.
+    pf   = _ui_font(26, 700)
+    pl_w = _tw(PERIOD_LABEL, pf)
+    pill_w = pl_w + 40
+    ppx = (WIDTH - pill_w) // 2
+    ppy = 208
+    draw.rounded_rectangle([ppx, ppy, ppx + pill_w, ppy + _th(pf) + 16],
+                           radius=13, fill=(*neon, 60), outline=(*neon, 235), width=2)
+    draw.text((ppx + 20, ppy + 6), PERIOD_LABEL, font=pf, fill=WHITE)
 
     # ── Category panels content ────────────────────────────────────────────────
     lf  = _ui_font(42, 600)      # label
@@ -704,7 +722,9 @@ def _voice_script(sign: str, fields: dict) -> str:
 
 def _intro_script(date_str: str) -> str:
     """The first 4 seconds decide the swipe — never open with dead air."""
-    return f"Your daily horoscope for {date_str}. Find your sign."
+    tf = {"daily": "today", "weekly": "this week",
+          "monthly": "this month"}.get(CONTENT_TYPE, "today")
+    return f"Your {CONTENT_TYPE} horoscope for {tf}. Find your sign."
 
 
 # Curated ADULT neural voices (no child voices — en-US-Ana and en-GB-Maisie are
@@ -1043,21 +1063,28 @@ def process(json_path: str) -> str:
         print(f"[ERROR] File not found: {json_path}", file=sys.stderr)
         sys.exit(1)
 
+    global CONTENT_TYPE, PERIOD_LABEL
     data     = json.loads(path.read_text(encoding="utf-8"))
     date_str = data.get("date", "")
-    # Extract YYYYMMDD from filename daily_horoscope_YYYYMMDD.json
+
+    # Type-aware metadata (falls back to daily for old JSONs).
+    CONTENT_TYPE = data.get("content_type", "daily")
+    PERIOD_LABEL = data.get("period_label", "TODAY")
+    sign_secs    = int(data.get("sign_secs", SIGN_SECS))
+
+    # Extract YYYYMMDD from filename <type>_horoscope_YYYYMMDD.json
     date_tag = path.stem.split("_")[-1]
 
-    out_dir = Path("outputs") / date_tag / "DailyAll"
+    out_dir = Path("outputs") / date_tag / f"{CONTENT_TYPE.capitalize()}All"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    base        = f"daily_horoscope_{date_tag}"
+    base        = f"{CONTENT_TYPE}_horoscope_{date_tag}"
     video_path  = str(out_dir / f"{base}.mp4")
     thumb_path  = str(out_dir / f"{base}_thumbnail.jpg")
-    total_dur   = INTRO_SECS + len(SIGNS) * SIGN_SECS   # 148 seconds
+    total_dur   = INTRO_SECS + len(SIGNS) * sign_secs
 
     print(f"\n{'='*58}")
-    print(f"  DAILY HOROSCOPE — ALL 12 SIGNS")
+    print(f"  {CONTENT_TYPE.upper()} HOROSCOPE — ALL 12 SIGNS")
     print(f"  Date: {date_str}  |  {total_dur}s  ({total_dur // 60}m {total_dur % 60}s)")
     print(f"  Output: {out_dir}/")
     print(f"{'='*58}\n")
@@ -1081,8 +1108,8 @@ def process(json_path: str) -> str:
             card_png = str(tmp / f"{idx + 1:02d}_{sign}.png")
             render_sign_card(sign, fields, idx).save(card_png, "PNG")
             png_files.append(card_png)
-            durations.append(SIGN_SECS)
-            print(f"      [{sign.title():<14}]  {SIGN_SECS}s")
+            durations.append(sign_secs)
+            print(f"      [{sign.title():<14}]  {sign_secs}s")
 
         # 2. Voice narration (edge-tts, free) — one narrator per day
         day_voice = _day_voice(date_tag)
@@ -1102,12 +1129,12 @@ def process(json_path: str) -> str:
             fields = signs_data.get(sign, {})
             script = _voice_script(sign, fields)
             vpath  = str(tmp / f"voice_{idx + 1:02d}_{sign}.wav")
-            if _generate_sign_voice(script, vpath, SIGN_SECS, voice=day_voice):
+            if _generate_sign_voice(script, vpath, sign_secs, voice=day_voice):
                 voice_clips.append(vpath)
-                print(f"      [{sign.title():<14}]  {SIGN_SECS}s")
+                print(f"      [{sign.title():<14}]  {sign_secs}s")
             else:
                 sil2 = str(tmp / f"sil_{idx + 1:02d}.wav")
-                _generate_silence(SIGN_SECS, sil2)
+                _generate_silence(sign_secs, sil2)
                 voice_clips.append(sil2)
                 print(f"      [{sign.title():<14}]  (TTS failed, silence)")
 
@@ -1176,7 +1203,7 @@ def process(json_path: str) -> str:
         return f"{secs // 60}:{secs % 60:02d}"
 
     chapter_lines = ["0:00 Intro"] + [
-        f"{_ts(INTRO_SECS + i * SIGN_SECS)} {s.title()}" for i, s in enumerate(SIGNS)
+        f"{_ts(INTRO_SECS + i * sign_secs)} {s.title()}" for i, s in enumerate(SIGNS)
     ]
     chapters_block = "\n".join(chapter_lines)
 
@@ -1186,15 +1213,16 @@ def process(json_path: str) -> str:
 
     # Save metadata for uploader
     meta = {
-        "title":       data.get("title", f"Daily Horoscope Today, {date_str} — All 12 Zodiac Signs"),
+        "title":       data.get("title", f"{CONTENT_TYPE.title()} Horoscope — {date_str} — All 12 Zodiac Signs"),
         "description": description,
         "tags":        data.get("tags", []),
         "hashtags":    data.get("hashtags", []),
         "date":        date_tag,
+        "content_type": CONTENT_TYPE,
         "pinned_comment": (
             f"Which sign are you? Drop it below! ⬇️\n\n"
             f"⏱ Jump to your sign:\n{chapters_block}\n\n"
-            f"Like + Subscribe for daily cosmic guidance every morning "
+            f"Like + Subscribe for {CONTENT_TYPE} cosmic guidance "
             f"#horoscope #astrology #zodiac"
         ),
     }

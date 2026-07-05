@@ -63,15 +63,18 @@ def run_captured(cmd: list, timeout: int = 120) -> tuple:
 
 
 def _daemon(action: str) -> None:
-    """Stop/start the getmindfuelnow daemon to free CPU/RAM during rendering.
-    Tries both /usr/bin and /bin systemctl paths (merged-/usr Ubuntu resolves to
-    /usr/bin, but the sudoers rule may whitelist either). Best-effort; warns on
-    failure but never blocks the pipeline."""
-    r = subprocess.run(["sudo", "systemctl", action, "getmindfuelnow"],
-                       capture_output=True, text=True)
-    if r.returncode != 0:
-        print(f"  [WARN] daemon {action} failed (rc={r.returncode}): "
-              f"{(r.stderr or '').strip()[:120]}")
+    """The standalone `getmindfuelnow` daemon (core/horoscope_daemon.py) has been
+    RETIRED — it was a second, independent uploader producing the old-format
+    7-minute videos and per-sign shorts. This cron pipeline is now the single
+    source of truth.
+
+    So: NEVER (re)start it — a stray `start` would revive the rogue uploader.
+    `stop` remains a harmless best-effort kill in case an old instance lingers,
+    which also frees CPU/RAM for the render."""
+    if action != "stop":
+        return
+    subprocess.run(["sudo", "systemctl", "stop", "getmindfuelnow"],
+                   capture_output=True, text=True)
 
 
 def run_live(cmd: list, timeout: int = 1800) -> bool:
@@ -141,14 +144,27 @@ def send_summary_email(date: str, results: dict, elapsed: int, upload: bool) -> 
 
 def run_all_signs_pipeline(args) -> int:
     """
-    New pipeline: one combined video covering all 12 signs.
-    generate_daily_assets.py → make_daily_video.py → upload (optional)
-    Returns exit code (0 = success).
+    New pipeline: one combined video covering all 12 signs, for any timeframe
+    (daily / weekly / monthly). generate_daily_assets.py → make_daily_video.py
+    → upload (optional). Returns exit code (0 = success).
     """
     t_start = time.time()
 
+    ctype    = getattr(args, "type", "daily") or "daily"
+    type_dir = f"{ctype.capitalize()}All"
+    base     = f"{ctype}_horoscope_{args.date}"
+    json_file  = f"{base}.json"
+    out_base   = f"outputs/{args.date}/{type_dir}/{base}"
+    video_path  = f"{out_base}.mp4"
+    assets_json = f"{out_base}_assets.json"
+    thumb_path  = f"{out_base}_thumbnail.jpg"
+    # Idempotency key: daily keeps the bare date (backward-compatible with the
+    # existing uploads.json), weekly/monthly are namespaced so a same-day daily
+    # and weekly don't collide.
+    run_key = args.date if ctype == "daily" else f"{ctype}_{args.date}"
+
     print(f"\n{'='*60}")
-    print(f"  GetMindFuelNow — ALL 12 SIGNS VIDEO — {args.date}")
+    print(f"  GetMindFuelNow — {ctype.upper()} — ALL 12 SIGNS — {args.date}")
     print(f"  Period: {args.period}  |  Started: {datetime.now():%H:%M:%S}")
     print(f"{'='*60}\n")
 
@@ -175,14 +191,13 @@ def run_all_signs_pipeline(args) -> int:
     upload_result = ""
     try:
         # ── 1. Generate all-signs assets JSON ──────────────────────────────────
-        json_file = f"daily_horoscope_{args.date}.json"
         if args.skip_assets and Path(json_file).exists():
             print(f"[1/4] Assets   — reusing {json_file}")
             assets_ok = True
         else:
-            print(f"[1/4] Assets   — generating all 12 signs via Claude...")
+            print(f"[1/4] Assets   — generating all 12 signs ({ctype}) via Claude...")
             ok, out = run_captured(
-                [PYTHON, "generate_daily_assets.py", args.period, args.date],
+                [PYTHON, "generate_daily_assets.py", args.period, args.date, ctype],
                 timeout=300,
             )
             assets_ok = ok
@@ -222,9 +237,8 @@ def run_all_signs_pipeline(args) -> int:
         print("      OK")
 
         # ── 3. Quality check ───────────────────────────────────────────────────
-        # 300s: the silence/sync checks decode the full 172s audio track, which
+        # 300s: the silence/sync checks decode the full audio track, which
         # takes >60s on the e2-micro's throttled CPU (timed out 2026-07-04).
-        video_path = f"outputs/{args.date}/DailyAll/daily_horoscope_{args.date}.mp4"
         print(f"\n[3/4] QC       — checking {video_path}...")
         ok, out = run_captured([PYTHON, "quality_check.py", video_path], timeout=300)
         qc_ok = ok
@@ -257,25 +271,25 @@ def run_all_signs_pipeline(args) -> int:
                 except Exception as _qe:
                     print(f"      [INFO] Housekeeping skipped: {_qe}")
 
-                # Idempotency: if this date was already uploaded, don't post a
-                # duplicate (and don't waste another ~1600 quota units). Repeated
-                # manual runs or a double cron are now safe. Use --force to override.
-                existing = find_uploaded(args.date)
+                # Idempotency: if this (type,date) was already uploaded, don't
+                # post a duplicate (and don't waste another ~1600 quota units).
+                # Repeated manual runs or a double cron are now safe. --force
+                # overrides.
+                existing = find_uploaded(run_key)
                 if existing and not args.force:
-                    print(f"      SKIP: {args.date} already uploaded → "
+                    print(f"      SKIP: {run_key} already uploaded → "
                           f"https://youtu.be/{existing} (use --force to re-upload)")
                     upload_result = f"✅ youtu.be/{existing} (existing)"
                     raise StopIteration  # jump to finally without treating as error
 
                 print(f"      Quota used today: {quota_spent_today()}/{DAILY_QUOTA_LIMIT} units")
 
-                assets_json = f"outputs/{args.date}/DailyAll/daily_horoscope_{args.date}_assets.json"
                 assets  = _json.loads(Path(assets_json).read_text(encoding="utf-8"))
                 content = {
                     "title":          assets.get("title", ""),
                     "description":    assets.get("description", ""),
                     "tags":           assets.get("tags", []),
-                    "date":           args.date,
+                    "date":           run_key,
                     "privacy_status": "public",
                 }
                 # Publish hour (UTC) is configurable: 10 = 6 AM ET (US morning).
@@ -290,7 +304,6 @@ def run_all_signs_pipeline(args) -> int:
                     pub_dt = _utcnow() + timedelta(minutes=15)
                 publish_at = pub_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
                 vid_id     = upload_video(video_path, content, publish_at=publish_at)
-                thumb_path = f"outputs/{args.date}/DailyAll/daily_horoscope_{args.date}_thumbnail.jpg"
                 upload_thumbnail(vid_id, thumb_path)
                 add_to_playlist(vid_id)   # no-op unless YOUTUBE_PLAYLIST_ID set
 
@@ -325,11 +338,11 @@ def run_all_signs_pipeline(args) -> int:
     all_ok    = assets_ok and qc_ok and upload_ok
 
     print(f"\n{'='*60}")
-    print(f"  SUMMARY — {args.date}  ({elapsed // 60}m {elapsed % 60}s)")
+    print(f"  SUMMARY — {ctype.upper()} {args.date}  ({elapsed // 60}m {elapsed % 60}s)")
     print(f"  {'✅ ALL OK' if all_ok else '❌ ISSUES'}")
     if upload_result:
         print(f"  Upload: {upload_result}")
-    print(f"  Output: outputs/{args.date}/DailyAll/")
+    print(f"  Output: outputs/{args.date}/{type_dir}/")
     print(f"{'='*60}\n")
 
     if all_ok:
@@ -386,6 +399,9 @@ def main():
     parser.add_argument("--mode",        default="all", choices=["all", "short"],
                         help="'all' = one combined 12-sign video (default), "
                              "'short' = 12 separate per-sign videos")
+    parser.add_argument("--type",        default="daily",
+                        choices=["daily", "weekly", "monthly"],
+                        help="Timeframe of the combined video (default: daily)")
     parser.add_argument("--format",      default="short", choices=["short", "long"])
     parser.add_argument("--signs",       metavar="SIGN,...",
                         help="Comma-separated subset (default: all 12) — short mode only")
