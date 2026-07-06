@@ -499,9 +499,11 @@ def main():
                         help="'all' = one combined 12-sign video (default), "
                              "'short' = 12 separate per-sign videos")
     parser.add_argument("--type",        default="daily",
-                        choices=["daily", "weekly", "monthly", "topic"],
+                        choices=["daily", "weekly", "monthly", "topic", "weeklyfull"],
                         help="daily/weekly/monthly = combined 12-sign video; "
-                             "topic = long-form astrology topic-of-the-day (default: daily)")
+                             "topic = long-form astrology topic-of-the-day; "
+                             "weeklyfull = long-form in-depth weekly horoscope, "
+                             "Monday morning (default: daily)")
     parser.add_argument("--format",      default="short", choices=["short", "long"])
     parser.add_argument("--signs",       metavar="SIGN,...",
                         help="Comma-separated subset (default: all 12) — short mode only")

@@ -31,7 +31,11 @@ FPS            = 24
 # Overridden per-run from the JSON's "sign_secs" (weekly=14, monthly=22).
 SIGN_SECS      = 14
 INTRO_SECS     = 4
+OUTRO_SECS     = 10       # long-form only (deep/weeklyfull) — luckiest-sign reveal
 CHANNEL_TAG    = "GetMindFuelNow"
+
+# Content types that get the long-form outro (luckiest-sign reveal + subscribe).
+_OUTRO_TYPES = ("deep", "weeklyfull")
 
 # Set by process() from the JSON so the shared card renderer can label the
 # timeframe (daily/weekly/monthly/deep) without threading params through every call.
@@ -331,7 +335,11 @@ def render_intro_card(date_str: str) -> Image.Image:
 
     y = 250
     f_big = _display_font(122, weight=700)
-    for line in [CONTENT_TYPE.upper(), "HOROSCOPE"]:
+    # Display label for the intro headline — keep it a clean single real word
+    # even for compound internal type names like "weeklyfull" or "deep".
+    intro_label = {"daily": "DAILY", "weekly": "WEEKLY", "monthly": "MONTHLY",
+                  "weeklyfull": "WEEKLY", "deep": "DAILY"}.get(CONTENT_TYPE, CONTENT_TYPE.upper())
+    for line in [intro_label, "HOROSCOPE"]:
         w = _tw(line, f_big)
         draw.text(((WIDTH - w) // 2 + 3, y + 3), line, font=f_big, fill=(0, 0, 0, 170))
         draw.text(((WIDTH - w) // 2,     y),     line, font=f_big, fill=GOLD)
@@ -403,6 +411,52 @@ def render_intro_card(date_str: str) -> Image.Image:
     w = _tw(CHANNEL_TAG, f_ch)
     draw.text(((WIDTH - w) // 2, HEIGHT - 96), CHANNEL_TAG, font=f_ch, fill=SILVER)
 
+    return img.convert("RGB")
+
+
+# ── Outro card (long-form only: deep / weeklyfull) ─────────────────────────────
+# Pays off the intro's "stay to the end for the luckiest sign" promise — a
+# real reveal card, not just a subscribe screen.
+def render_outro_card(luckiest_sign: str) -> Image.Image:
+    neon = SIGN_NEON.get((luckiest_sign or "").lower(), (170, 120, 255))
+    img  = _cosmic_bg(WIDTH, HEIGHT, (6, 3, 22), (14, 6, 40), neon, seed=777)
+    draw = ImageDraw.Draw(img)
+    draw.rectangle([0, 0, WIDTH, 8], fill=GOLD)
+    draw.rectangle([0, HEIGHT - 8, WIDTH, HEIGHT], fill=GOLD)
+
+    period = {"deep": "TODAY'S", "weeklyfull": "THIS WEEK'S"}.get(CONTENT_TYPE, "TODAY'S")
+    y = 300
+    f_lbl = _ui_font(52, 600)
+    w = _tw(f"{period} LUCKIEST SIGN", f_lbl)
+    draw.text(((WIDTH - w) // 2, y), f"{period} LUCKIEST SIGN", font=f_lbl, fill=(220, 210, 255))
+    y += _th(f_lbl) + 50
+
+    glyph = SIGN_EMOJIS.get((luckiest_sign or "").lower(), "★")
+    gf = _glyph_font(260)
+    gw = _tw(glyph, gf)
+    draw.text(((WIDTH - gw) // 2, y), glyph, font=gf, fill=neon)
+    y += _th(gf) + 40
+
+    f_sign = _display_font(110, weight=700)
+    name = (luckiest_sign or "Every Sign").upper()
+    w = _tw(name, f_sign)
+    draw.text(((WIDTH - w) // 2 + 3, y + 3), name, font=f_sign, fill=(0, 0, 0, 170))
+    draw.text(((WIDTH - w) // 2,     y),     name, font=f_sign, fill=GOLD)
+    y += _th(f_sign) + 70
+
+    # Subscribe CTA
+    f_cta = _ui_font(52, 700)
+    cta = ("SUBSCRIBE FOR WEEKLY READINGS" if CONTENT_TYPE == "weeklyfull"
+           else "SUBSCRIBE FOR DAILY READINGS")
+    cw = _tw(cta, f_cta)
+    cx = (WIDTH - cw) // 2
+    draw.rounded_rectangle([cx - 34, y - 16, cx + cw + 34, y + _th(f_cta) + 24],
+                           radius=20, fill=GOLD)
+    draw.text((cx, y), cta, font=f_cta, fill=(10, 5, 30))
+
+    f_ch = _ui_font(46, 500)
+    w = _tw(CHANNEL_TAG, f_ch)
+    draw.text(((WIDTH - w) // 2, HEIGHT - 96), CHANNEL_TAG, font=f_ch, fill=SILVER)
     return img.convert("RGB")
 
 
@@ -734,12 +788,23 @@ def _intro_script(date_str: str) -> str:
                 f"A full, in-depth reading for all twelve zodiac signs. "
                 f"Use the chapters to jump to your sign — and stay to the end "
                 f"for today's luckiest sign.")
+    if CONTENT_TYPE == "weeklyfull":
+        return (f"Welcome to your week ahead — the full, in-depth horoscope "
+                f"for all twelve zodiac signs for {date_str}. "
+                f"Use the chapters to jump to your sign — and stay to the end "
+                f"for this week's luckiest sign.")
     tf = {"daily": "today", "weekly": "this week",
           "monthly": "this month"}.get(CONTENT_TYPE, "today")
     return f"Your {CONTENT_TYPE} horoscope for {tf}. Find your sign."
 
 
 def _outro_script(luckiest: str) -> str:
+    if CONTENT_TYPE == "weeklyfull":
+        lucky = f"This week's luckiest sign is {luckiest}. " if luckiest else ""
+        return (f"{lucky}Thank you for watching your full week-ahead horoscope. "
+                f"Subscribe for an in-depth weekly reading every Monday, and "
+                f"check the pinned comment for every sign's lucky guidance. "
+                f"See you next week.")
     lucky = f"Today's luckiest sign is {luckiest}. " if luckiest else ""
     return (f"{lucky}Thank you for watching. Subscribe for your complete "
             f"horoscope every morning, and check the pinned comment for every "
@@ -1105,7 +1170,8 @@ def process(json_path: str) -> str:
     base        = f"{CONTENT_TYPE}_horoscope_{date_tag}"
     video_path  = str(out_dir / f"{base}.mp4")
     thumb_path  = str(out_dir / f"{base}_thumbnail.jpg")
-    total_dur   = INTRO_SECS + len(SIGNS) * sign_secs
+    has_outro   = CONTENT_TYPE in _OUTRO_TYPES
+    total_dur   = INTRO_SECS + len(SIGNS) * sign_secs + (OUTRO_SECS if has_outro else 0)
 
     print(f"\n{'='*58}")
     print(f"  {CONTENT_TYPE.upper()} HOROSCOPE — ALL 12 SIGNS")
@@ -1135,6 +1201,14 @@ def process(json_path: str) -> str:
             durations.append(sign_secs)
             print(f"      [{sign.title():<14}]  {sign_secs}s")
 
+        luckiest_sign = str(data.get("luckiest_sign", "")).strip()
+        if has_outro:
+            outro_png = str(tmp / "99_outro.png")
+            render_outro_card(luckiest_sign).save(outro_png, "PNG")
+            png_files.append(outro_png)
+            durations.append(OUTRO_SECS)
+            print(f"      [outro]  {OUTRO_SECS}s  (luckiest: {luckiest_sign or '—'})")
+
         # 2. Voice narration (edge-tts, free) — one narrator per day
         day_voice = _day_voice(date_tag)
         print(f"\n[2/5] Generating voice narration (edge-tts, voice: {day_voice})...")
@@ -1161,6 +1235,18 @@ def process(json_path: str) -> str:
                 _generate_silence(sign_secs, sil2)
                 voice_clips.append(sil2)
                 print(f"      [{sign.title():<14}]  (TTS failed, silence)")
+
+        if has_outro:
+            outro_voice = str(tmp / "voice_99_outro.wav")
+            if _generate_sign_voice(_outro_script(luckiest_sign), outro_voice,
+                                    OUTRO_SECS, voice=day_voice):
+                voice_clips.append(outro_voice)
+                print(f"      [outro]  {OUTRO_SECS}s narrated reveal")
+            else:
+                sil3 = str(tmp / "sil_outro.wav")
+                _generate_silence(OUTRO_SECS, sil3)
+                voice_clips.append(sil3)
+                print(f"      [outro]  (TTS failed, silence)")
 
         voice_concat_path = str(tmp / "voice_all.wav")
         valid_clips = [c for c in voice_clips if c and Path(c).exists()]
@@ -1229,6 +1315,8 @@ def process(json_path: str) -> str:
     chapter_lines = ["0:00 Intro"] + [
         f"{_ts(INTRO_SECS + i * sign_secs)} {s.title()}" for i, s in enumerate(SIGNS)
     ]
+    if has_outro:
+        chapter_lines.append(f"{_ts(INTRO_SECS + len(SIGNS) * sign_secs)} Luckiest Sign")
     chapters_block = "\n".join(chapter_lines)
 
     description = data.get("description", "")
@@ -1236,8 +1324,10 @@ def process(json_path: str) -> str:
         description = f"{description}\n\n⏱ Find your sign:\n{chapters_block}"
 
     # Save metadata for uploader
+    cadence_label = {"daily": "daily", "weekly": "weekly", "monthly": "monthly",
+                     "deep": "daily", "weeklyfull": "weekly"}.get(CONTENT_TYPE, CONTENT_TYPE)
     meta = {
-        "title":       data.get("title", f"{CONTENT_TYPE.title()} Horoscope — {date_str} — All 12 Zodiac Signs"),
+        "title":       data.get("title", f"{cadence_label.title()} Horoscope — {date_str} — All 12 Zodiac Signs"),
         "description": description,
         "tags":        data.get("tags", []),
         "hashtags":    data.get("hashtags", []),
@@ -1246,7 +1336,7 @@ def process(json_path: str) -> str:
         "pinned_comment": (
             f"Which sign are you? Drop it below! ⬇️\n\n"
             f"⏱ Jump to your sign:\n{chapters_block}\n\n"
-            f"Like + Subscribe for {CONTENT_TYPE} cosmic guidance "
+            f"Like + Subscribe for {cadence_label} cosmic guidance "
             f"#horoscope #astrology #zodiac"
         ),
     }

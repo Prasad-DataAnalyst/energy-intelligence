@@ -64,6 +64,18 @@ TYPE_CONFIG = {
         "max_words":    6,
         "deep":         True,    # adds a "reading" paragraph + luckiest_sign
     },
+    # LONG-FORM WEEKLY for MONETIZATION: publishes Monday morning. Same idea as
+    # "deep" but for the week ahead — a full narrated reading per sign (not
+    # just punchy one-liners), ~8 min total, mid-roll-ad eligible. The short
+    # Sunday "weekly" video above is untouched (still runs for discovery).
+    "weeklyfull": {
+        "noun":         "Weekly",
+        "timeframe":    "this week",
+        "period_label": "WEEK AHEAD",
+        "sign_secs":    40,
+        "max_words":    10,
+        "deep":         True,
+    },
 }
 
 _REQUIRED_FIELDS = ("love", "career", "money", "health",
@@ -89,11 +101,19 @@ def _system_prompt(cfg: dict) -> str:
     }[tf]
     deep_block = ""
     if cfg.get("deep"):
-        deep_block = """
-- reading:      A warm, flowing spoken paragraph of 70-90 words that a narrator
+        # Size the narration to the card's dwell time (~2.6 words/sec at a
+        # natural narration pace) so the TTS clip fills the slot without
+        # heavy padding (silence) or a forced speed-up. A too-short reading
+        # for a 40s slot was the original bug here.
+        target = round(cfg["sign_secs"] * 2.6)
+        lo, hi = max(60, target - 15), target + 15
+        deep_block = f"""
+- reading:      A warm, flowing spoken paragraph of {lo}-{hi} words that a narrator
                 reads aloud — cover love, career, money, health and lucky guidance
-                in depth, like a real astrologer speaking directly to the viewer.
-                Full sentences (this is NOT shown on screen, only spoken).
+                in real depth, like a real astrologer speaking directly to the
+                viewer about their {tf}. Full sentences, genuinely informative,
+                not just a longer version of the short fields above (this text
+                is NOT shown on screen, only spoken).
 """
     return f"""You are a professional astrologer creating {cfg['noun'].lower()} horoscope content for all 12 zodiac signs.
 
@@ -127,6 +147,8 @@ def _title(cfg: dict, when: str) -> str:
         return f"{n} Horoscope Today, {when} — All 12 Zodiac Signs (Love, Career, Money)"
     if cfg is TYPE_CONFIG["weekly"]:
         return f"{n} Horoscope {when} — All 12 Zodiac Signs This Week (Love, Career, Money)"
+    if cfg is TYPE_CONFIG.get("weeklyfull"):
+        return f"Your Week Ahead, {when} — Full In-Depth Horoscope for All 12 Zodiac Signs"
     if cfg.get("deep"):
         return f"Full Horoscope Today {when} — All 12 Zodiac Signs In Depth (Love, Career, Money, Health)"
     return f"{n} Horoscope {when} — All 12 Zodiac Signs (Love, Career, Money, Health)"
@@ -254,12 +276,15 @@ Return this EXACT JSON structure (fill in all 12 signs, every "..." replaced):
         # the outro reveal.
         data["video_fps"] = 10
         data.setdefault("luckiest_sign", "")
+        cadence = "every Monday" if ctype == "weeklyfull" else "every morning"
+        subject = "this week" if ctype == "weeklyfull" else f"{when}, in depth"
         data["description"] = (
-            f"Your COMPLETE daily horoscope for all 12 zodiac signs — {when}, in depth. "
-            f"A full reading of love, career, money, health and lucky guidance for every "
-            f"sign. Use the chapters to jump to your sign, and stay to the end for today's "
-            f"luckiest sign. New full horoscope every morning — subscribe for daily cosmic "
-            f"guidance. #horoscope #astrology #zodiac #dailyhoroscope")
+            f"Your COMPLETE {cfg['noun'].lower()} horoscope for all 12 zodiac signs — "
+            f"{subject}. A full reading of love, career, money, health and lucky guidance "
+            f"for every sign. Use the chapters to jump to your sign, and stay to the end "
+            f"for {'this week' if ctype == 'weeklyfull' else 'today'}'s luckiest sign. "
+            f"New full horoscope {cadence} — subscribe for cosmic guidance. "
+            f"#horoscope #astrology #zodiac #{'weeklyhoroscope' if ctype == 'weeklyfull' else 'dailyhoroscope'}")
 
     filename = f"{ctype}_horoscope_{date_tag}.json"
     with open(filename, "w", encoding="utf-8") as f:
