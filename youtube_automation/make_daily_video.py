@@ -64,6 +64,20 @@ def safe_static_fps(total_secs: float, frame_budget: int = _SAFE_FRAME_BUDGET,
     fps = math.floor(frame_budget / total_secs)
     return max(min_fps, min(max_fps, fps))
 
+
+# CRITICAL: burned captions need their OWN, higher sampling rate — decoupled
+# from the low background fps above. At e.g. 2-4fps (chosen purely to keep
+# the expensive static-hold/zoompan render cheap), a video frame only exists
+# every 0.25-0.5s; a quick 3-word caption cue often lasts LESS than that gap,
+# so it can land between two sampled frames and never appear on screen at
+# all — while the narration keeps playing. (Reported symptom: voice speaks
+# many words, only ~3 ever show as text.) Fix: upsample to CAPTION_FPS via
+# the cheap `fps=` filter (frame DUPLICATION, not re-rendering) right before
+# burning subtitles, so every cue gets sampled. Duplicate frames compress to
+# almost nothing in x264 (skip/P-frames), so this does not reintroduce the
+# render-time cost the low background fps was chosen to avoid.
+CAPTION_FPS = 15
+
 SIGNS = [
     "aries","taurus","gemini","cancer","leo","virgo",
     "libra","scorpio","sagittarius","capricorn","aquarius","pisces",
@@ -1147,6 +1161,11 @@ def assemble_video(png_files: list, durations: list,
     preset = os.getenv("ENCODER_PRESET", "ultrafast")
     vf = f"fps={static_fps},scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=disable"
     if srt_path and Path(srt_path).exists():
+        # Upsample to CAPTION_FPS (cheap: duplicated frames, not re-rendered)
+        # BEFORE burning subtitles, so short caption cues can't fall in the
+        # gap between two sparsely-sampled low-fps frames. See CAPTION_FPS.
+        if static_fps < CAPTION_FPS:
+            vf += f",fps={CAPTION_FPS}"
         vf += "," + _subtitle_filter(srt_path)
     cmd1 = [
         "ffmpeg", "-y", "-loglevel", "error",

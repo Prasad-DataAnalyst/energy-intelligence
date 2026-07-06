@@ -321,7 +321,16 @@ def assemble_video_motion_captions(png_files: list, durations: list,
     filt = ";".join(parts) + f";{concat_in}concat=n={n}:v=1:a=0[vcat]"
     out_label = "[vcat]"
     if srt_path and Path(srt_path).exists():
-        filt += f";[vcat]{mdv._subtitle_filter(srt_path)}[vout]"
+        # Same fix as the static path: the motion fps (often 2-4fps to keep
+        # zoompan's per-frame cost bounded) is far too sparse to reliably
+        # catch short caption cues. Upsample via cheap frame duplication
+        # BEFORE burning subtitles — the expensive zoompan work above is
+        # unaffected, still done at the low `fps`.
+        pre = "[vcat]"
+        if fps < mdv.CAPTION_FPS:
+            filt += f";[vcat]fps={mdv.CAPTION_FPS}[vcatup]"
+            pre = "[vcatup]"
+        filt += f";{pre}{mdv._subtitle_filter(srt_path)}[vout]"
         out_label = "[vout]"
 
     cmd = [
