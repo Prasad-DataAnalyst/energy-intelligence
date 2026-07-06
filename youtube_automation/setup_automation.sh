@@ -133,6 +133,11 @@ CRON_CMD="30 5 * * * cd $REPO && $VENV_PYTHON run_daily.py --date \$(date +\\%Y\
 # WEEKLY pipeline — Sundays 07:30 (after the daily finishes, so the 1-core VM
 # never renders two videos at once). "This week" outlook, still a Short.
 WEEKLY_CMD="30 7 * * 0 cd $REPO && $VENV_PYTHON run_daily.py --type weekly --date \$(date +\\%Y\\%m\\%d) --period \"\$(date +'\\%B \\%Y')\" --upload >> $LOG 2>&1"
+# TOPIC pipeline at 06:00 (every day) — the LONG-FORM (~8 min) astrology
+# topic-of-the-day. This is the MONETIZATION engine: banks watch hours and is
+# mid-roll-ad eligible. Runs after the daily short so the 1-core VM renders one
+# at a time. Topic is chosen from content_calendar by day-of-year (365 unique).
+TOPIC_CMD="0 6 * * * cd $REPO && $VENV_PYTHON run_daily.py --type topic --date \$(date +\\%Y\\%m\\%d) --period \"\$(date +'\\%B \\%Y')\" --upload >> $LOG 2>&1"
 # MONTHLY pipeline — 1st of the month 08:00. "This month" deep-dive; longer
 # (~4.5 min) so YouTube treats it as a regular video (better watch-time credit).
 MONTHLY_CMD="0 8 1 * * cd $REPO && $VENV_PYTHON run_daily.py --type monthly --date \$(date +\\%Y\\%m\\%d) --period \"\$(date +'\\%B \\%Y')\" --upload >> $LOG 2>&1"
@@ -144,10 +149,11 @@ HEARTBEAT_CMD="0 12 * * * cd $REPO && $VENV_PYTHON heartbeat.py --check >> $LOG 
 # the legacy daily_runner.py 3 PM job installed by first_time_setup.py).
 ( crontab -l 2>/dev/null | grep -v -e "run_daily.py" -e "daily_runner.py" -e "doctor.py" -e "heartbeat.py" ) | crontab - 2>/dev/null || true
 
-# Add doctor (5:00) + daily (5:30) + weekly (Sun 7:30) + monthly (1st 8:00) + heartbeat (12:00)
-( crontab -l 2>/dev/null; echo "$DOCTOR_CMD"; echo "$CRON_CMD"; echo "$WEEKLY_CMD"; echo "$MONTHLY_CMD"; echo "$HEARTBEAT_CMD" ) | crontab -
+# Add doctor (5:00) + daily short (5:30) + topic long-form (6:00) + weekly
+# (Sun 7:30) + monthly (1st 8:00) + heartbeat (12:00)
+( crontab -l 2>/dev/null; echo "$DOCTOR_CMD"; echo "$CRON_CMD"; echo "$TOPIC_CMD"; echo "$WEEKLY_CMD"; echo "$MONTHLY_CMD"; echo "$HEARTBEAT_CMD" ) | crontab -
 
-echo "  OK: cron jobs installed (doctor 5:00, daily 5:30, weekly Sun 7:30, monthly 1st 8:00, heartbeat 12:00)"
+echo "  OK: cron jobs installed (doctor 5:00, daily-short 5:30, topic 6:00, weekly Sun 7:30, monthly 1st 8:00, heartbeat 12:00)"
 
 # ── 3b. Log rotation so $LOG doesn't grow without bound ───────────────────────
 echo ""

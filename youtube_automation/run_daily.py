@@ -170,6 +170,158 @@ def send_summary_email(date: str, results: dict, elapsed: int, upload: bool) -> 
         print(f"  [INFO] Email skipped: {e}")
 
 
+def _upload_flow(video_path: str, assets_json: str, thumb_path: str,
+                 run_key: str, args) -> str:
+    """Shared upload → thumbnail → playlist → queue-comment → verify flow.
+    Returns an upload_result string ('✅ ...' or '❌ ...'). Used by every
+    pipeline type (daily/weekly/monthly/topic)."""
+    try:
+        sys.path.insert(0, str(Path(__file__).parent))
+        from youtube_uploader import (upload_video, upload_thumbnail,
+                                      queue_comment, process_pending_comments,
+                                      process_retry_queue, find_uploaded,
+                                      verify_upload, add_to_playlist,
+                                      quota_spent_today, DAILY_QUOTA_LIMIT)
+        import json as _json
+
+        # Housekeeping — runs even if today is a duplicate-skip.
+        try:
+            retried = process_retry_queue()
+            if retried:
+                print(f"      [INFO] Uploaded {retried} queued video(s) from prior days")
+            posted = process_pending_comments()
+            if posted:
+                print(f"      [INFO] Posted {posted} pending comment(s)")
+        except Exception as _qe:
+            print(f"      [INFO] Housekeeping skipped: {_qe}")
+
+        # Idempotency: never post a duplicate for the same (type,date).
+        existing = find_uploaded(run_key)
+        if existing and not args.force:
+            print(f"      SKIP: {run_key} already uploaded → "
+                  f"https://youtu.be/{existing} (use --force to re-upload)")
+            return f"✅ youtu.be/{existing} (existing)"
+
+        print(f"      Quota used today: {quota_spent_today()}/{DAILY_QUOTA_LIMIT} units")
+        assets = _json.loads(Path(assets_json).read_text(encoding="utf-8"))
+        content = {
+            "title":          assets.get("title", ""),
+            "description":    assets.get("description", ""),
+            "tags":           assets.get("tags", []),
+            "date":           run_key,
+            "privacy_status": "public",
+        }
+        # Publish 7 AM US Eastern (DST-aware); if past, schedule ASAP.
+        pub_dt = _publish_utc_dt(args.date)
+        if pub_dt <= _utcnow():
+            pub_dt = _utcnow() + timedelta(minutes=15)
+        publish_at = pub_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+        vid_id = upload_video(video_path, content, publish_at=publish_at)
+        upload_thumbnail(vid_id, thumb_path)
+        add_to_playlist(vid_id)   # no-op unless YOUTUBE_PLAYLIST_ID set
+
+        comment_after = (pub_dt + timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        queue_comment(vid_id, assets.get("pinned_comment", ""), comment_after)
+        print(f"      Comment queued for {comment_after}")
+
+        v_ok, v_detail = verify_upload(vid_id, expect_publish_at=publish_at)
+        print(f"      Verify: {'OK' if v_ok else 'PROBLEM'} — {v_detail}")
+        print(f"      OK: https://youtu.be/{vid_id} — publishes {publish_at}")
+        return (f"✅ youtu.be/{vid_id}" if v_ok
+                else f"❌ uploaded but {v_detail[:60]} (youtu.be/{vid_id})")
+    except Exception as _e:
+        print(f"      FAILED: {_e}")
+        return f"❌ {str(_e)[:80]}"
+
+
+def run_topic_pipeline(args) -> int:
+    """Daily LONG-FORM astrology TOPIC video (for monetization).
+    generate_topic_assets.py → make_topic_video.py → upload."""
+    t_start = time.time()
+    base       = f"topic_{args.date}"
+    json_file  = f"{base}.json"
+    out_base   = f"outputs/{args.date}/TopicAll/{base}"
+    video_path, assets_json, thumb_path = (f"{out_base}.mp4",
+                                           f"{out_base}_assets.json",
+                                           f"{out_base}_thumbnail.jpg")
+    run_key = f"topic_{args.date}"
+
+    print(f"\n{'='*60}\n  GetMindFuelNow — TOPIC (long-form) — {args.date}\n"
+          f"  Started: {datetime.now():%H:%M:%S}\n{'='*60}\n")
+
+    if not args.skip_doctor:
+        try:
+            import doctor
+            healthy, lines = doctor.preflight(deep=False)
+            print("[0/4] Preflight:"); print("\n".join(lines))
+            if not healthy:
+                doctor._email_report(False, lines); return 1
+        except Exception as _de:
+            print(f"  [WARN] Preflight skipped: {_de}")
+
+    _daemon("stop")
+    assets_ok = qc_ok = False
+    upload_result = ""
+    try:
+        # 1. Topic script
+        if args.skip_assets and Path(json_file).exists():
+            print(f"[1/4] Assets   — reusing {json_file}"); assets_ok = True
+        else:
+            print(f"[1/4] Assets   — writing topic script via Claude...")
+            ok, out = run_captured([PYTHON, "generate_topic_assets.py", args.period, args.date],
+                                   timeout=300)
+            assets_ok = ok
+            print(f"      {'OK' if ok else 'FAILED: ' + out[-200:]}")
+        if not assets_ok:
+            send_summary_email(args.date, {"topic": {"assets": "❌ script failed",
+                "video": "—", "quality": "—", "upload": ""}},
+                int(time.time() - t_start), args.upload)
+            return 1
+
+        # 2. Render (long-form → generous timeout for the e2-micro)
+        print(f"\n[2/4] Video    — rendering long-form topic video...")
+        ok = run_live([PYTHON, "make_topic_video.py", json_file], timeout=3600)
+        if not ok:
+            print("      FAILED — retry in 60s...", file=sys.stderr); time.sleep(60)
+            ok = run_live([PYTHON, "make_topic_video.py", json_file], timeout=3600)
+        if not ok:
+            print("      FAILED (after retry)", file=sys.stderr)
+            send_summary_email(args.date, {"topic": {"assets": "✅",
+                "video": "❌ render failed", "quality": "—", "upload": ""}},
+                int(time.time() - t_start), args.upload)
+            return 1
+
+        # 3. QC
+        print(f"\n[3/4] QC       — checking {video_path}...")
+        ok, out = run_captured([PYTHON, "quality_check.py", video_path], timeout=300)
+        qc_ok = ok
+        print(f"      {'PASS' if ok else 'FAIL: ' + out}")
+
+        # 4. Upload
+        if args.upload and qc_ok:
+            print(f"\n[4/4] Upload   — uploading to YouTube...")
+            upload_result = _upload_flow(video_path, assets_json, thumb_path, run_key, args)
+    finally:
+        _daemon("start")
+
+    elapsed   = int(time.time() - t_start)
+    upload_ok = (not args.upload) or upload_result.startswith("✅")
+    all_ok    = assets_ok and qc_ok and upload_ok
+    print(f"\n{'='*60}\n  SUMMARY — TOPIC {args.date}  ({elapsed//60}m {elapsed%60}s)\n"
+          f"  {'✅ ALL OK' if all_ok else '❌ ISSUES'}"
+          + (f"  |  {upload_result}" if upload_result else "") + f"\n{'='*60}\n")
+    if all_ok:
+        try:
+            import heartbeat; heartbeat.record_success()
+        except Exception:
+            pass
+    send_summary_email(args.date, {"topic": {
+        "assets": "✅" if assets_ok else "❌", "video": "✅" if qc_ok else "❌",
+        "quality": "✅" if qc_ok else "❌", "upload": upload_result}},
+        elapsed, args.upload)
+    return 0 if all_ok else 1
+
+
 def run_all_signs_pipeline(args) -> int:
     """
     New pipeline: one combined video covering all 12 signs, for any timeframe
@@ -275,84 +427,7 @@ def run_all_signs_pipeline(args) -> int:
         # ── 4. Upload ──────────────────────────────────────────────────────────
         if args.upload and qc_ok:
             print(f"\n[4/4] Upload   — uploading to YouTube...")
-            try:
-                sys.path.insert(0, str(Path(__file__).parent))
-                from youtube_uploader import (upload_video, upload_thumbnail,
-                                              queue_comment, process_pending_comments,
-                                              process_retry_queue, find_uploaded,
-                                              verify_upload, add_to_playlist,
-                                              quota_spent_today, DAILY_QUOTA_LIMIT)
-                import json as _json
-
-                # Housekeeping first — these must run even when today's upload
-                # is skipped as a duplicate:
-                # (a) retry videos queued from a previous quota-limited day,
-                # (b) post yesterday's pinned comment if it's due (fallback for
-                #     the 12:00 heartbeat pass).
-                try:
-                    retried = process_retry_queue()
-                    if retried:
-                        print(f"      [INFO] Uploaded {retried} queued video(s) from prior days")
-                    posted = process_pending_comments()
-                    if posted:
-                        print(f"      [INFO] Posted {posted} pending comment(s)")
-                except Exception as _qe:
-                    print(f"      [INFO] Housekeeping skipped: {_qe}")
-
-                # Idempotency: if this (type,date) was already uploaded, don't
-                # post a duplicate (and don't waste another ~1600 quota units).
-                # Repeated manual runs or a double cron are now safe. --force
-                # overrides.
-                existing = find_uploaded(run_key)
-                if existing and not args.force:
-                    print(f"      SKIP: {run_key} already uploaded → "
-                          f"https://youtu.be/{existing} (use --force to re-upload)")
-                    upload_result = f"✅ youtu.be/{existing} (existing)"
-                    raise StopIteration  # jump to finally without treating as error
-
-                print(f"      Quota used today: {quota_spent_today()}/{DAILY_QUOTA_LIMIT} units")
-
-                assets  = _json.loads(Path(assets_json).read_text(encoding="utf-8"))
-                content = {
-                    "title":          assets.get("title", ""),
-                    "description":    assets.get("description", ""),
-                    "tags":           assets.get("tags", []),
-                    "date":           run_key,
-                    "privacy_status": "public",
-                }
-                # Publish at 7 AM US Eastern (DST-aware) so it's live when the US
-                # audience wakes up. If that moment is already past (late/manual
-                # run), schedule ASAP — YouTube rejects a publishAt in the past.
-                pub_dt = _publish_utc_dt(args.date)
-                if pub_dt <= _utcnow():
-                    pub_dt = _utcnow() + timedelta(minutes=15)
-                publish_at = pub_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-                vid_id     = upload_video(video_path, content, publish_at=publish_at)
-                upload_thumbnail(vid_id, thumb_path)
-                add_to_playlist(vid_id)   # no-op unless YOUTUBE_PLAYLIST_ID set
-
-                # Comments are rejected while the video is private (scheduled),
-                # so queue the pinned comment for after publish; the 12:00
-                # heartbeat cron posts it.
-                comment_after = (pub_dt + timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
-                queue_comment(vid_id, assets.get("pinned_comment", ""), comment_after)
-                print(f"      Comment queued for {comment_after}")
-
-                # Post-upload verification: confirm YouTube accepted it and the
-                # scheduled publish is actually set (catches failed/rejected
-                # processing and private-forever videos).
-                v_ok, v_detail = verify_upload(vid_id, expect_publish_at=publish_at)
-                print(f"      Verify: {'OK' if v_ok else 'PROBLEM'} — {v_detail}")
-                print(f"      OK: https://youtu.be/{vid_id} — publishes {publish_at}")
-                if v_ok:
-                    upload_result = f"✅ youtu.be/{vid_id}"
-                else:
-                    upload_result = f"❌ uploaded but {v_detail[:60]} (youtu.be/{vid_id})"
-            except StopIteration:
-                pass  # already-uploaded skip — upload_result already set
-            except Exception as _e:
-                print(f"      FAILED: {_e}")
-                upload_result = f"❌ {str(_e)[:80]}"
+            upload_result = _upload_flow(video_path, assets_json, thumb_path, run_key, args)
     finally:
         _daemon("start")
         print("  [INFO] Daemon restarted\n")
@@ -424,8 +499,9 @@ def main():
                         help="'all' = one combined 12-sign video (default), "
                              "'short' = 12 separate per-sign videos")
     parser.add_argument("--type",        default="daily",
-                        choices=["daily", "weekly", "monthly"],
-                        help="Timeframe of the combined video (default: daily)")
+                        choices=["daily", "weekly", "monthly", "topic"],
+                        help="daily/weekly/monthly = combined 12-sign video; "
+                             "topic = long-form astrology topic-of-the-day (default: daily)")
     parser.add_argument("--format",      default="short", choices=["short", "long"])
     parser.add_argument("--signs",       metavar="SIGN,...",
                         help="Comma-separated subset (default: all 12) — short mode only")
@@ -441,7 +517,11 @@ def main():
                         help="Also cross-post to TikTok")
     args = parser.parse_args()
 
-    # ── NEW: all-signs combined video (default) ────────────────────────────────
+    # ── Long-form daily astrology TOPIC video (monetization) ───────────────────
+    if args.type == "topic":
+        sys.exit(run_topic_pipeline(args))
+
+    # ── All-signs combined video (daily/weekly/monthly) ────────────────────────
     if args.mode == "all":
         sys.exit(run_all_signs_pipeline(args))
 

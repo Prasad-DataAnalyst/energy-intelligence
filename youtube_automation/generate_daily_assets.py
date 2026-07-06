@@ -53,6 +53,17 @@ TYPE_CONFIG = {
         "sign_secs":    22,      # ~4m30s total → a regular video, more detail
         "max_words":    10,
     },
+    # LONG-FORM daily for MONETIZATION: ~8.5 min (mid-roll-ad eligible), all 12
+    # signs in depth. Card stays punchy (max_words 6); the extra "reading"
+    # paragraph is what the narrator reads for ~35s/sign.
+    "deep": {
+        "noun":         "Full Daily",
+        "timeframe":    "today",
+        "period_label": "IN DEPTH",
+        "sign_secs":    40,
+        "max_words":    6,
+        "deep":         True,    # adds a "reading" paragraph + luckiest_sign
+    },
 }
 
 _REQUIRED_FIELDS = ("love", "career", "money", "health",
@@ -76,14 +87,21 @@ def _system_prompt(cfg: dict) -> str:
         "this week":  "the 7 days ahead (mention the strongest and the most cautious day)",
         "this month": "the month ahead (mention which week is strongest)",
     }[tf]
-    return f"""You are a professional astrologer creating {cfg['noun'].lower()} horoscope cards for all 12 zodiac signs.
+    deep_block = ""
+    if cfg.get("deep"):
+        deep_block = """
+- reading:      A warm, flowing spoken paragraph of 70-90 words that a narrator
+                reads aloud — cover love, career, money, health and lucky guidance
+                in depth, like a real astrologer speaking directly to the viewer.
+                Full sentences (this is NOT shown on screen, only spoken).
+"""
+    return f"""You are a professional astrologer creating {cfg['noun'].lower()} horoscope content for all 12 zodiac signs.
 
 Cover the 5 things people actually check in a horoscope:
 Love & Relationships, Career & Business, Money & Finance, Health & Energy, and Lucky Guidance.
 
-Each prediction is for {scope}. Each text field must be MAX {mw} words — it appears
-on screen AND is read aloud by a narrator, so keep it punchy and specific, never
-vague. "An old flame resurfaces {tf}" beats a generic full sentence.
+Each prediction is for {scope}. The short fields below appear ON SCREEN and must be
+MAX {mw} words — punchy and specific, never vague.
 
 Fields per sign:
 - love:         romance, relationships, connections {tf} (MAX {mw} words)
@@ -93,12 +111,12 @@ Fields per sign:
 - lucky_number: one integer 1-99
 - lucky_color:  one color name (1-2 words)
 - best_time:    the luckiest time/day, e.g. "4 PM", "Tuesday", "First Week" (1-3 words)
-- advice:       one simple actionable tip or remedy for {tf} (MAX {mw} words)
-
+- advice:       one simple actionable tip or remedy for {tf} (MAX {mw} words){deep_block}
 Style rules:
 - Direct. Specific. No generic fluff.
 - Vary tone across signs — not all positive, some carry warnings.
 - lucky_number, lucky_color and best_time must be single values (no lists).
+{"- ALSO return a top-level string field 'luckiest_sign' = the ONE sign with the best day (capitalized, e.g. 'Leo')." if cfg.get('deep') else ""}
 
 Return ONLY valid raw JSON. No markdown. No explanation. No code fences."""
 
@@ -109,10 +127,12 @@ def _title(cfg: dict, when: str) -> str:
         return f"{n} Horoscope Today, {when} — All 12 Zodiac Signs (Love, Career, Money)"
     if cfg is TYPE_CONFIG["weekly"]:
         return f"{n} Horoscope {when} — All 12 Zodiac Signs This Week (Love, Career, Money)"
+    if cfg.get("deep"):
+        return f"Full Horoscope Today {when} — All 12 Zodiac Signs In Depth (Love, Career, Money, Health)"
     return f"{n} Horoscope {when} — All 12 Zodiac Signs (Love, Career, Money, Health)"
 
 
-def _validate(data: dict) -> None:
+def _validate(data: dict, deep: bool = False) -> None:
     """Raise ValueError if any sign or required field is missing/empty."""
     signs = data.get("signs")
     if not isinstance(signs, dict):
@@ -120,16 +140,19 @@ def _validate(data: dict) -> None:
     missing_signs = [s for s in SIGNS if s not in signs]
     if missing_signs:
         raise ValueError(f"missing signs: {missing_signs}")
+    required = _REQUIRED_FIELDS + (("reading",) if deep else ())
     for s in SIGNS:
         f = signs[s]
         if not isinstance(f, dict):
             raise ValueError(f"{s}: not an object")
-        for k in _REQUIRED_FIELDS:
+        for k in required:
             v = f.get(k)
             if v is None or (isinstance(v, str) and not v.strip()):
                 raise ValueError(f"{s}: empty field '{k}'")
             if isinstance(v, (list, dict)):
                 raise ValueError(f"{s}: field '{k}' must be a single value, got {type(v).__name__}")
+        if deep and len(str(f.get("reading", "")).split()) < 40:
+            raise ValueError(f"{s}: 'reading' too short for a deep-dive narration")
 
 
 def _when_label(ctype: str, date_tag: str) -> str:
@@ -154,14 +177,16 @@ def generate(period: str, date_tag: str = None, ctype: str = "daily") -> str:
         date_tag = date.today().strftime("%Y%m%d")
     when = _when_label(ctype, date_tag)
 
+    is_deep = bool(cfg.get("deep"))
     # Build the per-sign JSON skeleton with seeded lucky values.
     sign_lines = []
     for s in SIGNS:
         n, c, t = _SEED[s]
+        reading = ', "reading": "..."' if is_deep else ""
         sign_lines.append(
             f'    "{s}": {{"love": "...", "career": "...", "money": "...", '
             f'"health": "...", "lucky_number": {n}, "lucky_color": "{c}", '
-            f'"best_time": "{t}", "advice": "..."}}'
+            f'"best_time": "{t}", "advice": "..."{reading}}}'
         )
     signs_block = ",\n".join(sign_lines)
 
@@ -176,13 +201,14 @@ def generate(period: str, date_tag: str = None, ctype: str = "daily") -> str:
             f"love horoscope {tf}", "health horoscope", f"money horoscope {tf}",
             f"horoscope {when}"]
 
+    luckiest_line = '  "luckiest_sign": "...",\n' if is_deep else ""
     user_msg = f"""Generate the {cfg['noun'].lower()} horoscope for all 12 signs.
 When: {when}
 Period: {period}
 
 Return this EXACT JSON structure (fill in all 12 signs, every "..." replaced):
 {{
-  "signs": {{
+{luckiest_line}  "signs": {{
 {signs_block}
   }}
 }}"""
@@ -194,7 +220,7 @@ Return this EXACT JSON structure (fill in all 12 signs, every "..." replaced):
         try:
             response = client.messages.create(
                 model="claude-sonnet-4-6",
-                max_tokens=6000,
+                max_tokens=8000 if is_deep else 6000,
                 system=_system_prompt(cfg),
                 messages=[{"role": "user", "content": user_msg}],
             )
@@ -202,7 +228,7 @@ Return this EXACT JSON structure (fill in all 12 signs, every "..." replaced):
             raw = re.sub(r"^```[a-z]*\n?", "", raw)
             raw = re.sub(r"\n?```$", "", raw)
             candidate = json.loads(raw)
-            _validate(candidate)
+            _validate(candidate, deep=is_deep)
             data = candidate
             break
         except Exception as e:
@@ -221,7 +247,19 @@ Return this EXACT JSON structure (fill in all 12 signs, every "..." replaced):
     data["description"]  = desc
     data["tags"]         = tags
     data["hashtags"]     = ["#horoscope", "#astrology", "#zodiac",
-                            f"#{cfg['noun'].lower()}horoscope", "#allsigns"]
+                            f"#{cfg['noun'].lower().replace(' ','')}horoscope", "#allsigns"]
+    if is_deep:
+        # Long-form: render at 10 fps (static cards look identical) to keep the
+        # ~8.5-min encode within the e2-micro's budget; keep luckiest_sign for
+        # the outro reveal.
+        data["video_fps"] = 10
+        data.setdefault("luckiest_sign", "")
+        data["description"] = (
+            f"Your COMPLETE daily horoscope for all 12 zodiac signs — {when}, in depth. "
+            f"A full reading of love, career, money, health and lucky guidance for every "
+            f"sign. Use the chapters to jump to your sign, and stay to the end for today's "
+            f"luckiest sign. New full horoscope every morning — subscribe for daily cosmic "
+            f"guidance. #horoscope #astrology #zodiac #dailyhoroscope")
 
     filename = f"{ctype}_horoscope_{date_tag}.json"
     with open(filename, "w", encoding="utf-8") as f:

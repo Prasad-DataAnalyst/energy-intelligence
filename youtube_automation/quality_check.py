@@ -123,11 +123,24 @@ def check_video(video_path: str) -> list:
             fmt    = info.get("format", {})
             streams = info.get("streams", [])
 
+            # Max duration depends on format: Shorts ≤ 180s; long-form
+            # (monthly / deep / topic) up to 60 min. Detect via the sibling
+            # _assets.json content_type.
+            ctype = ""
+            try:
+                sidecar = path.parent / (path.stem + "_assets.json")
+                if sidecar.exists():
+                    ctype = json.loads(sidecar.read_text()).get("content_type", "")
+            except Exception:
+                pass
+            long_form = ctype in ("monthly", "deep", "topic")
+            max_dur = 3600 if long_form else 180
+
             duration = float(fmt.get("duration", 0))
             if duration < 30:
                 errors.append(f"Too short: {duration:.1f}s (need ≥30s)")
-            elif duration > 180:
-                errors.append(f"Too long: {duration:.1f}s (need ≤180s)")
+            elif duration > max_dur:
+                errors.append(f"Too long: {duration:.1f}s (need ≤{max_dur}s)")
 
             vstreams = [s for s in streams if s.get("codec_type") == "video"]
             if not vstreams:
@@ -155,18 +168,19 @@ def check_video(video_path: str) -> list:
     except Exception as e:
         errors.append(f"ffprobe exception: {e}")
 
-    # Supporting files
+    # Supporting files. The new pipeline (daily/weekly/monthly/topic) ships a
+    # single "<base>_assets.json"; only the legacy per-sign format used
+    # separate .srt + title.txt files. Detect by the presence of _assets.json.
     folder = path.parent
-    is_all_signs = path.stem.startswith("daily_horoscope_")
+    assets_json = folder / (path.stem + "_assets.json")
+    new_format = assets_json.exists()
 
     thumb = path.stem + "_thumbnail.jpg"
     if not (folder / thumb).exists():
         errors.append(f"Missing: {thumb}")
 
-    if is_all_signs:
-        assets_json = folder / (path.stem + "_assets.json")
-        if not assets_json.exists():
-            errors.append(f"Missing metadata: {path.stem}_assets.json")
+    if new_format:
+        pass  # metadata is in _assets.json (present)
     else:
         if not (folder / path.with_suffix(".srt").name).exists():
             errors.append(f"Missing: {path.with_suffix('.srt').name}")

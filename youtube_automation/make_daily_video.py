@@ -34,9 +34,10 @@ INTRO_SECS     = 4
 CHANNEL_TAG    = "GetMindFuelNow"
 
 # Set by process() from the JSON so the shared card renderer can label the
-# timeframe (daily/weekly/monthly) without threading params through every call.
+# timeframe (daily/weekly/monthly/deep) without threading params through every call.
 CONTENT_TYPE   = "daily"
 PERIOD_LABEL   = "TODAY"
+VIDEO_FPS      = 12       # static-render fps; long-form 'deep' drops to 10
 
 SIGNS = [
     "aries","taurus","gemini","cancer","leo","virgo",
@@ -698,7 +699,13 @@ def _voice_script(sign: str, fields: dict) -> str:
     """Complete narration: ALL five categories per sign. Budget: fields are
     generated at max ~6 words each (see generate_daily_assets SYSTEM_PROMPT),
     so the full script is ~40 words ≈ 15s — fits the 14s slot with at most a
-    small (+10-15%) rate adjustment, never chipmunk speed."""
+    small (+10-15%) rate adjustment, never chipmunk speed.
+
+    For the long-form 'deep' type, read the rich ~85-word 'reading' paragraph
+    instead (fills the 40s slot with a real in-depth reading)."""
+    reading = fields.get("reading")
+    if reading and str(reading).strip():
+        return f"{sign.title()}. {str(reading).strip()}"
     love   = fields.get("love",   "")
     career = fields.get("career", "")
     money  = fields.get("money",  "")
@@ -721,10 +728,22 @@ def _voice_script(sign: str, fields: dict) -> str:
 
 
 def _intro_script(date_str: str) -> str:
-    """The first 4 seconds decide the swipe — never open with dead air."""
+    """The first seconds decide the swipe — never open with dead air."""
+    if CONTENT_TYPE == "deep":
+        return (f"Welcome to your complete horoscope for {date_str}. "
+                f"A full, in-depth reading for all twelve zodiac signs. "
+                f"Use the chapters to jump to your sign — and stay to the end "
+                f"for today's luckiest sign.")
     tf = {"daily": "today", "weekly": "this week",
           "monthly": "this month"}.get(CONTENT_TYPE, "today")
     return f"Your {CONTENT_TYPE} horoscope for {tf}. Find your sign."
+
+
+def _outro_script(luckiest: str) -> str:
+    lucky = f"Today's luckiest sign is {luckiest}. " if luckiest else ""
+    return (f"{lucky}Thank you for watching. Subscribe for your complete "
+            f"horoscope every morning, and check the pinned comment for every "
+            f"sign's lucky numbers. See you tomorrow.")
 
 
 # Curated ADULT neural voices (no child voices — en-US-Ana and en-GB-Maisie are
@@ -1017,7 +1036,7 @@ def assemble_video(png_files: list, durations: list,
     # base with half the frames; visible quality is protected by the gradient
     # dither in _vgrad (banding was the real artifact, and it's fixed at the
     # source). Set ENCODER_PRESET in .env only on a bigger machine.
-    static_fps = min(FPS, 12)
+    static_fps = min(FPS, VIDEO_FPS)
     preset = os.getenv("ENCODER_PRESET", "ultrafast")
     cmd1 = [
         "ffmpeg", "-y", "-loglevel", "error",
