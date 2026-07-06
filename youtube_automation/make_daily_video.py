@@ -1102,8 +1102,29 @@ def assemble_video_motion(png_files: list, durations: list,
 
 
 # ── Video assembly ─────────────────────────────────────────────────────────────
+def _subtitle_filter(srt_path: str) -> str:
+    """ffmpeg subtitles filter clause using the bundled fonts (libass), with
+    the srt path escaped for the filter's own ':'/',' delimiters.
+
+    Fontsize/MarginV below are EMPIRICALLY calibrated, not literal pixels:
+    this ffmpeg/libass build scales SRT-derived subtitles by a fixed internal
+    factor (~6.2x, consistent with an assumed ~1080x... no — measured via a
+    default-vs-forced-size probe on a 1080x1920 frame) regardless of the
+    `original_size` option, which measurably had ZERO effect here (identical
+    output bytes with/without it — verified, not assumed). Do not "fix" these
+    numbers to look like sane pixel values; they were tuned by rendering
+    single frames and visually checking placement, and land correctly THERE."""
+    esc = str(srt_path).replace("\\", "\\\\").replace(":", "\\:")
+    fontsdir = str(Path(__file__).parent / "assets" / "fonts").replace(":", "\\:")
+    style = ("FontName=Poppins,Fontsize=24,PrimaryColour=&H00FFFFFF,"
+             "OutlineColour=&H00000000,BorderStyle=1,Outline=3,Shadow=0,"
+             "Bold=1,Alignment=2,MarginV=55")
+    return f"subtitles={esc}:fontsdir={fontsdir}:force_style='{style}'"
+
+
 def assemble_video(png_files: list, durations: list,
-                   audio_path: str | None, out_path: str) -> bool:
+                   audio_path: str | None, out_path: str,
+                   srt_path: str | None = None) -> bool:
     tmp_video = out_path.replace(".mp4", "_noaudio.mp4")
     concat_txt = out_path.replace(".mp4", "_concat.txt")
 
@@ -1124,10 +1145,13 @@ def assemble_video(png_files: list, durations: list,
     # source). Set ENCODER_PRESET in .env only on a bigger machine.
     static_fps = min(FPS, VIDEO_FPS)
     preset = os.getenv("ENCODER_PRESET", "ultrafast")
+    vf = f"fps={static_fps},scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=disable"
+    if srt_path and Path(srt_path).exists():
+        vf += "," + _subtitle_filter(srt_path)
     cmd1 = [
         "ffmpeg", "-y", "-loglevel", "error",
         "-f", "concat", "-safe", "0", "-i", concat_txt,
-        "-vf", f"fps={static_fps},scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=disable",
+        "-vf", vf,
         "-pix_fmt", "yuv420p",
         "-c:v", "libx264", "-preset", preset, "-crf", "22",
         "-threads", "0",

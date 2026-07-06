@@ -30,6 +30,11 @@ CALENDAR = HERE / "content_calendar.json"
 # length drive the final duration (each card shows for its narration).
 N_SECTIONS = 8
 
+# NOTE: section cards no longer show static bullet lists (that read as a
+# PowerPoint slide). The video now burns live word-synced captions generated
+# directly from the "narration" audio (via edge-tts word-boundary timing), so
+# the on-screen text IS the spoken words, appearing in sync like TikTok/Reels
+# captions — "screen" bullets are no longer requested from Claude.
 SYSTEM_PROMPT = """You are the writer and host of a popular, credible astrology YouTube channel.
 You are scripting ONE long-form educational video on a single astrology topic.
 
@@ -38,10 +43,12 @@ academic. Hook curiosity early, deliver real value, and keep viewers watching.
 
 Rules:
 - Be specific and genuinely informative. No filler, no repeating the same idea.
-- Sound like a knowledgeable human host talking to one viewer.
+- Sound like a knowledgeable human host talking to one viewer, with natural
+  rhythm and short punchy sentences — this will be shown as animated captions
+  synced word-by-word to your narration, so avoid long run-on sentences.
 - Each section's "narration" is 110-150 words of flowing spoken paragraphs.
-- Each section's "screen" is 2-4 SHORT on-screen bullet lines (max 6 words each) —
-  these summarize the section visually while you narrate the detail.
+- Each section's "heading" is a SHORT punchy title (max 5 words) shown above
+  the captions the whole time the section plays.
 - The "hook" is one punchy spoken sentence that makes people stay.
 - Keep it broadly accurate to real astrology; it's entertainment/education, not
   fortune-telling claims of certainty.
@@ -77,8 +84,6 @@ def _validate(data: dict) -> None:
             raise ValueError(f"section {i}: missing heading/narration")
         if len(str(s["narration"]).split()) < 60:
             raise ValueError(f"section {i}: narration too short")
-        if not isinstance(s.get("screen"), list) or not s["screen"]:
-            raise ValueError(f"section {i}: 'screen' must be a non-empty list")
 
 
 def generate(period: str, date_tag: str = None, override: str = None) -> str:
@@ -101,9 +106,8 @@ Return this EXACT JSON shape:
   "tags": ["10-15 lowercase search tags"],
   "hook": "one punchy spoken sentence to open the video",
   "sections": [
-    {{"heading": "Short on-screen section title",
-      "screen": ["bullet under 6 words", "bullet", "bullet"],
-      "narration": "110-150 words of warm spoken paragraphs"}}
+    {{"heading": "Short on-screen section title (max 5 words)",
+      "narration": "110-150 words of warm spoken paragraphs, short punchy sentences"}}
   ],
   "outro": "closing spoken line: recap value + ask to subscribe + tease that a new astrology topic comes every day"
 }}"""

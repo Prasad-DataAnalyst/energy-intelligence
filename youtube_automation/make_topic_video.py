@@ -52,35 +52,114 @@ CAT_COLOR = {
 }
 DEFAULT_ACCENT = ((200, 170, 255), (8, 6, 20), (18, 14, 44))
 
+# One evocative symbol per category, used as a large faint watermark motif so
+# every section frame has real visual content beyond text (each validated at
+# render time via mdv._icon — never shows as a tofu box).
+CAT_GLYPH = {
+    "lunar": "☽", "planets": "✦", "signs": "✵", "compatibility": "♡",
+    "love": "♥", "money": "$", "business": "▲", "career": "▲",
+    "health": "✚", "houses": "⌂", "aspects": "✧", "concepts": "◈",
+    "deep": "☄", "engagement": "★",
+}
+
 
 def _accent(cat: str):
     return CAT_COLOR.get((cat or "").lower(), DEFAULT_ACCENT)
 
 
 # ── Narration → natural-length audio clip, card dwell = its duration ──────────
-def _narrate(text: str, out_wav: str, voice: str, tmp: Path) -> float:
-    """TTS at natural pace, normalize to WAV, return duration (s). Card dwells
-    for this long so audio + visuals stay in sync and the video auto-sizes to
-    the script."""
+async def _tts_stream_with_words(text: str, out_mp3: str, voice: str,
+                                 rate: str = "+0%") -> list:
+    """Stream TTS audio while capturing real per-word timing from edge-tts's
+    WordBoundary events (verified API: edge_tts.SubMaker().feed(chunk), chunk
+    offset/duration in 100ns ticks). This is what makes the burned captions
+    land exactly on the spoken word instead of a guessed/uniform timing."""
+    import edge_tts
+    comm = edge_tts.Communicate(text, voice=voice, rate=rate)
+    words = []
+    with open(out_mp3, "wb") as f:
+        async for chunk in comm.stream():
+            if chunk["type"] == "audio":
+                f.write(chunk["data"])
+            elif chunk["type"] == "WordBoundary":
+                start = chunk["offset"] / 1e7          # 100ns ticks -> seconds
+                dur = chunk["duration"] / 1e7
+                words.append((start, start + dur, str(chunk["text"])))
+    return words
+
+
+def _narrate(text: str, out_wav: str, voice: str, tmp: Path) -> tuple:
+    """TTS at natural pace, normalize to WAV. Returns (duration_secs,
+    word_cues) where word_cues is a list of (start, end, word) in LOCAL time
+    (0 = this card's audio start). Card dwells exactly as long as the audio,
+    so video and narration always stay in sync."""
     raw = str(tmp / (Path(out_wav).stem + "_raw.mp3"))
-    ok = asyncio.run(mdv._tts_async(text, raw, voice=voice))
+    words = []
+    try:
+        words = asyncio.run(_tts_stream_with_words(text, raw, voice))
+        ok = Path(raw).exists() and Path(raw).stat().st_size > 512
+    except Exception as e:
+        print(f"[WARN] edge-tts stream ({voice}): {e}", file=sys.stderr)
+        ok = False
     if not ok:
         mdv._generate_silence(3.0, out_wav)
-        return 3.0
+        return 3.0, []
     r = _sp.run(["ffmpeg", "-y", "-loglevel", "error", "-i", raw,
                  "-ar", mdv._AR, "-ac", mdv._AC, "-c:a", "pcm_s16le", out_wav],
                 capture_output=True, timeout=60)
     Path(raw).unlink(missing_ok=True)
     if r.returncode != 0:
         mdv._generate_silence(3.0, out_wav)
-        return 3.0
-    return max(1.0, mdv._audio_dur(out_wav))
+        return 3.0, []
+    return max(1.0, mdv._audio_dur(out_wav)), words
 
 
 def _pad_to(in_wav: str, out_wav: str, dur: float) -> None:
     _sp.run(["ffmpeg", "-y", "-loglevel", "error", "-i", in_wav,
              "-af", f"apad,atrim=end={dur}", "-ar", mdv._AR, "-ac", mdv._AC,
              "-c:a", "pcm_s16le", out_wav], capture_output=True, timeout=60)
+
+
+# ── Captions: word-boundary timing -> short TikTok/Reels-style phrase cues ───
+def _group_words_into_cues(word_cues: list, max_words: int = 3) -> list:
+    """Merge consecutive (start,end,word) tuples into short caption phrases
+    (few words each) so captions change in sync with speech without a full
+    karaoke-per-word flicker. A cue also breaks early at sentence-ending
+    punctuation so captions align with natural speech rhythm."""
+    if not word_cues:
+        return []
+    cues, cur = [], []
+    for start, end, word in word_cues:
+        cur.append((start, end, word))
+        ends_sentence = word.rstrip().endswith((".", "!", "?", ","))
+        if len(cur) >= max_words or ends_sentence:
+            cues.append((cur[0][0], cur[-1][1], " ".join(w for _, _, w in cur)))
+            cur = []
+    if cur:
+        cues.append((cur[0][0], cur[-1][1], " ".join(w for _, _, w in cur)))
+    return cues
+
+
+def _srt_timestamp(t: float) -> str:
+    t = max(0.0, t)
+    h = int(t // 3600); m = int((t % 3600) // 60); s = int(t % 60)
+    ms = int(round((t - int(t)) * 1000))
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+
+def _write_srt(cues: list, path: str) -> bool:
+    if not cues:
+        return False
+    lines = []
+    for i, (start, end, text) in enumerate(cues, 1):
+        if end <= start:
+            end = start + 0.3
+        lines.append(str(i))
+        lines.append(f"{_srt_timestamp(start)} --> {_srt_timestamp(end)}")
+        lines.append(text)
+        lines.append("")
+    Path(path).write_text("\n".join(lines), encoding="utf-8")
+    return True
 
 
 # ── Cards ─────────────────────────────────────────────────────────────────────
@@ -129,55 +208,140 @@ def render_title_card(data: dict) -> Image.Image:
 
 
 def render_section_card(sec: dict, idx: int, total: int, cat: str) -> Image.Image:
+    """Cinematic section background — NOT a slide. No bullet list: the actual
+    words are delivered as burned, word-synced captions layered on top of this
+    at assembly time (see _group_words_into_cues / assemble). This PNG only
+    provides the backdrop: category motif, heading, progress, and a caption
+    safe-zone scrim so the captions stay legible over any art underneath."""
     accent, top, bot = _accent(cat)
     img = mdv._cosmic_bg(W, H, top, bot, accent, seed=100 + idx)
     d = ImageDraw.Draw(img)
     d.rectangle([0, 0, W, 6], fill=GOLD); d.rectangle([0, H - 6, W, H], fill=GOLD)
 
-    # Section number
-    nf = mdv._ui_font(38, 700)
-    tag = f"{idx} / {total}"
-    d.text((PAD, 70), tag, font=nf, fill=(*accent, 235))
+    # Large faint category glyph — the visual anchor of the frame, replacing
+    # the bullet panel. Centered in the open space below the heading.
+    glyph, gfont = mdv._icon(CAT_GLYPH.get((cat or "").lower(), "✦"), "*", 620)
+    gw = mdv._tw(glyph, gfont)
+    ov = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    ImageDraw.Draw(ov).text(((W - gw) // 2, H // 2 - 340), glyph, font=gfont,
+                            fill=(*accent, 30))
+    img = Image.alpha_composite(img.convert("RGBA"), ov)
+    d = ImageDraw.Draw(img)
 
-    # Heading (Cinzel wrapped)
-    hf = mdv._display_font(74, weight=700)
-    y = 140
-    for ln in mdv._wrap(sec.get("heading", ""), hf, CW)[:3]:
+    # Progress pill, top-right — subtle, not a slide-deck page number.
+    nf = mdv._ui_font(34, 700)
+    tag = f"{idx} / {total}"
+    tw_ = mdv._tw(tag, nf)
+    px0 = W - PAD - tw_ - 36
+    d.rounded_rectangle([px0, 64, px0 + tw_ + 36, 64 + mdv._th(nf) + 20],
+                        radius=14, fill=(*accent, 50), outline=(*accent, 200), width=2)
+    d.text((px0 + 18, 74), tag, font=nf, fill=WHITE)
+
+    # Heading (Cinzel, wrapped, top-left) — stays on screen the whole section.
+    hf = mdv._display_font(72, weight=700)
+    y = 150
+    for ln in mdv._wrap(sec.get("heading", ""), hf, CW - 200)[:2]:
         d.text((PAD + 2, y + 2), ln, font=hf, fill=(0, 0, 0, 170))
         d.text((PAD,     y),     ln, font=hf, fill=GOLD)
-        y += mdv._th(hf) + 10
-    d.rectangle([PAD, y + 16, PAD + 360, y + 22], fill=(*accent, 230))
-    y += 70
+        y += mdv._th(hf) + 12
+    d.rectangle([PAD, y + 14, PAD + 300, y + 20], fill=(*accent, 220))
 
-    # Bullet panel (glass). Pre-wrap each bullet so the panel is sized to the
-    # ACTUAL line count (bullets that wrap to 2 lines no longer overlap).
-    bullets = [b for b in sec.get("screen", []) if str(b).strip()][:5]
-    bf = mdv._ui_font(54, 500)
-    lh = mdv._th(bf) + 14
-    gap = 26
-    wrapped = [mdv._wrap(str(b), bf, CW - 96)[:2] for b in bullets]
-    total_lines = sum(len(w) for w in wrapped)
-    panel_h = 48 + total_lines * lh + max(0, len(wrapped) - 1) * gap
-    panel = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    ImageDraw.Draw(panel).rounded_rectangle(
-        [PAD - 8, y, W - PAD + 8, y + panel_h], radius=28, fill=(255, 255, 255, 16))
-    img = Image.alpha_composite(img.convert("RGBA"), panel)
+    # Caption safe-zone scrim: a soft dark gradient over the lower third so
+    # burned captions read cleanly against any background art. Drawn now (in
+    # PIL) rather than left to the subtitle renderer, so it composites with
+    # the nebula/stars underneath instead of sitting flatly on top.
+    scrim = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    sd = ImageDraw.Draw(scrim)
+    scrim_top = H - 620
+    steps = 60
+    for i in range(steps):
+        a = int(150 * (i / steps))
+        yy = scrim_top + int(i * (620 / steps))
+        sd.rectangle([0, yy, W, yy + (620 // steps) + 1], fill=(0, 0, 0, a))
+    img = Image.alpha_composite(img, scrim)
     d = ImageDraw.Draw(img)
-    by = y + 34
-    for lines_ in wrapped:
-        d.ellipse([PAD + 14, by + lh // 2 - 9, PAD + 32, by + lh // 2 + 9],
-                  fill=(*accent, 255))
-        for ln in lines_:
-            d.text((PAD + 58, by), ln, font=bf, fill=WHITE)
-            by += lh
-        by += gap
 
     # Footer
-    ff = mdv._ui_font(38, 500)
+    ff = mdv._ui_font(36, 500)
     foot = f"{mdv.CHANNEL_TAG}  •  Astrology Explained"
     fw = mdv._tw(foot, ff)
-    d.text(((W - fw) // 2, H - 88), foot, font=ff, fill=(*SILVER, 235))
+    d.text(((W - fw) // 2, H - 78), foot, font=ff, fill=(*SILVER, 200))
     return img.convert("RGB")
+
+
+# ── Motion assembly: Ken Burns zoom per card + burned captions ────────────────
+# Higher per-frame cost than a static hold (zoompan does real crop/scale work
+# every frame, vs. a straight copy), so this is attempted with a SMALLER frame
+# budget than the proven-safe static ceiling, and a bounded timeout. On any
+# failure (timeout, ffmpeg error, missing filter) the caller falls back to the
+# plain static+captions path, which is the one already proven reliable.
+_MOTION_FRAME_BUDGET = 1200
+_MOTION_TIMEOUT_SECS = 1500   # 25 min cap — leaves room to still fall back and finish
+
+
+def motion_fps_for(total_secs: float) -> int:
+    return mdv.safe_static_fps(total_secs, frame_budget=_MOTION_FRAME_BUDGET,
+                               min_fps=2, max_fps=10)
+
+
+def assemble_video_motion_captions(png_files: list, durations: list,
+                                   audio_path, srt_path, out_path: str,
+                                   fps: int) -> bool:
+    tmp_video = out_path.replace(".mp4", "_motion.mp4")
+    n = len(png_files)
+    # CRITICAL: do NOT put "-t dur" on these inputs. zoompan treats each
+    # incoming frame as the start of a new d-frame zoom cycle — an input that
+    # already delivers dur-seconds-worth of frames (at the image2 demuxer's
+    # default ~25fps) makes zoompan run ~25x more cycles than intended
+    # (measured: a 10s two-card test produced a 1250s file — exactly the
+    # 125x = 25fps*5x multiplication this caused). "-loop 1 -i png" alone
+    # feeds a single repeating frame; zoompan's own d=/fps= fully control
+    # the output length, and an explicit trim below hard-caps it regardless.
+    inputs = []
+    for png in png_files:
+        inputs += ["-loop", "1", "-i", png]
+
+    parts = []
+    for i, dur in enumerate(durations):
+        frames = max(1, int(round(dur * fps)))
+        # Slow linear zoom-in 1.00x -> 1.10x over the card's own dwell time.
+        # Upscale 1.2x first so the zoom crop never exceeds the source canvas;
+        # x/y center the crop (zoompan's own default is top-left, NOT centered).
+        # trim+setpts hard-caps each segment to exactly `frames` frames and
+        # resets timestamps to 0, which is what makes concat's duration math
+        # correct regardless of zoompan's internal frame accounting.
+        parts.append(
+            f"[{i}:v]scale=w=iw*1.2:h=ih*1.2,"
+            f"zoompan=z='1+0.10*on/{frames}':d={frames}:"
+            f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+            f"s={mdv.WIDTH}x{mdv.HEIGHT}:fps={fps},"
+            f"trim=end_frame={frames},setpts=PTS-STARTPTS[v{i}]"
+        )
+    concat_in = "".join(f"[v{i}]" for i in range(n))
+    filt = ";".join(parts) + f";{concat_in}concat=n={n}:v=1:a=0[vcat]"
+    out_label = "[vcat]"
+    if srt_path and Path(srt_path).exists():
+        filt += f";[vcat]{mdv._subtitle_filter(srt_path)}[vout]"
+        out_label = "[vout]"
+
+    cmd = [
+        "ffmpeg", "-y", "-loglevel", "error",
+        *inputs, "-filter_complex", filt, "-map", out_label,
+        "-pix_fmt", "yuv420p", "-c:v", "libx264", "-preset", "ultrafast",
+        "-crf", "23", "-threads", "0", "-movflags", "+faststart", tmp_video,
+    ]
+    try:
+        r = _sp.run(cmd, capture_output=True, timeout=_MOTION_TIMEOUT_SECS)
+        if r.returncode != 0:
+            print(f"[WARN] Motion assembly failed: {r.stderr.decode()[-300:]}",
+                  file=sys.stderr)
+            return False
+        return mdv._mux_audio(tmp_video, audio_path, out_path)
+    except Exception as e:
+        print(f"[WARN] Motion assembly exception: {e}", file=sys.stderr)
+        return False
+    finally:
+        Path(tmp_video).unlink(missing_ok=True)
 
 
 def render_outro_card(data: dict) -> Image.Image:
@@ -270,6 +434,7 @@ def process(json_path: str) -> str:
         pngs, durs, clips = [], [], []
         chapters = ["0:00 Intro"]
         t_cursor = 0.0
+        all_words = []   # (start, end, word) in GLOBAL video-timeline seconds
 
         # 1) Narrate everything (natural length), render each card to its dwell
         print("[1/4] Rendering cards + narration...")
@@ -277,13 +442,15 @@ def process(json_path: str) -> str:
         def add(card_img, text, label, is_section=False, sec_idx=0):
             nonlocal t_cursor
             nat = str(tmp / f"nat_{len(pngs):02d}.wav")
-            dur = _narrate(text, nat, voice, tmp)
+            dur, word_cues = _narrate(text, nat, voice, tmp)
             card_dur = math.ceil(dur) + 0.4
             clip = str(tmp / f"clip_{len(pngs):02d}.wav")
             _pad_to(nat, clip, card_dur)
             png = str(tmp / f"card_{len(pngs):02d}.png")
             card_img.save(png, "PNG")
             pngs.append(png); durs.append(card_dur); clips.append(clip)
+            for w_start, w_end, w_text in word_cues:
+                all_words.append((t_cursor + w_start, t_cursor + w_end, w_text))
             if is_section:
                 chapters.append(f"{_ts(t_cursor)} {label}")
             t_cursor += card_dur
@@ -300,6 +467,16 @@ def process(json_path: str) -> str:
         mdv.VIDEO_FPS = mdv.safe_static_fps(total)
         print(f"      Total: {total:.0f}s ({int(total//60)}m {int(total%60)}s)  |  {mdv.VIDEO_FPS}fps")
 
+        # Word-synced captions: group into short phrases, write a single SRT
+        # spanning the whole assembled timeline (global offsets already baked
+        # in above). None/empty if word timing wasn't available (TTS fallback
+        # silence) — captions are then simply skipped, never a hard failure.
+        srt_path = str(tmp / "captions.srt")
+        caption_cues = _group_words_into_cues(all_words, max_words=3)
+        has_captions = _write_srt(caption_cues, srt_path)
+        print(f"      Captions: {len(caption_cues)} cues" if has_captions
+              else "      [WARN] No word-timing captured — captions skipped")
+
         # 2) Concatenate voice, generate ambient, mix
         print("\n[2/4] Building audio track...")
         voice_all = str(tmp / "voice_all.wav")
@@ -313,10 +490,28 @@ def process(json_path: str) -> str:
             audio = voice_all if voice_ok else (amb if amb_ok else None)
         print("      OK")
 
-        # 3) Assemble
-        print(f"\n[3/4] Assembling {W}x{H} @ {mdv.VIDEO_FPS}fps...")
-        if not mdv.assemble_video(pngs, durs, audio, video_path):
-            print("[ERROR] Assembly failed", file=sys.stderr); sys.exit(1)
+        # 3) Assemble — tiered: Ken Burns motion+captions -> static+captions ->
+        # plain static. Each tier falls back on ANY failure (timeout, ffmpeg
+        # error), so a slow VM degrades gracefully instead of failing the day.
+        motion_on = os.getenv("TOPIC_MOTION_ENABLED", "true").lower() == "true"
+        ok = False
+        if motion_on:
+            m_fps = motion_fps_for(total)
+            print(f"\n[3/4] Assembling {W}x{H} — trying Ken Burns motion @ {m_fps}fps "
+                  f"(cap {_MOTION_TIMEOUT_SECS}s)...")
+            ok = assemble_video_motion_captions(
+                pngs, durs, audio, srt_path if has_captions else None, video_path, m_fps)
+            if not ok:
+                print("      Motion tier failed — falling back to static + captions")
+        if not ok:
+            print(f"\n[3/4] Assembling {W}x{H} @ {mdv.VIDEO_FPS}fps (static)...")
+            ok = mdv.assemble_video(pngs, durs, audio, video_path,
+                                    srt_path=srt_path if has_captions else None)
+        if not ok:
+            print("      Captioned static tier failed — falling back to plain static")
+            ok = mdv.assemble_video(pngs, durs, audio, video_path)
+        if not ok:
+            print("[ERROR] Assembly failed (all tiers)", file=sys.stderr); sys.exit(1)
         size_mb = os.path.getsize(video_path) / 1_048_576
         print(f"      OK — {size_mb:.1f} MB")
 
