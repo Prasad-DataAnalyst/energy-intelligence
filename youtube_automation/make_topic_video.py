@@ -248,8 +248,12 @@ def process(json_path: str) -> str:
     cat = data.get("category", "astrology")
     sections = data.get("sections", [])
 
-    mdv.VIDEO_FPS = int(data.get("video_fps", 10))   # long-form: 10 fps static
     mdv.CONTENT_TYPE = "topic"
+    # VIDEO_FPS is set AFTER the narration loop below, once the actual total
+    # duration is known — narration length varies day to day, and a fixed fps
+    # chosen before that (the old 10fps default) is only safe up to a certain
+    # duration (see mdv.safe_static_fps() docstring: 486s @ 10fps timed out
+    # twice at 40 min on the production VM).
 
     out_dir = Path("outputs") / date_tag / "TopicAll"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -293,7 +297,8 @@ def process(json_path: str) -> str:
         add(render_outro_card(data), data.get("outro", "Subscribe for more."), "Outro")
 
         total = sum(durs)
-        print(f"      Total: {total:.0f}s ({int(total//60)}m {int(total%60)}s)")
+        mdv.VIDEO_FPS = mdv.safe_static_fps(total)
+        print(f"      Total: {total:.0f}s ({int(total//60)}m {int(total%60)}s)  |  {mdv.VIDEO_FPS}fps")
 
         # 2) Concatenate voice, generate ambient, mix
         print("\n[2/4] Building audio track...")

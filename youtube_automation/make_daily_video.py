@@ -41,7 +41,28 @@ _OUTRO_TYPES = ("deep", "weeklyfull")
 # timeframe (daily/weekly/monthly/deep) without threading params through every call.
 CONTENT_TYPE   = "daily"
 PERIOD_LABEL   = "TODAY"
-VIDEO_FPS      = 12       # static-render fps; long-form 'deep' drops to 10
+VIDEO_FPS      = 12       # static-render fps; overwritten dynamically, see safe_static_fps()
+
+# PROVEN CONSTRAINT (production e2-micro): 172s @ 12fps = 2064 frames renders
+# reliably with ultrafast (June 25 onward). 486s @ 10fps = 4860 frames timed
+# out TWICE at 40 min (2026-07-06 topic run). Every static-slideshow video
+# (daily/weekly/monthly/deep/weeklyfull/topic) must therefore pick its fps
+# from ACTUAL total duration, not a fixed number chosen without knowing the
+# runtime — a fixed 10fps is safe at 172s and unsafe at 486s.
+_SAFE_FRAME_BUDGET = 2000   # a hair under the proven 2064-frame ceiling
+
+
+def safe_static_fps(total_secs: float, frame_budget: int = _SAFE_FRAME_BUDGET,
+                    min_fps: int = 2, max_fps: int = 12) -> int:
+    """Pick an encode fps so total frame count stays within a budget proven to
+    render inside the timeout on the production VM. Content is 100% static
+    per card — a card change is a hard cut regardless of frame rate — so a
+    lower fps costs nothing visually, only less encode work."""
+    import math
+    if total_secs <= 0:
+        return max_fps
+    fps = math.floor(frame_budget / total_secs)
+    return max(min_fps, min(max_fps, fps))
 
 SIGNS = [
     "aries","taurus","gemini","cancer","leo","virgo",
@@ -1152,7 +1173,7 @@ def process(json_path: str) -> str:
         print(f"[ERROR] File not found: {json_path}", file=sys.stderr)
         sys.exit(1)
 
-    global CONTENT_TYPE, PERIOD_LABEL
+    global CONTENT_TYPE, PERIOD_LABEL, VIDEO_FPS
     data     = json.loads(path.read_text(encoding="utf-8"))
     date_str = data.get("date", "")
 
@@ -1173,9 +1194,14 @@ def process(json_path: str) -> str:
     has_outro   = CONTENT_TYPE in _OUTRO_TYPES
     total_dur   = INTRO_SECS + len(SIGNS) * sign_secs + (OUTRO_SECS if has_outro else 0)
 
+    # Duration-aware fps — a fixed fps is only safe at the duration it was
+    # tuned for; deep/weeklyfull run ~490s and would time out at the daily
+    # short's 12fps (see safe_static_fps() docstring for the proof).
+    VIDEO_FPS = safe_static_fps(total_dur)
+
     print(f"\n{'='*58}")
     print(f"  {CONTENT_TYPE.upper()} HOROSCOPE — ALL 12 SIGNS")
-    print(f"  Date: {date_str}  |  {total_dur}s  ({total_dur // 60}m {total_dur % 60}s)")
+    print(f"  Date: {date_str}  |  {total_dur}s  ({total_dur // 60}m {total_dur % 60}s)  |  {VIDEO_FPS}fps")
     print(f"  Output: {out_dir}/")
     print(f"{'='*58}\n")
 

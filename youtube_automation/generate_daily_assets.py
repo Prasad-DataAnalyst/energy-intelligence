@@ -271,10 +271,10 @@ Return this EXACT JSON structure (fill in all 12 signs, every "..." replaced):
     data["hashtags"]     = ["#horoscope", "#astrology", "#zodiac",
                             f"#{cfg['noun'].lower().replace(' ','')}horoscope", "#allsigns"]
     if is_deep:
-        # Long-form: render at 10 fps (static cards look identical) to keep the
-        # ~8.5-min encode within the e2-micro's budget; keep luckiest_sign for
-        # the outro reveal.
-        data["video_fps"] = 10
+        # Long-form: fps is computed dynamically by the renderer from the
+        # actual total duration (make_daily_video.safe_static_fps) — not
+        # fixed here, since a fixed value safe at one duration can time out
+        # at another. Keep luckiest_sign for the outro reveal.
         data.setdefault("luckiest_sign", "")
         cadence = "every Monday" if ctype == "weeklyfull" else "every morning"
         subject = "this week" if ctype == "weeklyfull" else f"{when}, in depth"

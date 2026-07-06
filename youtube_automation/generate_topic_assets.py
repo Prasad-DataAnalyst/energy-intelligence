@@ -137,7 +137,9 @@ Return this EXACT JSON shape:
     data["category"]     = topic.get("category", "astrology")
     data["topic_title"]  = topic["title"]
     data["date"]         = when
-    data["video_fps"]    = 10
+    # fps is computed dynamically by make_topic_video from the actual
+    # narration-driven total duration (mdv.safe_static_fps) — narration length
+    # varies day to day, so a fixed value here would be wrong on other days.
     data.setdefault("hashtags", ["#astrology", "#zodiac", "#horoscope"])
     if "title" not in data:
         data["title"] = f"{topic['title']} | Astrology Explained ({when})"
