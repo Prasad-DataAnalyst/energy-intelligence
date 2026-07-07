@@ -21,6 +21,7 @@ youtube_automation/voice_*.mp3
 youtube_automation/music_*.wav
 youtube_automation/audio_*.wav
 youtube_automation/silent_*.mp4
+youtube_automation/.run_daily.lock
 
 # Secrets / tokens
 youtube_automation/client_secrets.json

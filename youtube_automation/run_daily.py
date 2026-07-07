@@ -9,6 +9,7 @@ Usage:
   python3 run_daily.py --date 20260616 --period "June 2026" --skip-assets --upload
 """
 import argparse
+import fcntl
 import json
 import os
 import smtplib
@@ -23,6 +24,23 @@ from dotenv import load_dotenv
 load_dotenv()
 
 PYTHON = sys.executable
+_LOCK_PATH = Path(__file__).parent / ".run_daily.lock"
+
+
+def _acquire_pipeline_lock():
+    """Non-blocking cross-invocation lock. The VM is 1-core: cron schedules
+    daily/topic/weekly/monthly/weeklyfull with gaps sized for TYPICAL render
+    times, but a slow day (retries, a big render) can run long enough to
+    still be going when the next job fires. Two renders fighting for the
+    same core is worse than skipping a run — both slow down and risk the
+    same timeout that was already hit in production once. Held for the
+    process lifetime; the OS releases it when the process exits."""
+    fd = open(_LOCK_PATH, "w")
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return fd
+    except BlockingIOError:
+        return None
 
 
 def _utcnow() -> datetime:
@@ -518,6 +536,14 @@ def main():
     parser.add_argument("--tiktok",      action="store_true",
                         help="Also cross-post to TikTok")
     args = parser.parse_args()
+
+    lock_fd = _acquire_pipeline_lock()
+    if lock_fd is None:
+        print("[WARN] Another run_daily.py pipeline is already running on this "
+              "1-core VM — skipping this invocation rather than compete for "
+              "CPU (that competition is what caused the earlier render "
+              "timeouts).", file=sys.stderr)
+        sys.exit(0)
 
     # ── Long-form daily astrology TOPIC video (monetization) ───────────────────
     if args.type == "topic":

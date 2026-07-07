@@ -68,8 +68,17 @@ def _load_topic(date_tag: str, override: str = None):
     if not cal_file.exists():
         cal_file = CALENDAR
     topics = json.loads(cal_file.read_text(encoding="utf-8"))["topics"]
+    n = len(topics)
     doy = datetime.strptime(date_tag, "%Y%m%d").timetuple().tm_yday   # 1..366
-    return topics[(doy - 1) % len(topics)]
+    # A calendar sized ~365 is meant to give every day a UNIQUE topic. Plain
+    # modulo breaks that in a leap year: day 366 -> (366-1)%365 == 0, the same
+    # index as day 1 — Dec 31 would collide with New Year's Day's topic
+    # instead of getting its own. Cap instead of wrap for a full-length
+    # calendar (day 366 repeats day 365 — "yesterday", far less jarring).
+    # A small calendar (e.g. the ~30-topic starter) is INTENDED to cycle via
+    # modulo (roughly-monthly repeats) — only a full ~365 calendar gets the cap.
+    idx = min(doy, n) - 1 if n >= 365 else (doy - 1) % n
+    return topics[idx]
 
 
 def _validate(data: dict) -> None:

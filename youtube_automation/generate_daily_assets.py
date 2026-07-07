@@ -182,12 +182,12 @@ def _when_label(ctype: str, date_tag: str) -> str:
     d = datetime.strptime(date_tag, "%Y%m%d")
     if ctype == "daily":
         return d.strftime("%B %d, %Y")
-    if ctype == "weekly":
+    if ctype in ("weekly", "weeklyfull"):
         end = d + timedelta(days=6)
         if d.month == end.month:
             return f"{d.strftime('%B %d')}–{end.strftime('%d, %Y')}"
         return f"{d.strftime('%b %d')} – {end.strftime('%b %d, %Y')}"
-    return d.strftime("%B %Y")   # monthly
+    return d.strftime("%B %Y")   # monthly, deep
 
 
 def generate(period: str, date_tag: str = None, ctype: str = "daily") -> str:
