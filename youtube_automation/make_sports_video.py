@@ -320,7 +320,7 @@ def process(json_path: str) -> str:
         pngs, durs, clips = [], [], []
         chapters = ["0:00 Intro"]
         t_cursor = 0.0
-        all_words = []
+        caption_cues = []   # (start, end, text) in GLOBAL video-timeline seconds
 
         print("[1/4] Rendering cards + narration...")
 
@@ -334,8 +334,11 @@ def process(json_path: str) -> str:
             png = str(tmp / f"card_{len(pngs):02d}.png")
             card_img.save(png, "PNG")
             pngs.append(png); durs.append(card_dur); clips.append(clip)
-            for w_start, w_end, w_text in word_cues:
-                all_words.append((t_cursor + w_start, t_cursor + w_end, w_text))
+            # Group THIS card's own words into caption phrases BEFORE applying
+            # the global offset — grouping must never span two cards, or a cue
+            # could straddle the hard cut between them. See make_daily_video.
+            for c_start, c_end, c_text in mdv._group_words_into_cues(word_cues, max_words=3):
+                caption_cues.append((t_cursor + c_start, t_cursor + c_end, c_text))
             if is_chapter:
                 chapters.append(f"{_ts(t_cursor)} {label}")
             t_cursor += card_dur
@@ -380,7 +383,6 @@ def process(json_path: str) -> str:
         print(f"      Total: {total:.0f}s ({int(total//60)}m {int(total%60)}s)  |  {mdv.VIDEO_FPS}fps")
 
         srt_path = str(tmp / "captions.srt")
-        caption_cues = mdv._group_words_into_cues(all_words, max_words=3)
         has_captions = mdv._write_srt(caption_cues, srt_path)
         print(f"      Captions: {len(caption_cues)} cues" if has_captions
               else "      [WARN] No word-timing captured — captions skipped")

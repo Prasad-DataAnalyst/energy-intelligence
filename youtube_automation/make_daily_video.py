@@ -901,9 +901,21 @@ async def _tts_stream_with_words(text: str, out_mp3: str, voice: str,
     uniform timing. Shared by every video maker (daily/weekly/monthly/
     weeklyfull via _generate_sign_voice below, topic via make_topic_video's
     _narrate) so there is one source of truth for the edge-tts word-boundary
-    API shape."""
+    API shape.
+
+    CRITICAL: boundary="WordBoundary" must be explicit. edge_tts.Communicate's
+    own default is "SentenceBoundary" (confirmed in edge_tts/communicate.py:
+    the boundary choice maps directly to `wordBoundaryEnabled`/
+    `sentenceBoundaryEnabled` flags sent to the TTS websocket) — with the
+    default, the server is told wordBoundaryEnabled=false and NEVER emits a
+    single "WordBoundary" chunk, silently making `words` empty every time.
+    That's not a degraded/sparse-caption failure mode, it's a total one:
+    has_captions becomes False and the whole caption feature no-ops in
+    production while still working in any test that mocks this function
+    directly (as this session's verification did, until this was traced
+    back to the actual edge-tts call and checked)."""
     import edge_tts
-    comm = edge_tts.Communicate(text, voice=voice, rate=rate)
+    comm = edge_tts.Communicate(text, voice=voice, rate=rate, boundary="WordBoundary")
     words = []
     with open(out_mp3, "wb") as f:
         async for chunk in comm.stream():
@@ -1389,8 +1401,19 @@ def process(json_path: str) -> str:
         day_voice = _day_voice(date_tag)
         print(f"\n[2/5] Generating voice narration (edge-tts, voice: {day_voice})...")
         voice_clips: list = []
-        all_words: list = []   # (start, end, word) in GLOBAL video-timeline seconds
-        t_cursor = 0.0          # card durations are FIXED, so this tracks in lockstep
+        caption_cues: list = []   # (start, end, text) in GLOBAL video-timeline seconds
+        t_cursor = 0.0             # card durations are FIXED, so this tracks in lockstep
+
+        def _cue_group(words, offset):
+            """Group a SINGLE segment's own words into short caption phrases
+            BEFORE applying the global time offset. Grouping must never see
+            words from two different segments at once — otherwise a cue can
+            straddle a hard cut (e.g. a sign's last word merged with the next
+            sign's first words into one caption group), so the caption still
+            shows fragments of the PREVIOUS card's speech after the video has
+            already visually cut to the next one."""
+            return [(offset + s, offset + e, txt)
+                    for s, e, txt in _group_words_into_cues(words, max_words=3)]
 
         # Narrated intro — never open a Short with 4s of dead air.
         intro_voice = str(tmp / "voice_00_intro.wav")
@@ -1398,7 +1421,7 @@ def process(json_path: str) -> str:
                                          INTRO_SECS, voice=day_voice)
         if ok:
             voice_clips.append(intro_voice)
-            all_words += [(t_cursor + s, t_cursor + e, w) for s, e, w in words]
+            caption_cues += _cue_group(words, t_cursor)
             print(f"      [intro]  {INTRO_SECS}s narrated hook")
         else:
             voice_clips.append(None)
@@ -1411,7 +1434,7 @@ def process(json_path: str) -> str:
             ok, words = _generate_sign_voice(script, vpath, sign_secs, voice=day_voice)
             if ok:
                 voice_clips.append(vpath)
-                all_words += [(t_cursor + s, t_cursor + e, w) for s, e, w in words]
+                caption_cues += _cue_group(words, t_cursor)
                 print(f"      [{sign.title():<14}]  {sign_secs}s")
             else:
                 sil2 = str(tmp / f"sil_{idx + 1:02d}.wav")
@@ -1426,7 +1449,7 @@ def process(json_path: str) -> str:
                                              OUTRO_SECS, voice=day_voice)
             if ok:
                 voice_clips.append(outro_voice)
-                all_words += [(t_cursor + s, t_cursor + e, w) for s, e, w in words]
+                caption_cues += _cue_group(words, t_cursor)
                 print(f"      [outro]  {OUTRO_SECS}s narrated reveal")
             else:
                 sil3 = str(tmp / "sil_outro.wav")
@@ -1435,12 +1458,11 @@ def process(json_path: str) -> str:
                 print(f"      [outro]  (TTS failed, silence)")
             t_cursor += OUTRO_SECS
 
-        # Word-synced captions: group into short phrases, write a single SRT
-        # spanning the whole assembled timeline (global offsets already baked
-        # in above). None/empty if word timing wasn't captured anywhere (all
-        # TTS failed) — captions are then simply skipped, never a hard failure.
+        # Write the single SRT spanning the whole assembled timeline (global
+        # offsets already baked into each segment's cues above). Empty if word
+        # timing wasn't captured anywhere (all TTS failed) — captions are then
+        # simply skipped, never a hard failure.
         srt_path = str(tmp / "captions.srt")
-        caption_cues = _group_words_into_cues(all_words, max_words=3)
         has_captions = _write_srt(caption_cues, srt_path)
         print(f"      Captions: {len(caption_cues)} cues" if has_captions
               else "      [WARN] No word-timing captured — captions skipped")
