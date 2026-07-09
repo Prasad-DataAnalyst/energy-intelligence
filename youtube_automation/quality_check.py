@@ -133,7 +133,7 @@ def check_video(video_path: str) -> list:
                     ctype = json.loads(sidecar.read_text()).get("content_type", "")
             except Exception:
                 pass
-            long_form = ctype in ("monthly", "deep", "topic", "weeklyfull")
+            long_form = ctype in ("monthly", "deep", "topic", "weeklyfull", "sports")
             max_dur = 3600 if long_form else 180
 
             duration = float(fmt.get("duration", 0))

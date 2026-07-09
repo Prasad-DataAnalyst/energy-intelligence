@@ -340,6 +340,107 @@ def run_topic_pipeline(args) -> int:
     return 0 if all_ok else 1
 
 
+def run_sports_pipeline(args) -> int:
+    """Daily LONG-FORM Sports Astrology Predictions video (for monetization).
+    sports_data.py (match fetch) → generate_sports_astrology_assets.py
+    (real chart + Claude script) → make_sports_video.py → upload.
+
+    Unlike every other content type here, this one has a real external
+    dependency (today's matches) that can legitimately be empty — no major
+    fixtures that day is not a pipeline failure, so that case exits 0 and
+    just skips the video rather than alerting like a broken run would."""
+    t_start = time.time()
+    base       = f"sports_{args.date}"
+    json_file  = f"{base}.json"
+    out_base   = f"outputs/{args.date}/SportsAll/{base}"
+    video_path, assets_json, thumb_path = (f"{out_base}.mp4",
+                                           f"{out_base}_assets.json",
+                                           f"{out_base}_thumbnail.jpg")
+    run_key = f"sports_{args.date}"
+
+    print(f"\n{'='*60}\n  GetMindFuelNow — SPORTS ASTROLOGY (long-form) — {args.date}\n"
+          f"  Started: {datetime.now():%H:%M:%S}\n{'='*60}\n")
+
+    if not args.skip_doctor:
+        try:
+            import doctor
+            healthy, lines = doctor.preflight(deep=False)
+            print("[0/4] Preflight:"); print("\n".join(lines))
+            if not healthy:
+                doctor._email_report(False, lines); return 1
+        except Exception as _de:
+            print(f"  [WARN] Preflight skipped: {_de}")
+
+    _daemon("stop")
+    assets_ok = qc_ok = False
+    upload_result = ""
+    try:
+        # 1. Match data + real astrology chart + Claude script
+        if args.skip_assets and Path(json_file).exists():
+            print(f"[1/4] Assets   — reusing {json_file}"); assets_ok = True
+        else:
+            print(f"[1/4] Assets   — fetching matches + writing predictions via Claude...")
+            ok, out = run_captured([PYTHON, "generate_sports_astrology_assets.py", args.date],
+                                   timeout=300)
+            assets_ok = ok
+            print(f"      {'OK' if ok else 'FAILED: ' + out[-300:]}")
+        if not assets_ok:
+            # A "no matches today" run is a legitimate skip, not a pipeline
+            # failure — generate_sports_astrology_assets.py's own error text
+            # says so explicitly when that's the cause; anything else is a
+            # real failure and should alert like one.
+            if "no matches" in out.lower():
+                print("      [INFO] No matches today — skipping sports video (not an error).")
+                return 0
+            send_summary_email(args.date, {"sports": {"assets": "❌ script failed",
+                "video": "—", "quality": "—", "upload": ""}},
+                int(time.time() - t_start), args.upload)
+            return 1
+
+        # 2. Render (long-form → generous timeout for the e2-micro)
+        print(f"\n[2/4] Video    — rendering long-form sports astrology video...")
+        ok = run_live([PYTHON, "make_sports_video.py", json_file], timeout=3600)
+        if not ok:
+            print("      FAILED — retry in 60s...", file=sys.stderr); time.sleep(60)
+            ok = run_live([PYTHON, "make_sports_video.py", json_file], timeout=3600)
+        if not ok:
+            print("      FAILED (after retry)", file=sys.stderr)
+            send_summary_email(args.date, {"sports": {"assets": "✅",
+                "video": "❌ render failed", "quality": "—", "upload": ""}},
+                int(time.time() - t_start), args.upload)
+            return 1
+
+        # 3. QC
+        print(f"\n[3/4] QC       — checking {video_path}...")
+        ok, out = run_captured([PYTHON, "quality_check.py", video_path], timeout=300)
+        qc_ok = ok
+        print(f"      {'PASS' if ok else 'FAIL: ' + out}")
+
+        # 4. Upload
+        if args.upload and qc_ok:
+            print(f"\n[4/4] Upload   — uploading to YouTube...")
+            upload_result = _upload_flow(video_path, assets_json, thumb_path, run_key, args)
+    finally:
+        _daemon("start")
+
+    elapsed   = int(time.time() - t_start)
+    upload_ok = (not args.upload) or upload_result.startswith("✅")
+    all_ok    = assets_ok and qc_ok and upload_ok
+    print(f"\n{'='*60}\n  SUMMARY — SPORTS {args.date}  ({elapsed//60}m {elapsed%60}s)\n"
+          f"  {'✅ ALL OK' if all_ok else '❌ ISSUES'}"
+          + (f"  |  {upload_result}" if upload_result else "") + f"\n{'='*60}\n")
+    if all_ok:
+        try:
+            import heartbeat; heartbeat.record_success()
+        except Exception:
+            pass
+    send_summary_email(args.date, {"sports": {
+        "assets": "✅" if assets_ok else "❌", "video": "✅" if qc_ok else "❌",
+        "quality": "✅" if qc_ok else "❌", "upload": upload_result}},
+        elapsed, args.upload)
+    return 0 if all_ok else 1
+
+
 def run_all_signs_pipeline(args) -> int:
     """
     New pipeline: one combined video covering all 12 signs, for any timeframe
@@ -517,11 +618,12 @@ def main():
                         help="'all' = one combined 12-sign video (default), "
                              "'short' = 12 separate per-sign videos")
     parser.add_argument("--type",        default="daily",
-                        choices=["daily", "weekly", "monthly", "topic", "weeklyfull"],
+                        choices=["daily", "weekly", "monthly", "topic", "weeklyfull", "sports"],
                         help="daily/weekly/monthly = combined 12-sign video; "
                              "topic = long-form astrology topic-of-the-day; "
                              "weeklyfull = long-form in-depth weekly horoscope, "
-                             "Monday morning (default: daily)")
+                             "Monday morning; sports = long-form daily sports "
+                             "astrology predictions (default: daily)")
     parser.add_argument("--format",      default="short", choices=["short", "long"])
     parser.add_argument("--signs",       metavar="SIGN,...",
                         help="Comma-separated subset (default: all 12) — short mode only")
@@ -548,6 +650,10 @@ def main():
     # ── Long-form daily astrology TOPIC video (monetization) ───────────────────
     if args.type == "topic":
         sys.exit(run_topic_pipeline(args))
+
+    # ── Long-form daily SPORTS ASTROLOGY predictions (monetization) ────────────
+    if args.type == "sports":
+        sys.exit(run_sports_pipeline(args))
 
     # ── All-signs combined video (daily/weekly/monthly) ────────────────────────
     if args.mode == "all":

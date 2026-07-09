@@ -42,7 +42,7 @@ echo "  OK: python3 found at $VENV_PYTHON"
 # The cron will run with THIS interpreter — verify it can import the pipeline's
 # dependencies NOW instead of failing at 5:30 AM. (A .venv detected here does
 # NOT see packages installed with the system pip3.)
-if "$VENV_PYTHON" -c "import anthropic, edge_tts, PIL, numpy, dotenv, googleapiclient, requests" 2>/dev/null; then
+if "$VENV_PYTHON" -c "import anthropic, edge_tts, PIL, numpy, dotenv, googleapiclient, requests, swisseph" 2>/dev/null; then
     echo "  OK: pipeline dependencies import with $VENV_PYTHON"
 else
     echo ""
@@ -146,6 +146,13 @@ MONTHLY_CMD="0 8 1 * * cd $REPO && $VENV_PYTHON run_daily.py --type monthly --da
 # lines) — mid-roll-ad eligible, for MONETIZATION. Runs well after the Monday
 # daily-short (5:30)/topic (6:00) and clear of Sunday's short weekly (7:30).
 WEEKLYFULL_CMD="0 9 * * 1 cd $REPO && $VENV_PYTHON run_daily.py --type weeklyfull --date \$(date +\\%Y\\%m\\%d) --period \"\$(date +'\\%B \\%Y')\" --upload >> $LOG 2>&1"
+# SPORTS ASTROLOGY pipeline at 06:30 (every day) — LONG-FORM (real match data
+# + a computed sidereal chart + Claude narration) daily predictions, for
+# MONETIZATION. Runs after topic (6:00) so the 1-core VM renders one video at
+# a time (the flock lock below also protects against any overlap). A day
+# with no fetchable/overridden matches exits cleanly, not as a failure — see
+# run_sports_pipeline() in run_daily.py.
+SPORTS_CMD="30 6 * * * cd $REPO && $VENV_PYTHON run_daily.py --type sports --date \$(date +\\%Y\\%m\\%d) --period \"\$(date +'\\%B \\%Y')\" --upload >> $LOG 2>&1"
 # Heartbeat check at 12:00 — emails an alert if no successful run in >28h
 # (catches: cron never fired, pipeline failing every day, crontab wiped).
 HEARTBEAT_CMD="0 12 * * * cd $REPO && $VENV_PYTHON heartbeat.py --check >> $LOG 2>&1"
@@ -154,11 +161,12 @@ HEARTBEAT_CMD="0 12 * * * cd $REPO && $VENV_PYTHON heartbeat.py --check >> $LOG 
 # the legacy daily_runner.py 3 PM job installed by first_time_setup.py).
 ( crontab -l 2>/dev/null | grep -v -e "run_daily.py" -e "daily_runner.py" -e "doctor.py" -e "heartbeat.py" ) | crontab - 2>/dev/null || true
 
-# Add doctor (5:00) + daily short (5:30) + topic long-form (6:00) + weekly
-# short (Sun 7:30) + weekly long-form (Mon 9:00) + monthly (1st 8:00) + heartbeat (12:00)
-( crontab -l 2>/dev/null; echo "$DOCTOR_CMD"; echo "$CRON_CMD"; echo "$TOPIC_CMD"; echo "$WEEKLY_CMD"; echo "$MONTHLY_CMD"; echo "$WEEKLYFULL_CMD"; echo "$HEARTBEAT_CMD" ) | crontab -
+# Add doctor (5:00) + daily short (5:30) + topic long-form (6:00) + sports
+# astrology (6:30) + weekly short (Sun 7:30) + weekly long-form (Mon 9:00) +
+# monthly (1st 8:00) + heartbeat (12:00)
+( crontab -l 2>/dev/null; echo "$DOCTOR_CMD"; echo "$CRON_CMD"; echo "$TOPIC_CMD"; echo "$SPORTS_CMD"; echo "$WEEKLY_CMD"; echo "$MONTHLY_CMD"; echo "$WEEKLYFULL_CMD"; echo "$HEARTBEAT_CMD" ) | crontab -
 
-echo "  OK: cron jobs installed (doctor 5:00, daily-short 5:30, topic 6:00, weekly-short Sun 7:30, monthly 1st 8:00, weekly-long-form Mon 9:00, heartbeat 12:00)"
+echo "  OK: cron jobs installed (doctor 5:00, daily-short 5:30, topic 6:00, sports-astrology 6:30, weekly-short Sun 7:30, monthly 1st 8:00, weekly-long-form Mon 9:00, heartbeat 12:00)"
 
 # ── 3b. Log rotation so $LOG doesn't grow without bound ───────────────────────
 echo ""

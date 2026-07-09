@@ -1,6 +1,8 @@
 # Minimal dependencies for the ACTIVE daily pipeline only
 # (run_daily.py → generate_daily_assets.py → make_daily_video.py →
-#  quality_check.py → youtube_uploader.py, plus doctor.py/heartbeat.py).
+#  quality_check.py → youtube_uploader.py, plus doctor.py/heartbeat.py,
+#  plus the sports-astrology pipeline: sports_data.py/astro_chart.py/
+#  generate_sports_astrology_assets.py/make_sports_video.py).
 #
 # Use this to populate the cron's venv without the ~3 GB of legacy/cinematic
 # libraries in requirements.txt (librosa, opencv, scikit-learn, matplotlib...):
@@ -11,6 +13,7 @@ Pillow==10.3.0
 numpy==1.26.4
 python-dotenv==1.0.1
 requests==2.31.0
+pyswisseph>=2.10.0,<3.0
 google-api-python-client==2.126.0
 google-auth-oauthlib==1.2.0
 google-auth-httplib2==0.2.0
