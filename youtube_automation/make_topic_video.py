@@ -68,25 +68,10 @@ def _accent(cat: str):
 
 
 # ── Narration → natural-length audio clip, card dwell = its duration ──────────
-async def _tts_stream_with_words(text: str, out_mp3: str, voice: str,
-                                 rate: str = "+0%") -> list:
-    """Stream TTS audio while capturing real per-word timing from edge-tts's
-    WordBoundary events (verified API: edge_tts.SubMaker().feed(chunk), chunk
-    offset/duration in 100ns ticks). This is what makes the burned captions
-    land exactly on the spoken word instead of a guessed/uniform timing."""
-    import edge_tts
-    comm = edge_tts.Communicate(text, voice=voice, rate=rate)
-    words = []
-    with open(out_mp3, "wb") as f:
-        async for chunk in comm.stream():
-            if chunk["type"] == "audio":
-                f.write(chunk["data"])
-            elif chunk["type"] == "WordBoundary":
-                start = chunk["offset"] / 1e7          # 100ns ticks -> seconds
-                dur = chunk["duration"] / 1e7
-                words.append((start, start + dur, str(chunk["text"])))
-    return words
-
+# _tts_stream_with_words / _group_words_into_cues / _srt_timestamp / _write_srt
+# now live in make_daily_video.py (mdv) as shared utilities — daily/weekly/
+# monthly/weeklyfull need the same word-boundary capture + SRT writing this
+# module pioneered, so they were promoted rather than duplicated.
 
 def _narrate(text: str, out_wav: str, voice: str, tmp: Path) -> tuple:
     """TTS at natural pace, normalize to WAV. Returns (duration_secs,
@@ -96,7 +81,7 @@ def _narrate(text: str, out_wav: str, voice: str, tmp: Path) -> tuple:
     raw = str(tmp / (Path(out_wav).stem + "_raw.mp3"))
     words = []
     try:
-        words = asyncio.run(_tts_stream_with_words(text, raw, voice))
+        words = asyncio.run(mdv._tts_stream_with_words(text, raw, voice))
         ok = Path(raw).exists() and Path(raw).stat().st_size > 512
     except Exception as e:
         print(f"[WARN] edge-tts stream ({voice}): {e}", file=sys.stderr)
@@ -118,48 +103,6 @@ def _pad_to(in_wav: str, out_wav: str, dur: float) -> None:
     _sp.run(["ffmpeg", "-y", "-loglevel", "error", "-i", in_wav,
              "-af", f"apad,atrim=end={dur}", "-ar", mdv._AR, "-ac", mdv._AC,
              "-c:a", "pcm_s16le", out_wav], capture_output=True, timeout=60)
-
-
-# ── Captions: word-boundary timing -> short TikTok/Reels-style phrase cues ───
-def _group_words_into_cues(word_cues: list, max_words: int = 3) -> list:
-    """Merge consecutive (start,end,word) tuples into short caption phrases
-    (few words each) so captions change in sync with speech without a full
-    karaoke-per-word flicker. A cue also breaks early at sentence-ending
-    punctuation so captions align with natural speech rhythm."""
-    if not word_cues:
-        return []
-    cues, cur = [], []
-    for start, end, word in word_cues:
-        cur.append((start, end, word))
-        ends_sentence = word.rstrip().endswith((".", "!", "?", ","))
-        if len(cur) >= max_words or ends_sentence:
-            cues.append((cur[0][0], cur[-1][1], " ".join(w for _, _, w in cur)))
-            cur = []
-    if cur:
-        cues.append((cur[0][0], cur[-1][1], " ".join(w for _, _, w in cur)))
-    return cues
-
-
-def _srt_timestamp(t: float) -> str:
-    t = max(0.0, t)
-    h = int(t // 3600); m = int((t % 3600) // 60); s = int(t % 60)
-    ms = int(round((t - int(t)) * 1000))
-    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
-
-
-def _write_srt(cues: list, path: str) -> bool:
-    if not cues:
-        return False
-    lines = []
-    for i, (start, end, text) in enumerate(cues, 1):
-        if end <= start:
-            end = start + 0.3
-        lines.append(str(i))
-        lines.append(f"{_srt_timestamp(start)} --> {_srt_timestamp(end)}")
-        lines.append(text)
-        lines.append("")
-    Path(path).write_text("\n".join(lines), encoding="utf-8")
-    return True
 
 
 # ── Cards ─────────────────────────────────────────────────────────────────────
@@ -481,8 +424,8 @@ def process(json_path: str) -> str:
         # in above). None/empty if word timing wasn't available (TTS fallback
         # silence) — captions are then simply skipped, never a hard failure.
         srt_path = str(tmp / "captions.srt")
-        caption_cues = _group_words_into_cues(all_words, max_words=3)
-        has_captions = _write_srt(caption_cues, srt_path)
+        caption_cues = mdv._group_words_into_cues(all_words, max_words=3)
+        has_captions = mdv._write_srt(caption_cues, srt_path)
         print(f"      Captions: {len(caption_cues)} cues" if has_captions
               else "      [WARN] No word-timing captured — captions skipped")
 

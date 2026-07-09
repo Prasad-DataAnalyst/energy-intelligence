@@ -2,8 +2,9 @@
 """
 make_daily_video.py
 Creates a single "All 12 Signs" daily horoscope slideshow video.
-Text-only cards, no voice-over, ambient cosmic music.
-4s intro + 12s per sign x 12 = 148s total.
+Narrated cards with word-synced burned captions, ambient cosmic music.
+4s intro + 12s per sign x 12 = 148s total (weekly/monthly/weeklyfull use
+longer per-sign slots and an outro — see TYPE_CONFIG in generate_daily_assets.py).
 
 Usage:
   python3 make_daily_video.py daily_horoscope_20260621.json
@@ -867,24 +868,69 @@ def _day_voice(date_tag: str) -> str:
         return DEFAULT_VOICE
 
 
-async def _tts_async(text: str, out_path: str, rate: str = "+0%",
-                     voice: str = DEFAULT_VOICE) -> bool:
-    try:
-        import edge_tts
-        comm = edge_tts.Communicate(text, voice=voice, rate=rate)
-        await comm.save(out_path)
-        return Path(out_path).exists() and Path(out_path).stat().st_size > 512
-    except Exception as e:
-        print(f"[WARN] edge-tts ({voice}): {e}", file=sys.stderr)
-        # Retry once with the default voice in case a rotation voice is unavailable.
-        if voice != DEFAULT_VOICE:
-            try:
-                import edge_tts
-                await edge_tts.Communicate(text, voice=DEFAULT_VOICE, rate=rate).save(out_path)
-                return Path(out_path).exists() and Path(out_path).stat().st_size > 512
-            except Exception:
-                pass
+async def _tts_stream_with_words(text: str, out_mp3: str, voice: str,
+                                 rate: str = "+0%") -> list:
+    """Stream TTS audio while capturing real per-word timing from edge-tts's
+    WordBoundary events (offset/duration in 100ns ticks). This is what makes
+    burned captions land exactly on the spoken word instead of a guessed/
+    uniform timing. Shared by every video maker (daily/weekly/monthly/
+    weeklyfull via _generate_sign_voice below, topic via make_topic_video's
+    _narrate) so there is one source of truth for the edge-tts word-boundary
+    API shape."""
+    import edge_tts
+    comm = edge_tts.Communicate(text, voice=voice, rate=rate)
+    words = []
+    with open(out_mp3, "wb") as f:
+        async for chunk in comm.stream():
+            if chunk["type"] == "audio":
+                f.write(chunk["data"])
+            elif chunk["type"] == "WordBoundary":
+                start = chunk["offset"] / 1e7          # 100ns ticks -> seconds
+                dur = chunk["duration"] / 1e7
+                words.append((start, start + dur, str(chunk["text"])))
+    return words
+
+
+# ── Captions: word-boundary timing -> short TikTok/Reels-style phrase cues ───
+def _group_words_into_cues(word_cues: list, max_words: int = 3) -> list:
+    """Merge consecutive (start,end,word) tuples into short caption phrases
+    (few words each) so captions change in sync with speech without a full
+    karaoke-per-word flicker. A cue also breaks early at sentence-ending
+    punctuation so captions align with natural speech rhythm."""
+    if not word_cues:
+        return []
+    cues, cur = [], []
+    for start, end, word in word_cues:
+        cur.append((start, end, word))
+        ends_sentence = word.rstrip().endswith((".", "!", "?", ","))
+        if len(cur) >= max_words or ends_sentence:
+            cues.append((cur[0][0], cur[-1][1], " ".join(w for _, _, w in cur)))
+            cur = []
+    if cur:
+        cues.append((cur[0][0], cur[-1][1], " ".join(w for _, _, w in cur)))
+    return cues
+
+
+def _srt_timestamp(t: float) -> str:
+    t = max(0.0, t)
+    h = int(t // 3600); m = int((t % 3600) // 60); s = int(t % 60)
+    ms = int(round((t - int(t)) * 1000))
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+
+def _write_srt(cues: list, path: str) -> bool:
+    if not cues:
         return False
+    lines = []
+    for i, (start, end, text) in enumerate(cues, 1):
+        if end <= start:
+            end = start + 0.3
+        lines.append(str(i))
+        lines.append(f"{_srt_timestamp(start)} --> {_srt_timestamp(end)}")
+        lines.append(text)
+        lines.append("")
+    Path(path).write_text("\n".join(lines), encoding="utf-8")
+    return True
 
 
 def _audio_dur(path: str) -> float:
@@ -925,22 +971,43 @@ def _generate_silence(duration: float, out_path: str) -> bool:
 
 
 def _generate_sign_voice(text: str, out_path: str, target_secs: float,
-                         voice: str = DEFAULT_VOICE) -> bool:
-    """TTS → speed up slightly if needed → pad/trim to exactly target_secs.
+                         voice: str = DEFAULT_VOICE) -> tuple:
+    """TTS (capturing real word-boundary timing) → speed up slightly if
+    needed → pad/trim to exactly target_secs.
+
+    Returns (ok, word_cues): word_cues are (start, end, word) LOCAL to this
+    clip (0 = clip start), clamped to target_secs — a caption must never
+    reference time past the card's own dwell. edge-tts reports WordBoundary
+    offsets against whichever synthesis pass actually produced the audio, so
+    a sped-up retry's cues are already in the right timebase with no extra
+    scaling needed.
 
     Rate is capped at +20%: beyond that the narration sounds rushed. The spoken
     script is sized to fit at normal speed; a big overrun means the script is
     too long and should be shortened, not chipmunked."""
     raw = out_path.rsplit(".", 1)[0] + "_raw.mp3"
-    ok = asyncio.run(_tts_async(text, raw, voice=voice))
+    words = []
+    try:
+        words = asyncio.run(_tts_stream_with_words(text, raw, voice))
+        ok = Path(raw).exists() and Path(raw).stat().st_size > 512
+    except Exception as e:
+        print(f"[WARN] edge-tts stream ({voice}): {e}", file=sys.stderr)
+        ok = False
+    if not ok and voice != DEFAULT_VOICE:
+        # Retry once with the default voice in case a rotation voice is unavailable.
+        try:
+            words = asyncio.run(_tts_stream_with_words(text, raw, DEFAULT_VOICE))
+            ok = Path(raw).exists() and Path(raw).stat().st_size > 512
+        except Exception:
+            ok = False
     if not ok:
         Path(raw).unlink(missing_ok=True)
-        return _generate_silence(target_secs, out_path)
+        return _generate_silence(target_secs, out_path), []
 
     dur = _audio_dur(raw)
     if dur > target_secs + 0.3:
         rate_pct = min(20, int((dur / target_secs - 1) * 100) + 3)
-        asyncio.run(_tts_async(text, raw, rate=f"+{rate_pct}%", voice=voice))  # overwrite raw
+        words = asyncio.run(_tts_stream_with_words(text, raw, voice, rate=f"+{rate_pct}%"))
 
     cmd = [
         "ffmpeg", "-y", "-loglevel", "error",
@@ -952,9 +1019,12 @@ def _generate_sign_voice(text: str, out_path: str, target_secs: float,
     ]
     try:
         r = _sp.run(cmd, capture_output=True, timeout=30)
-        return r.returncode == 0
+        if r.returncode != 0:
+            return False, []
+        clamped = [(s, min(e, target_secs), w) for s, e, w in words if s < target_secs]
+        return True, clamped
     except Exception:
-        return False
+        return False, []
     finally:
         Path(raw).unlink(missing_ok=True)
 
@@ -1063,7 +1133,8 @@ def _mux_audio(tmp_video: str, audio_path: str | None, out_path: str) -> bool:
 
 
 def assemble_video_motion(png_files: list, durations: list,
-                          audio_path: str | None, out_path: str) -> bool:
+                          audio_path: str | None, out_path: str,
+                          srt_path: str | None = None) -> bool:
     """Crossfade each card into the next for a smooth, 'alive' feel.
     Falls back to the static assembler on any failure."""
     tmp_video = out_path.replace(".mp4", "_motion.mp4")
@@ -1094,10 +1165,21 @@ def assemble_video_motion(png_files: list, durations: list,
         )
         prev = label
     filt = ";".join(parts)
+    out_label = f"[{prev}]"
+
+    if srt_path and Path(srt_path).exists():
+        # FPS (24) is already well above CAPTION_FPS, so no upsample stage is
+        # needed today — this guard only matters if FPS is ever lowered.
+        pre = f"[{prev}]"
+        if FPS < CAPTION_FPS:
+            filt += f";[{prev}]fps={CAPTION_FPS}[vcap]"
+            pre = "[vcap]"
+        filt += f";{pre}{_subtitle_filter(srt_path)}[vout]"
+        out_label = "[vout]"
 
     cmd = [
         "ffmpeg", "-y", "-loglevel", "error",
-        *inputs, "-filter_complex", filt, "-map", f"[{prev}]",
+        *inputs, "-filter_complex", filt, "-map", out_label,
         "-pix_fmt", "yuv420p", "-c:v", "libx264", "-preset", "veryfast",
         "-crf", "20", "-threads", "0", "-movflags", "+faststart", tmp_video,
     ]
@@ -1282,40 +1364,61 @@ def process(json_path: str) -> str:
         day_voice = _day_voice(date_tag)
         print(f"\n[2/5] Generating voice narration (edge-tts, voice: {day_voice})...")
         voice_clips: list = []
+        all_words: list = []   # (start, end, word) in GLOBAL video-timeline seconds
+        t_cursor = 0.0          # card durations are FIXED, so this tracks in lockstep
 
         # Narrated intro — never open a Short with 4s of dead air.
         intro_voice = str(tmp / "voice_00_intro.wav")
-        if _generate_sign_voice(_intro_script(date_str), intro_voice,
-                                INTRO_SECS, voice=day_voice):
+        ok, words = _generate_sign_voice(_intro_script(date_str), intro_voice,
+                                         INTRO_SECS, voice=day_voice)
+        if ok:
             voice_clips.append(intro_voice)
+            all_words += [(t_cursor + s, t_cursor + e, w) for s, e, w in words]
             print(f"      [intro]  {INTRO_SECS}s narrated hook")
         else:
             voice_clips.append(None)
+        t_cursor += INTRO_SECS
 
         for idx, sign in enumerate(SIGNS):
             fields = signs_data.get(sign, {})
             script = _voice_script(sign, fields)
             vpath  = str(tmp / f"voice_{idx + 1:02d}_{sign}.wav")
-            if _generate_sign_voice(script, vpath, sign_secs, voice=day_voice):
+            ok, words = _generate_sign_voice(script, vpath, sign_secs, voice=day_voice)
+            if ok:
                 voice_clips.append(vpath)
+                all_words += [(t_cursor + s, t_cursor + e, w) for s, e, w in words]
                 print(f"      [{sign.title():<14}]  {sign_secs}s")
             else:
                 sil2 = str(tmp / f"sil_{idx + 1:02d}.wav")
                 _generate_silence(sign_secs, sil2)
                 voice_clips.append(sil2)
                 print(f"      [{sign.title():<14}]  (TTS failed, silence)")
+            t_cursor += sign_secs
 
         if has_outro:
             outro_voice = str(tmp / "voice_99_outro.wav")
-            if _generate_sign_voice(_outro_script(luckiest_sign), outro_voice,
-                                    OUTRO_SECS, voice=day_voice):
+            ok, words = _generate_sign_voice(_outro_script(luckiest_sign), outro_voice,
+                                             OUTRO_SECS, voice=day_voice)
+            if ok:
                 voice_clips.append(outro_voice)
+                all_words += [(t_cursor + s, t_cursor + e, w) for s, e, w in words]
                 print(f"      [outro]  {OUTRO_SECS}s narrated reveal")
             else:
                 sil3 = str(tmp / "sil_outro.wav")
                 _generate_silence(OUTRO_SECS, sil3)
                 voice_clips.append(sil3)
                 print(f"      [outro]  (TTS failed, silence)")
+            t_cursor += OUTRO_SECS
+
+        # Word-synced captions: group into short phrases, write a single SRT
+        # spanning the whole assembled timeline (global offsets already baked
+        # in above). None/empty if word timing wasn't captured anywhere (all
+        # TTS failed) — captions are then simply skipped, never a hard failure.
+        srt_path = str(tmp / "captions.srt")
+        caption_cues = _group_words_into_cues(all_words, max_words=3)
+        has_captions = _write_srt(caption_cues, srt_path)
+        print(f"      Captions: {len(caption_cues)} cues" if has_captions
+              else "      [WARN] No word-timing captured — captions skipped")
 
         voice_concat_path = str(tmp / "voice_all.wav")
         valid_clips = [c for c in voice_clips if c and Path(c).exists()]
@@ -1360,11 +1463,14 @@ def process(json_path: str) -> str:
         # 4. Assemble
         mode = "motion (crossfade)" if MOTION_ENABLED else "static"
         print(f"\n[4/5] Assembling {WIDTH}x{HEIGHT} @ {FPS}fps  [{mode}]...")
+        cap_srt = srt_path if has_captions else None
         ok = False
         if MOTION_ENABLED:
-            ok = assemble_video_motion(png_files, durations, audio_path, video_path)
+            ok = assemble_video_motion(png_files, durations, audio_path, video_path,
+                                       srt_path=cap_srt)
         if not ok:
-            ok = assemble_video(png_files, durations, audio_path, video_path)
+            ok = assemble_video(png_files, durations, audio_path, video_path,
+                                srt_path=cap_srt)
         if not ok:
             print("[ERROR] Assembly failed", file=sys.stderr)
             sys.exit(1)
