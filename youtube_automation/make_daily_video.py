@@ -501,11 +501,36 @@ def render_outro_card(luckiest_sign: str) -> Image.Image:
 # glass panel: Love, Career, Money, Health, and a Lucky Guidance block
 # (number • color • best time + advice).
 
+_tofu_cache: dict = {}
+
+
+def _glyph_pixels(sym: str, font) -> tuple:
+    """(bbox_width, filled_pixel_count) for a rendered glyph — used to
+    fingerprint a font's "missing glyph" (tofu) box, and to compare
+    candidate symbols against it."""
+    img = Image.new("L", (max(font.size * 2, 64),) * 2, 0)
+    d = ImageDraw.Draw(img)
+    bbox = d.textbbox((0, 0), sym, font=font)
+    d.text((0, 0), sym, font=font, fill=255)
+    filled = int((np.array(img) > 30).sum())
+    return bbox[2] - bbox[0], filled
+
+
 def _icon(sym: str, fallback: str, size: int) -> tuple:
-    """Return (symbol, font) — validated so icons never render as tofu."""
+    """Return (symbol, font) — validated so icons never render as tofu.
+
+    A missing glyph still has nonzero width in most fonts (it draws a
+    hollow placeholder box), so a width-only check — the previous
+    implementation — passes tofu straight through. Instead, fingerprint
+    this font's actual tofu box once per size (by rendering a Private Use
+    Area codepoint, which is guaranteed unmapped) and reject any candidate
+    symbol whose render matches that exact fingerprint."""
     gf = _glyph_font(size)
+    if size not in _tofu_cache:
+        _tofu_cache[size] = _glyph_pixels("", gf)
     try:
-        if _tw(sym, gf) > 2:
+        sig = _glyph_pixels(sym, gf)
+        if sig[0] > 2 and sig != _tofu_cache[size]:
             return sym, gf
     except Exception:
         pass

@@ -1,5 +1,5 @@
 {
-  "_comment": "30-day rotating astrology topic calendar. Day-of-month N uses topics[N-1]. Claude writes a FRESH script each time, so even a repeated topic gets new content month to month. Reorder/edit freely; keep 31 entries so the 31st of long months has a topic.",
+  "_comment": "34-day rotating astrology topic calendar (cycles roughly monthly via day-of-year modulo — see generate_topic_assets.py:_load_topic). Claude writes a FRESH script each time, so even a repeated topic gets new content month to month. Reorder/edit freely. Days 32-34 (political/stockmarket/crypto) are deliberately evergreen/historical/educational — never real-time election or trading predictions; see their angle text.",
   "topics": [
     {"day": 1,  "category": "lunar",        "title": "Full Moon Energy: How It Affects Every Zodiac Sign", "angle": "What the current full moon means, its emotional and manifesting effects, and guidance for each of the 12 signs."},
     {"day": 2,  "category": "love",         "title": "Zodiac Love Compatibility: The Best and Worst Matches", "angle": "Which signs attract, which clash, and why — element and modality chemistry explained with real examples."},
@@ -31,6 +31,9 @@
     {"day": 28, "category": "concepts",     "title": "Cardinal, Fixed, Mutable: The Three Zodiac Modalities", "angle": "How the modalities explain who initiates, who sustains, and who adapts — and how to use yours."},
     {"day": 29, "category": "love",         "title": "The Most Loyal (and Most Likely to Cheat) Zodiac Signs", "angle": "A ranking of fidelity by sign with the astrological reasons — engaging, comment-baiting, but fair."},
     {"day": 30, "category": "planets",      "title": "Your Big Astrology Forecast: Key Transits Ahead", "angle": "The major planetary movements coming up and what they mean for each sign's month ahead."},
-    {"day": 31, "category": "engagement",   "title": "The Most Powerful Zodiac Signs, Ranked", "angle": "A fun, shareable ranking of the signs by strength, willpower, and influence — with astrological reasoning."}
+    {"day": 31, "category": "engagement",   "title": "The Most Powerful Zodiac Signs, Ranked", "angle": "A fun, shareable ranking of the signs by strength, willpower, and influence — with astrological reasoning."},
+    {"day": 32, "category": "political",    "title": "The Astrology Behind America's Biggest Political Turning Points", "angle": "A mundane-astrology look at Saturn returns, Pluto transits, and eclipse seasons around major historical U.S. political shifts — evergreen and non-partisan, no current-election predictions."},
+    {"day": 33, "category": "stockmarket",  "title": "Mercury Retrograde and the Stock Market: What History Shows", "angle": "How Mercury retrograde, Saturn transits, and eclipse seasons have historically lined up with market volatility — an astrology lens on famous crashes and rallies, education only, not financial advice."},
+    {"day": 34, "category": "crypto",       "title": "Bitcoin's Birth Chart: What Astrology Says About Crypto's Wild Rides", "angle": "Reading Bitcoin's January 2009 'genesis' chart and Uranus/Rahu cycles behind crypto's boom-bust pattern — an astrology-meets-history angle, entertainment only, not financial advice."}
   ]
 }
