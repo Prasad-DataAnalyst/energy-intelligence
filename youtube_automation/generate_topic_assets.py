@@ -55,6 +55,50 @@ Rules:
 
 Return ONLY valid raw JSON. No markdown, no code fences, no commentary."""
 
+# Per-category safety instructions, injected into every script-writing call
+# for these categories — deterministic, not dependent on whether the
+# calendar's one-sentence "angle" text happens to carry the right framing
+# that day (build_calendar.py's guidance steers Claude toward safe topics,
+# but the ANGLE it returns per-topic is not guaranteed to restate the
+# constraint, and this SYSTEM_PROMPT is otherwise fully generic). A short
+# disclaimer is also hardcoded onto the outro/description below — not left
+# to chance either.
+CATEGORY_SAFETY = {
+    "political": (
+        "SAFETY: this is a POLITICAL/mundane-astrology topic. Keep it EVERGREEN, "
+        "HISTORICAL, and NON-PARTISAN. Do NOT predict outcomes for any current or "
+        "upcoming election. Do NOT make speculative, opinionated, or predictive "
+        "claims about any specific LIVING politician's character, agenda, or "
+        "future actions. Stick to documented historical facts and general "
+        "astrological cycle patterns."
+    ),
+    "stockmarket": (
+        "SAFETY: this is a STOCK MARKET astrology topic. Frame everything as "
+        "general historical patterns and educational commentary. Do NOT "
+        "recommend, predict, or imply any specific real-time stock, ticker, or "
+        "trade. This is entertainment/education — NEVER financial advice."
+    ),
+    "crypto": (
+        "SAFETY: this is a CRYPTOCURRENCY astrology topic. Frame everything as "
+        "general historical patterns and educational commentary. Do NOT "
+        "recommend, predict, or imply any specific real-time coin, token, or "
+        "trade. This is entertainment/education — NEVER financial advice."
+    ),
+    "celebrity": (
+        "SAFETY: this is a CELEBRITY astrology topic. Use ONLY publicly known "
+        "birth dates and public career facts/achievements. Do NOT speculate "
+        "about any real person's private life, relationships, health, or "
+        "future. Keep it light, factual, and entertainment-focused."
+    ),
+}
+
+_DISCLAIMER_SUFFIX = {
+    "political":   "This video is for entertainment and historical astrology education only — not a political endorsement or election prediction.",
+    "stockmarket": "This video is for entertainment and astrological education only — not financial or trading advice.",
+    "crypto":      "This video is for entertainment and astrological education only — not financial or trading advice.",
+    "celebrity":   "All commentary uses publicly known birth information for entertainment purposes only.",
+}
+
 
 def _load_topic(date_tag: str, override: str = None):
     """Pick the day's topic. Works for ANY calendar length:
@@ -102,10 +146,13 @@ def generate(period: str, date_tag: str = None, override: str = None) -> str:
     when = datetime.strptime(date_tag, "%Y%m%d").strftime("%B %d, %Y")
     topic = _load_topic(date_tag, override)
 
+    category = topic.get("category", "astrology")
+    safety_block = CATEGORY_SAFETY.get(category, "")
+
     user_msg = f"""Topic for today's video ({when}):
 TITLE THEME: {topic['title']}
 ANGLE: {topic['angle']}
-
+{f"{chr(10)}{safety_block}{chr(10)}" if safety_block else ""}
 Write the full video script with EXACTLY {N_SECTIONS} sections.
 
 Return this EXACT JSON shape:
@@ -147,7 +194,7 @@ Return this EXACT JSON shape:
         raise RuntimeError(f"Topic script generation failed after 3 attempts: {last_err}")
 
     data["content_type"] = "topic"
-    data["category"]     = topic.get("category", "astrology")
+    data["category"]     = category
     data["topic_title"]  = topic["title"]
     data["date"]         = when
     # fps is computed dynamically by make_topic_video from the actual
@@ -160,6 +207,15 @@ Return this EXACT JSON shape:
                     "What should tomorrow's topic be? Comment below! ⬇️\n"
                     "New astrology deep-dive every day — Subscribe 🔔 "
                     "#astrology #zodiac #horoscope")
+
+    # Hardcoded disclaimer for sensitive categories — appended in code, not
+    # left to Claude's discretion, so it's guaranteed present every time
+    # regardless of what the script otherwise says (same pattern as the
+    # sports-astrology pipeline's DISCLAIMER).
+    disclaimer = _DISCLAIMER_SUFFIX.get(category)
+    if disclaimer:
+        data["outro"] = f"{data.get('outro', '').rstrip('. ')}. {disclaimer}"
+        data["description"] = f"{data.get('description', '')}\n\n{disclaimer}"
 
     filename = f"topic_{date_tag}.json"
     (HERE / filename).write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
