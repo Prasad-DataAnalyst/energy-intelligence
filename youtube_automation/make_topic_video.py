@@ -52,6 +52,7 @@ CAT_COLOR = {
     "political":    ((210, 210, 220), (10, 10, 16), (26, 26, 36)),
     "stockmarket":  ((100, 230, 150), (4, 18, 10), (10, 40, 22)),
     "crypto":       ((120, 220, 255), (4, 14, 20), (10, 32, 42)),
+    "celebrity":    ((255, 190, 220), (20, 8, 16), (46, 14, 32)),
 }
 DEFAULT_ACCENT = ((200, 170, 255), (8, 6, 20), (18, 14, 44))
 
@@ -63,7 +64,7 @@ CAT_GLYPH = {
     "love": "♥", "money": "$", "business": "▲", "career": "▲",
     "health": "✚", "houses": "⌂", "aspects": "✧", "concepts": "◈",
     "deep": "☄", "engagement": "★",
-    "political": "⚖", "stockmarket": "%", "crypto": "◆",
+    "political": "⚖", "stockmarket": "%", "crypto": "◆", "celebrity": "♛",
 }
 
 
