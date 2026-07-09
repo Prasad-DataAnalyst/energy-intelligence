@@ -14,7 +14,7 @@ venv/
 *.deb
 
 # Output / logs
-youtube_automation/output/
+youtube_automation/outputs/
 youtube_automation/logs/
 youtube_automation/voice_*.wav
 youtube_automation/voice_*.mp3
