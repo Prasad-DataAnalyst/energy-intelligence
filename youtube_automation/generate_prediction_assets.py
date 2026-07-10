@@ -73,9 +73,11 @@ DISCLAIMERS = {
 
 _COMMON_RULES = """
 Write for SPOKEN delivery in a punchy, exciting, confident voice — this
-becomes word-synced captions, so use short sentences. Total across hook +
-all beats + verdict + outro must be about 170-200 words (the finished video
-must stay UNDER 90 seconds). Be specific and crispy, never vague filler.
+becomes word-synced captions, so use short sentences. STRICT LENGTH BUDGET
+(the finished video must stay under 90 seconds of speech): hook <= 15 words,
+each beat narration 30-40 words, verdict detail <= 15 words, outro <= 20
+words — total across hook + all three beats + verdict + outro must be
+130-160 words. Be specific and crispy, never vague filler.
 Return ONLY valid raw JSON — no markdown, no code fences, no commentary."""
 
 SYSTEM_PROMPTS = {
@@ -133,7 +135,7 @@ _JSON_SHAPE = """Return this EXACT JSON shape:
   "subject_label": "a short 2-4 word on-screen label for what this is about",
   "beats": [
     {"heading": "2-4 word on-screen heading",
-     "narration": "35-50 words spoken, punchy",
+     "narration": "30-40 words spoken, punchy",
      "image_query": "2-4 word stock-photo search phrase for this beat",
      "image_fallback": "1-2 word broader stock-photo search phrase"}
   ],
@@ -226,11 +228,22 @@ def _validate(data: dict) -> None:
     c = v["confidence_pct"]
     if not isinstance(c, (int, float)) or not (50 <= c <= 80):
         raise ValueError(f"confidence_pct out of sane range: {c}")
-    # total word budget guard — must stay short enough for <90s
+    # Total SPOKEN word budget — must stay short enough for <90s of speech.
+    # Everything narrated counts: hook, 3 beats, verdict headline+detail
+    # (spoken on the verdict card as "headline. detail"), and the outro.
+    # Budget math (validated against a real overlong production run that hit
+    # 103s): TTS ≈ 2.4 words/sec, plus ~5s of per-card padding across the 6
+    # cards, plus the ~12-word disclaimer appended to the outro AFTER this
+    # validation. 175 words + disclaimer ≈ 187 spoken ≈ 78s + 5s padding ≈
+    # 83s — comfortably under the 90s target / 100s QC hard cap. The earlier
+    # 240-word cap ALSO omitted the verdict + disclaimer, which is exactly
+    # how a "valid" script rendered to 103s and failed QC in production.
     words = len(str(data["hook"]).split()) + len(str(data["outro"]).split())
     words += sum(len(str(b["narration"]).split()) for b in beats[:3])
-    if words > 240:
-        raise ValueError(f"script too long ({words} words, must be <=240 for <90s)")
+    words += len(str(v.get("headline", "")).split()) + len(str(v.get("detail", "")).split())
+    if words > 175:
+        raise ValueError(f"script too long ({words} spoken words incl. verdict, "
+                         f"must be <=175 to render under 90s)")
 
 
 def generate(category: str, date_tag: str) -> str:
@@ -244,11 +257,17 @@ def generate(category: str, date_tag: str) -> str:
     data, last_err = None, None
     for attempt in range(1, 4):
         try:
+            # Feed the previous attempt's validation error back so a retry is
+            # corrective, not a coin-flip on the identical prompt (a too-long
+            # script tends to come back too long again otherwise).
+            msg = user_msg if last_err is None else (
+                f"{user_msg}\n\nYour previous attempt was rejected: {last_err}. "
+                f"Fix exactly that and return the corrected JSON.")
             resp = client.messages.create(
                 model="claude-sonnet-4-6",
                 max_tokens=3000,
                 system=SYSTEM_PROMPTS[category],
-                messages=[{"role": "user", "content": user_msg}],
+                messages=[{"role": "user", "content": msg}],
             )
             raw = resp.content[0].text.strip()
             raw = re.sub(r"^```[a-z]*\n?", "", raw)
