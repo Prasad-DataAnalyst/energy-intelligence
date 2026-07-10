@@ -110,10 +110,13 @@ else
     echo "  OK: no daemon services registered"
 fi
 # SIGKILL the watchdog FIRST (so it can't respawn the daemon), then the daemon.
-sudo pkill -9 -f "start_scheduler.sh"   2>/dev/null && echo "  OK: killed start_scheduler.sh" || true
-sudo pkill -9 -f "horoscope_daemon.py"  2>/dev/null && echo "  OK: killed horoscope_daemon.py" || true
+# The [s]/[h] bracket trick keeps pkill -f from matching its OWN sudo wrapper's
+# command line (which also contains the pattern) — without it, pkill kills the
+# sudo process it's running under and bash prints a confusing "Killed" line.
+sudo pkill -9 -f "[s]tart_scheduler.sh"   2>/dev/null && echo "  OK: killed start_scheduler.sh" || true
+sudo pkill -9 -f "[h]oroscope_daemon.py"  2>/dev/null && echo "  OK: killed horoscope_daemon.py" || true
 sleep 2
-if pgrep -f "horoscope_daemon.py" >/dev/null 2>&1; then
+if pgrep -f "[h]oroscope_daemon.py" >/dev/null 2>&1; then
     echo "  WARN: horoscope_daemon.py STILL running (likely stuck in D-state I/O)."
     echo "        It cannot restart (service masked) but is finishing current I/O."
     echo "        Reboot to clear it fully:  sudo reboot"
