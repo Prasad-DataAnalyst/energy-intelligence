@@ -133,8 +133,17 @@ def check_video(video_path: str) -> list:
                     ctype = json.loads(sidecar.read_text()).get("content_type", "")
             except Exception:
                 pass
+            # "prediction" is the SHORT LANDSCAPE format (≤~90s, 1920×1080);
+            # everything else is vertical 1080×1920. long-form types get the
+            # 60-min cap, Shorts get 180s.
+            is_prediction = ctype == "prediction"
             long_form = ctype in ("monthly", "deep", "topic", "weeklyfull", "sports")
-            max_dur = 3600 if long_form else 180
+            if is_prediction:
+                max_dur = 100          # 90s target + a little slack
+            elif long_form:
+                max_dur = 3600
+            else:
+                max_dur = 180
 
             duration = float(fmt.get("duration", 0))
             if duration < 30:
@@ -142,13 +151,15 @@ def check_video(video_path: str) -> list:
             elif duration > max_dur:
                 errors.append(f"Too long: {duration:.1f}s (need ≤{max_dur}s)")
 
+            want_dims = (1920, 1080) if is_prediction else (1080, 1920)
             vstreams = [s for s in streams if s.get("codec_type") == "video"]
             if not vstreams:
                 errors.append("No video stream")
             else:
                 w, h = vstreams[0].get("width", 0), vstreams[0].get("height", 0)
-                if (w, h) != (1080, 1920):
-                    errors.append(f"Wrong dimensions: {w}×{h} (need 1080×1920)")
+                if (w, h) != want_dims:
+                    errors.append(f"Wrong dimensions: {w}×{h} "
+                                  f"(need {want_dims[0]}×{want_dims[1]})")
 
             astreams = [s for s in streams if s.get("codec_type") == "audio"]
             if not astreams:

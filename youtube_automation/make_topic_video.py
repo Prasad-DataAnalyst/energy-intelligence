@@ -319,7 +319,7 @@ def render_outro_card(data: dict) -> Image.Image:
 
     # Subscribe pill
     cf = mdv._ui_font(58, 700)
-    cta = "SUBSCRIBE  🔔"
+    cta = "SUBSCRIBE"
     cw = mdv._tw(cta, cf)
     cx = (W - cw - 80) // 2
     d.rounded_rectangle([cx, 1020, cx + cw + 80, 1020 + mdv._th(cf) + 44],

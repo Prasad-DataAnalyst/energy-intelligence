@@ -250,7 +250,7 @@ def render_disclaimer_card(when: str) -> Image.Image:
         y += mdv._th(sf) + 14
 
     cf = mdv._ui_font(50, 700)
-    cta = "SUBSCRIBE  🔔"
+    cta = "SUBSCRIBE"
     cw = mdv._tw(cta, cf)
     cx = (W - cw - 80) // 2
     d.rounded_rectangle([cx, H - 340, cx + cw + 80, H - 340 + mdv._th(cf) + 44],

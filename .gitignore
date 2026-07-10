@@ -44,3 +44,7 @@ youtube-ai-engine/logs/
 youtube-ai-engine/data/input/
 youtube-ai-engine/__pycache__/
 youtube-ai-engine/**/__pycache__/
+
+# Stock image cache / overrides (prediction videos)
+youtube_automation/.stock_cache/
+youtube_automation/stock_override/
