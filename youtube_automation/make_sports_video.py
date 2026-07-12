@@ -33,18 +33,24 @@ PAD = 64
 CW = W - 2 * PAD
 
 SPORT_COLOR = {
+    # legacy keys (pre-US-only sports_data) kept for old JSONs
     "football": ((90, 220, 130), (4, 16, 8), (10, 38, 20)),
     "cricket":  ((90, 200, 255), (4, 12, 22), (10, 28, 48)),
-    "nfl":      ((255, 150, 60), (18, 10, 4), (44, 24, 8)),
     "rugby":    ((200, 150, 255), (12, 6, 22), (30, 14, 48)),
+    # current US sport keys (see sports_data.SPORT_MAP)
+    "nfl":        ((255, 150, 60), (18, 10, 4), (44, 24, 8)),
+    "basketball": ((255, 140, 70), (20, 10, 4), (46, 24, 8)),
+    "baseball":   ((110, 200, 255), (4, 12, 22), (12, 30, 48)),
+    "hockey":     ((160, 220, 255), (6, 12, 20), (14, 28, 44)),
+    "soccer":     ((90, 220, 130), (4, 16, 8), (10, 38, 20)),
 }
 DEFAULT_ACCENT = ((255, 215, 0), (16, 12, 2), (40, 30, 6))
 
 SPORT_GLYPH = {
-    "football": ("⚽", "●"),
-    "cricket":  ("🏏", "◆"),
-    "nfl":      ("🏈", "▲"),
-    "rugby":    ("🏉", "⬢"),
+    # emoji are tofu in the bundled fonts — _icon() falls back to the shapes
+    "football": ("⚽", "●"), "cricket": ("🏏", "◆"), "rugby": ("🏉", "⬢"),
+    "nfl": ("🏈", "▲"), "basketball": ("🏀", "●"),
+    "baseball": ("⚾", "◍"), "hockey": ("🏒", "◆"), "soccer": ("⚽", "●"),
 }
 
 

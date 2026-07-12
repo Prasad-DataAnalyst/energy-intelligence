@@ -1,25 +1,21 @@
 #!/usr/bin/env python3
 """
 sports_data.py
-Fetches today's major matches (Football, Cricket, NFL, Rugby) for the daily
-Sports Astrology video. Two sources, checked in order:
+Fetches today's US matches (NFL, NBA, MLB, NHL, MLS) for the daily Sports
+Astrology prediction video. The channel is US-only, so events are filtered
+to US-hosted games / US leagues. Two sources, checked in order:
 
 1. A manual override file, sports_matches_YYYYMMDD.json, in this directory —
-   if present, ALWAYS used instead of the live API. Lets you hand-supply
-   today's matches (accurate, zero API dependency) exactly as the topic
-   pipeline's --topic override works, and is what a broken/rate-limited API
-   day should fall back to.
-2. TheSportsDB free tier (eventsday.php), one call per configured sport.
+   if present, ALWAYS used instead of the live API (and NOT re-filtered:
+   whatever you hand-supply is trusted as-is). This is also the fallback for
+   a broken/rate-limited API day.
+2. TheSportsDB free tier (eventsday.php), one call per configured sport,
+   filtered through _is_us_event().
 
-NOTE ON VERIFICATION: TheSportsDB's exact response shape below was coded
-against their documented schema (field names like strEvent/strHomeTeam/
-strVenue/strTime), not confirmed with a live call from this dev environment
-(network to thesportsdb.com was unreachable here). _normalize_event() below
-is deliberately defensive — it never assumes a field exists — but the FIRST
-live production run should be checked by hand against the actual JSON.
-
-TheSportsDB documents strTime as UTC and dateEvent as YYYY-MM-DD; matches
-are normalized to naive UTC datetimes throughout this module.
+The response shape (strEvent/strHomeTeam/strVenue/strTime/strCountry, times
+in UTC) was VERIFIED against a real production fetch on 2026-07-10 — the
+documented schema matched exactly. _normalize_event() stays defensive
+regardless (every field via .get()).
 """
 import json
 import os
@@ -38,13 +34,35 @@ HERE = Path(__file__).parent
 SPORTSDB_KEY = os.getenv("SPORTSDB_API_KEY", "123")   # "123" = public free test key
 SPORTSDB_BASE = f"https://www.thesportsdb.com/api/v1/json/{SPORTSDB_KEY}"
 
-# internal sport key -> TheSportsDB's own sport-name string for the `s=` param
+# internal sport key -> TheSportsDB's own sport-name string for the `s=` param.
+# US-ONLY channel: the five sports Americans actually watch, filtered below
+# to US-hosted events (the first live fetch without a filter returned Irish
+# soccer, English cricket, and a Canadian CFL game — none suitable). Between
+# MLB (daily Apr-Oct), NBA/NHL (Oct-Jun) and NFL (Sep-Feb) there is something
+# on virtually every day of the year.
 SPORT_MAP = {
-    "football": "Soccer",
-    "cricket": "Cricket",
-    "nfl": "American Football",
-    "rugby": "Rugby",
+    "nfl":        "American Football",
+    "basketball": "Basketball",
+    "baseball":   "Baseball",
+    "hockey":     "Ice Hockey",
+    "soccer":     "Soccer",
 }
+
+# US filter: an event counts as US if its country field says so OR its league
+# is a known US league (belt-and-braces — TheSportsDB's country strings for
+# US events weren't live-verifiable from the dev sandbox, but league names
+# like "NFL"/"NBA"/"MLB" are stable and documented).
+_US_COUNTRIES = {"united states", "usa", "us", "united states of america"}
+_US_LEAGUE_HINTS = ("nfl", "nba", "mlb", "nhl", "mls", "major league soccer",
+                    "major league baseball", "ncaa", "wnba", "usl")
+
+
+def _is_us_event(m: dict) -> bool:
+    if (m.get("country") or "").strip().lower() in _US_COUNTRIES:
+        return True
+    league = (m.get("league") or "").lower()
+    return any(h in league for h in _US_LEAGUE_HINTS)
+
 
 # How many matches to keep per sport per day, to keep the video a reasonable
 # length — the free tier can return many lower-tier fixtures on a busy day.
@@ -113,6 +131,8 @@ def _fetch_sport(sport_key: str, sportsdb_name: str, date_str: str) -> list:
     # Keep only matches with at least both team names and a start time —
     # a malformed/partial entry is worse than no entry for a scripted video.
     matches = [m for m in matches if m["team_a"] and m["team_b"] and m["datetime_utc"]]
+    # US-only channel: drop anything not hosted in the US / a US league.
+    matches = [m for m in matches if _is_us_event(m)]
     return matches[:MAX_PER_SPORT]
 
 

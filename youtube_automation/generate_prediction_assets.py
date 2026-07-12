@@ -45,22 +45,24 @@ CATEGORIES = ("sports", "crypto", "political", "celebrity")
 
 SIGNS = astro_chart.SIGNS
 
-# A tiny, uncontroversial seed of very widely-known public figures per sign,
-# used ONLY to ground the celebrity video in real public birth-sign facts so
-# Claude doesn't invent them. Personality/archetype commentary only — never
-# private life. Extend freely.
+# A tiny, uncontroversial seed of public figures per sign — US-household
+# names (the channel is US-only), used ONLY to ground the celebrity video in
+# real public birth-sign facts so Claude doesn't invent them. Personality/
+# archetype commentary only — never private life. Deliberately NO politicians
+# or political figures (keeps the celebrity category cleanly separated from
+# the non-partisan rule on the political one). Extend freely.
 SIGN_CELEBS = {
     "Aries": "Lady Gaga, Robert Downey Jr., Mariah Carey",
-    "Taurus": "Adele, Dwayne Johnson, David Beckham",
-    "Gemini": "Angelina Jolie, Kanye West, Naomi Campbell",
-    "Cancer": "Tom Hanks, Selena Gomez, Lionel Messi",
-    "Leo": "Barack Obama, Jennifer Lopez, Chris Hemsworth",
+    "Taurus": "Adele, Dwayne Johnson, George Clooney",
+    "Gemini": "Angelina Jolie, Kanye West, Kendrick Lamar",
+    "Cancer": "Tom Hanks, Selena Gomez, Ariana Grande",
+    "Leo": "Jennifer Lopez, Jennifer Lawrence, Chris Hemsworth",
     "Virgo": "Beyonce, Keanu Reeves, Zendaya",
     "Libra": "Kim Kardashian, Will Smith, Serena Williams",
     "Scorpio": "Leonardo DiCaprio, Katy Perry, Drake",
     "Sagittarius": "Taylor Swift, Brad Pitt, Nicki Minaj",
-    "Capricorn": "Michelle Obama, Denzel Washington, Zayn Malik",
-    "Aquarius": "Cristiano Ronaldo, Oprah Winfrey, Harry Styles",
+    "Capricorn": "Denzel Washington, LeBron James, Dolly Parton",
+    "Aquarius": "Michael Jordan, Oprah Winfrey, Harry Styles",
     "Pisces": "Rihanna, Albert Einstein, Justin Bieber",
 }
 
@@ -72,6 +74,8 @@ DISCLAIMERS = {
 }
 
 _COMMON_RULES = """
+Your audience is in the UNITED STATES — use American framing, references,
+and phrasing throughout.
 Write for SPOKEN delivery in a punchy, exciting, confident voice — this
 becomes word-synced captions, so use short sentences. STRICT LENGTH BUDGET
 (the finished video must stay under 90 seconds of speech): hook <= 15 words,
@@ -179,7 +183,10 @@ def _build_user_msg(category: str, date_tag: str) -> tuple:
             raise RuntimeError("no matches today")
         m = matches[0]
         dt = datetime.fromisoformat(m["datetime_utc"])
-        chart = astro_chart.compute_chart(dt, m.get("venue", ""), m.get("country", ""))
+        # Team names carry the US city ("Los Angeles Rams") — pass them into
+        # the venue lookup so the chart uses the right coast's local sky.
+        venue_hint = f"{m['team_a']} {m['team_b']} {m.get('venue', '')}"
+        chart = astro_chart.compute_chart(dt, venue_hint, m.get("country", ""))
         msg = (f"MATCH ({when}): {m['team_a']} vs {m['team_b']} — {m['sport']}, "
                f"{dt.strftime('%H:%M UTC')} at {m['venue']}, {m['country']}.\n"
                f"REAL START-TIME CHART: {_chart_summary(chart)}\n"
@@ -195,9 +202,10 @@ def _build_user_msg(category: str, date_tag: str) -> tuple:
 
     if category == "political":
         msg = (f"TODAY ({when}) real sky: {_chart_summary(chart)}\n\n"
-               f"Give the general national MOOD / collective themes for today. "
+               f"Give the general AMERICAN national MOOD / collective themes "
+               f"for today across the United States. "
                f"No politicians, parties, or elections.\n\n{_JSON_SHAPE}")
-        return msg, "city skyline crowd", {"chart": chart}
+        return msg, "american flag city", {"chart": chart}
 
     if category == "celebrity":
         sign = SIGNS[datetime.strptime(date_tag, "%Y%m%d").timetuple().tm_yday % 12]

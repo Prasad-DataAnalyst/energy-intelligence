@@ -94,16 +94,51 @@ VENUE_COORDS = {
     "uae": (25.2, 55.3), "united arab emirates": (25.2, 55.3), "qatar": (25.3, 51.5),
     "saudi arabia": (24.7, 46.7), "mexico": (19.4, -99.1), "canada": (45.4, -75.7),
 }
+
+# US cities, checked BEFORE the country fallback: for a US-only channel a
+# flat "USA -> Washington DC" answer puts a West Coast game's local sky ~3
+# timezones off, which visibly shifts the ascendant. US team names carry the
+# city ("Los Angeles Rams", "Kansas City Chiefs"), so callers should pass
+# team names in the venue string for this to hit.
+US_CITY_COORDS = {
+    "new york": (40.7, -74.0), "brooklyn": (40.7, -74.0),
+    "los angeles": (34.05, -118.2), "chicago": (41.9, -87.6),
+    "houston": (29.8, -95.4), "dallas": (32.8, -96.8),
+    "philadelphia": (40.0, -75.2), "phoenix": (33.4, -112.1),
+    "miami": (25.8, -80.2), "atlanta": (33.7, -84.4),
+    "boston": (42.4, -71.1), "denver": (39.7, -105.0),
+    "seattle": (47.6, -122.3), "detroit": (42.3, -83.0),
+    "minneapolis": (44.98, -93.3), "minnesota": (44.98, -93.3),
+    "green bay": (44.5, -88.0), "kansas city": (39.1, -94.6),
+    "las vegas": (36.2, -115.1), "san francisco": (37.8, -122.4),
+    "cleveland": (41.5, -81.7), "pittsburgh": (40.4, -80.0),
+    "baltimore": (39.3, -76.6), "washington": (38.9, -77.0),
+    "tampa": (27.95, -82.5), "new orleans": (30.0, -90.1),
+    "san diego": (32.7, -117.2), "st louis": (38.6, -90.2),
+    "cincinnati": (39.1, -84.5), "charlotte": (35.2, -80.8),
+    "nashville": (36.2, -86.8), "indianapolis": (39.8, -86.2),
+    "milwaukee": (43.0, -87.9), "buffalo": (42.9, -78.9),
+    "jacksonville": (30.3, -81.7), "arizona": (33.4, -112.1),
+    "colorado": (39.7, -105.0), "texas": (32.8, -96.8),
+    "golden state": (37.8, -122.4), "utah": (40.8, -111.9),
+    "portland": (45.5, -122.7), "sacramento": (38.6, -121.5),
+    "oklahoma city": (35.5, -97.5), "memphis": (35.1, -90.0),
+    "orlando": (28.5, -81.4), "san antonio": (29.4, -98.5),
+}
 _DEFAULT_COORDS = (51.5, -0.12)   # London — documented neutral fallback
 
 
 def venue_coords(venue: str, country: str) -> tuple:
     """Best-effort (lat, lon) for a venue/country string. Not stadium-precise
-    geocoding — see module docstring."""
+    geocoding — see module docstring. US city names (often present in team
+    names) win over the flat country fallback."""
+    combined = f"{venue} {country}".lower()
+    for name, coords in US_CITY_COORDS.items():
+        if name in combined:
+            return coords
     key = (country or "").strip().lower()
     if key in VENUE_COORDS:
         return VENUE_COORDS[key]
-    combined = f"{venue} {country}".lower()
     for name, coords in VENUE_COORDS.items():
         if name in combined:
             return coords

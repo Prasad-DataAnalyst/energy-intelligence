@@ -13,6 +13,7 @@ Usage:
   python3 generate_topic_assets.py "July 2026" 20260706 --topic "Custom Title::angle"
 """
 import json
+import os
 import re
 import sys
 from datetime import date, datetime
@@ -37,6 +38,9 @@ N_SECTIONS = 8
 # captions — "screen" bullets are no longer requested from Claude.
 SYSTEM_PROMPT = """You are the writer and host of a popular, credible astrology YouTube channel.
 You are scripting ONE long-form educational video on a single astrology topic.
+Your audience is in the UNITED STATES — use American framing, examples,
+dates, and (where signs are named for current sky events) the tropical
+zodiac that mainstream US astrology uses.
 
 Write for spoken delivery: warm, confident, engaging, plain-English — never dry or
 academic. Hook curiosity early, deliver real value, and keep viewers watching.
@@ -101,13 +105,32 @@ _DISCLAIMER_SUFFIX = {
 
 
 def _load_topic(date_tag: str, override: str = None):
-    """Pick the day's topic. Works for ANY calendar length:
-    - ~365 topics → indexed by day-of-YEAR (unique topic all year, repeats yearly)
-    - ~30 topics  → the modulo cycles it (repeats roughly monthly)
-    Prefers content_calendar_365.json if present, else content_calendar.json."""
+    """Pick the day's topic. Priority:
+    1. an explicit --topic override
+    2. a REAL astronomical event today (astro_events.py — full/new moon,
+       eclipse, retrograde station, season start). US astrology search
+       traffic spikes on these exact days, so the event video replaces the
+       evergreen calendar topic and rides the spike. Disable with
+       ASTRO_EVENTS_ENABLED=false in .env.
+    3. the calendar: content_calendar_365.json if present (unique topic per
+       day-of-year), else the small starter calendar (cycles ~monthly)."""
     if override and "::" in override:
         title, angle = override.split("::", 1)
         return {"title": title.strip(), "angle": angle.strip(), "category": "custom"}
+    if os.getenv("ASTRO_EVENTS_ENABLED", "true").lower() == "true":
+        try:
+            import astro_events
+            ev = astro_events.event_for(date_tag)
+            if ev:
+                print(f"[INFO] Real astro event today ({ev['kind']}) — overriding "
+                      f"calendar topic: {ev['title']}")
+                return {"title": ev["title"], "angle": ev["angle"],
+                        "category": ev["category"]}
+        except Exception as e:
+            # An event-detection hiccup must never kill the daily video —
+            # fall through to the calendar topic.
+            print(f"[WARN] astro_events check failed ({e}) — using calendar topic",
+                  file=sys.stderr)
     cal_file = HERE / "content_calendar_365.json"
     if not cal_file.exists():
         cal_file = CALENDAR

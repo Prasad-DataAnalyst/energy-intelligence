@@ -53,6 +53,9 @@ CAT_COLOR = {
     "stockmarket":  ((100, 230, 150), (4, 18, 10), (10, 40, 22)),
     "crypto":       ((120, 220, 255), (4, 14, 20), (10, 32, 42)),
     "celebrity":    ((255, 190, 220), (20, 8, 16), (46, 14, 32)),
+    "numerology":   ((255, 200, 100), (16, 10, 2), (40, 26, 6)),
+    "tarot":        ((190, 140, 255), (14, 6, 24), (34, 16, 52)),
+    "manifestation":((150, 235, 210), (4, 16, 14), (10, 38, 32)),
 }
 DEFAULT_ACCENT = ((200, 170, 255), (8, 6, 20), (18, 14, 44))
 
@@ -65,6 +68,7 @@ CAT_GLYPH = {
     "health": "✚", "houses": "⌂", "aspects": "✧", "concepts": "◈",
     "deep": "☄", "engagement": "★",
     "political": "⚖", "stockmarket": "%", "crypto": "◆", "celebrity": "♛",
+    "numerology": "7", "tarot": "♠", "manifestation": "∞",
 }
 
 
