@@ -137,7 +137,8 @@ def check_video(video_path: str) -> list:
             # everything else is vertical 1080×1920. long-form types get the
             # 60-min cap, Shorts get 180s.
             is_prediction = ctype == "prediction"
-            long_form = ctype in ("monthly", "deep", "topic", "weeklyfull", "sports")
+            long_form = ctype in ("monthly", "deep", "topic", "weeklyfull", "sports",
+                                  "tarotweekly")
             if is_prediction:
                 max_dur = 100          # 90s target + a little slack
             elif long_form:
