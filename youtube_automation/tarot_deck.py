@@ -22,6 +22,7 @@ corrected before the first scheduled video.
 import hashlib
 import random
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -118,7 +119,12 @@ def draw_weekly(date_tag: str) -> dict:
 
 
 def _download_card(card: dict):
-    """Local path of the card's public-domain scan (cached), or None."""
+    """Local path of the card's public-domain scan (cached), or None.
+
+    Wikimedia rate-limits rapid bursts (observed live: a straight 22-request
+    loop got 8/22, an immediate rerun with the same filenames got 5 more —
+    same names succeeding on retry means throttling, not bad filenames). So:
+    retry each file on 429/5xx with a backoff, and pace politely."""
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     slug = _slug(card["name"])
     if OVERRIDE_DIR.exists():
@@ -130,14 +136,20 @@ def _download_card(card: dict):
     if dest.exists() and dest.stat().st_size > 5000:
         return dest
     for fname in card["files"]:
-        try:
-            r = requests.get(_COMMONS + fname, headers=_UA,
-                             timeout=REQUEST_TIMEOUT, allow_redirects=True)
-            if r.status_code == 200 and len(r.content) > 5000:
-                dest.write_bytes(r.content)
-                return dest
-        except Exception as e:
-            print(f"[WARN] tarot image fetch failed ({fname}): {e}", file=sys.stderr)
+        for attempt in range(3):
+            try:
+                r = requests.get(_COMMONS + fname, headers=_UA,
+                                 timeout=REQUEST_TIMEOUT, allow_redirects=True)
+                if r.status_code == 200 and len(r.content) > 5000:
+                    dest.write_bytes(r.content)
+                    return dest
+                if r.status_code in (429, 500, 502, 503):
+                    time.sleep(4 * (attempt + 1))   # throttled — back off, retry
+                    continue
+                break   # 404 etc — this filename is wrong, try the next one
+            except Exception as e:
+                print(f"[WARN] tarot image fetch failed ({fname}): {e}", file=sys.stderr)
+                time.sleep(2)
     return None
 
 
@@ -179,10 +191,13 @@ def main():
         misses = []
         for name, numeral, files, _kw in MAJORS:
             card = {"name": name, "numeral": numeral, "files": files}
+            already_cached = (CACHE_DIR / f"{_slug(name)}.jpg").exists()
             p = _download_card(card)
             print(f"  {'OK ' if p else 'MISS'}  {name}" + (f"  → {p}" if p else ""))
             if not p:
                 misses.append(name)
+            if not already_cached:
+                time.sleep(1.5)   # pace fresh downloads — Wikimedia throttles bursts
         print(f"\n{22 - len(misses)}/22 downloaded" +
               (f" — MISSING: {', '.join(misses)} (drawn fallback will be used)"
                if misses else " — all real card scans available."))
