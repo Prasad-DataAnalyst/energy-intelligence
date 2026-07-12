@@ -776,9 +776,17 @@ def run_all_signs_pipeline(args) -> int:
     return 0 if all_ok else 1
 
 
-def _prune_old_outputs(keep_days: int = 14) -> None:
-    """Delete outputs/<date>/ dirs and daily_horoscope_*.json older than
-    keep_days so the 20 GB disk never silently fills up."""
+def _prune_old_outputs(keep_days: int = 5) -> None:
+    """Delete outputs/<date>/ dirs and stale per-day asset JSONs older than
+    keep_days so the 20 GB disk never silently fills up.
+
+    keep_days was 14 when the pipeline produced ~35 MB/day (one Short). The
+    channel now renders ~250 MB/day (daily short + topic long-form + 3-4
+    landscape predictions) plus a ~110 MB weekly tarot — a 14-day window is
+    a ~4 GB steady state, roughly ALL the disk's remaining free space
+    (observed live: 76.4% → 78.9% in three days). Videos are uploaded the
+    same day they render; local copies exist only for debugging, so 5 days
+    is plenty."""
     import shutil as _sh
     cutoff = (_utcnow() - timedelta(days=keep_days)).strftime("%Y%m%d")
     out_root = Path("outputs")
@@ -786,10 +794,16 @@ def _prune_old_outputs(keep_days: int = 14) -> None:
         for d in out_root.iterdir():
             if d.is_dir() and d.name.isdigit() and d.name < cutoff:
                 _sh.rmtree(d, ignore_errors=True)
-    for f in Path(".").glob("daily_horoscope_*.json"):
-        tag = f.stem.split("_")[-1]
-        if tag.isdigit() and tag < cutoff:
-            f.unlink(missing_ok=True)
+    # Every per-day asset JSON the generators drop in the repo dir (tiny,
+    # but they accumulate forever otherwise).
+    for pattern in ("daily_horoscope_*.json", "weekly_horoscope_*.json",
+                    "monthly_horoscope_*.json", "weeklyfull_horoscope_*.json",
+                    "topic_*.json", "sports_*.json", "prediction_*.json",
+                    "tarotweekly_*.json"):
+        for f in Path(".").glob(pattern):
+            tag = f.stem.split("_")[-1]
+            if tag.isdigit() and len(tag) == 8 and tag < cutoff:
+                f.unlink(missing_ok=True)
 
 
 def main():
