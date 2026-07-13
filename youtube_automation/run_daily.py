@@ -247,9 +247,11 @@ def send_summary_email(date: str, results: dict, elapsed: int, upload: bool) -> 
 
     lines = [
         f"GetMindFuelNow Daily Pipeline — {date}",
-        f"Result  : {status}",
-        f"Duration: {elapsed // 60}m {elapsed % 60}s",
-        f"Time    : {_utcnow():%Y-%m-%d %H:%M UTC}",
+        f"Result   : {status}",
+        # "Duration" alone read as the VIDEO's length — it is the pipeline's
+        # wall-clock run time (assets + render + QC + upload), so say so.
+        f"Run time : {elapsed // 60}m {elapsed % 60}s (pipeline total, not video length)",
+        f"Finished : {_utcnow():%Y-%m-%d %H:%M UTC}",
         "",
         "Sign-by-sign results:",
         "-" * 55,
