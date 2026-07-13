@@ -12,6 +12,7 @@ import argparse
 import fcntl
 import json
 import os
+import signal
 import smtplib
 import subprocess
 import sys
@@ -92,13 +93,40 @@ SIGN_PUBLISH_HOUR_UTC = {
 }
 
 
-def run_captured(cmd: list, timeout: int = 120) -> tuple:
+def _kill_process_group(p: "subprocess.Popen") -> None:
+    """SIGKILL the child's entire process group, then reap it. subprocess's
+    own timeout kills ONLY the direct child (the make_*_video.py python) —
+    its ffmpeg grandchild survived as an orphan, kept rendering for HOURS,
+    ate the single core (guaranteeing the retry also timed out), and pushed
+    the box deep into swap. Seen live in production on 2026-07-13: a 9:00
+    weeklyfull ffmpeg still in D-state at 15:21. start_new_session=True in
+    the runners below puts the whole tree in one group so this kills all of it."""
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-        return r.returncode == 0, (r.stderr or r.stdout).strip()
+        os.killpg(os.getpgid(p.pid), signal.SIGKILL)
+    except Exception:
+        try:
+            p.kill()
+        except Exception:
+            pass
+    try:
+        p.wait(timeout=30)
+    except Exception:
+        pass
+
+
+def run_captured(cmd: list, timeout: int = 120) -> tuple:
+    p = None
+    try:
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                             text=True, start_new_session=True)
+        out, err = p.communicate(timeout=timeout)
+        return p.returncode == 0, (err or out).strip()
     except subprocess.TimeoutExpired:
-        return False, f"TIMEOUT after {timeout}s"
+        _kill_process_group(p)
+        return False, f"TIMEOUT after {timeout}s (whole process group killed)"
     except Exception as e:
+        if p is not None:
+            _kill_process_group(p)
         return False, str(e)
 
 
@@ -170,13 +198,20 @@ def _publish_utc_dt(date_tag: str, ctype: str = "daily") -> datetime:
 
 
 def run_live(cmd: list, timeout: int = 1800) -> bool:
+    p = None
     try:
-        r = subprocess.run(cmd, timeout=timeout)
-        return r.returncode == 0
+        p = subprocess.Popen(cmd, start_new_session=True)
+        return p.wait(timeout=timeout) == 0
     except subprocess.TimeoutExpired:
-        print(f"  [TIMEOUT after {timeout}s]")
+        # Kill the WHOLE process group (renderer python + its ffmpeg children)
+        # — see _kill_process_group. Killing only the python used to orphan a
+        # still-rendering ffmpeg that then starved the retry of the one core.
+        _kill_process_group(p)
+        print(f"  [TIMEOUT after {timeout}s — whole render process group killed]")
         return False
     except Exception as e:
+        if p is not None:
+            _kill_process_group(p)
         print(f"  [ERROR] {e}")
         return False
 
