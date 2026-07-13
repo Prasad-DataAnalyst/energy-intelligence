@@ -64,15 +64,17 @@ def _cover_fit(img: Image.Image, w: int, h: int) -> Image.Image:
     return img.crop((left, top, left + w, top + h))
 
 
-def _photo_bg(query, fallback_query, accent, top, bot, seed) -> Image.Image:
+def _photo_bg(query, fallback_query, accent, top, bot, seed,
+              path=None) -> Image.Image:
     """A darkened full-bleed stock photo for the card background, or the cosmic
     gradient if no image is available (missing key / offline / no result).
-    Never raises — the video always renders."""
-    path = None
-    try:
-        path = stock_images.fetch_first(query, fallback_query)
-    except Exception as e:
-        print(f"[WARN] stock image lookup failed: {e}", file=sys.stderr)
+    Never raises — the video always renders. Pass `path` to reuse an already-
+    fetched photo (multi-image beats fetch once, render twice)."""
+    if path is None:
+        try:
+            path = stock_images.fetch_first(query, fallback_query)
+        except Exception as e:
+            print(f"[WARN] stock image lookup failed: {e}", file=sys.stderr)
     if not path:
         return mdv._cosmic_bg(PW, PH, top, bot, accent, seed=seed)
     try:
@@ -141,10 +143,10 @@ def render_intro(data) -> Image.Image:
     return img.convert("RGB")
 
 
-def render_beat(beat, idx, total, cat) -> Image.Image:
+def render_beat(beat, idx, total, cat, photo_path=None) -> Image.Image:
     accent, top, bot = _accent(cat)
     img = _photo_bg(beat.get("image_query", cat), beat.get("image_fallback", cat),
-                    accent, top, bot, seed=40 + idx)
+                    accent, top, bot, seed=40 + idx, path=photo_path)
     d = ImageDraw.Draw(img)
     _framelines(d, accent)
 
@@ -287,22 +289,26 @@ def assemble_landscape(pngs, durs, audio_path, srt_path, out_path, fps, motion=T
         parts = []
         for i, dur in enumerate(durs):
             frames = max(1, int(round(dur * fps)))
+            # direction alternates per card (zoom in/out, pan L/R) — see
+            # mdv.kenburns_expr; identical motion on every card reads as a
+            # screensaver, alternating reads as editing.
             parts.append(
-                f"[{i}:v]scale=w=iw*1.15:h=ih*1.15,"
-                f"zoompan=z='1+0.08*on/{frames}':d={frames}:"
-                f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+                f"[{i}:v]scale=w=iw*1.2:h=ih*1.2,"
+                f"{mdv.kenburns_expr(i, frames)}:"
                 f"s={PW}x{PH}:fps={fps},"
                 f"trim=end_frame={frames},setpts=PTS-STARTPTS[v{i}]"
             )
         concat_in = "".join(f"[v{i}]" for i in range(n))
         filt = ";".join(parts) + f";{concat_in}concat=n={n}:v=1:a=0[vcat]"
         out_label = "[vcat]"
+        if mdv.CINEMATIC_GRADE:
+            filt += f";{out_label}{mdv.grade_filter()}[vgrade]"
+            out_label = "[vgrade]"
         if srt_path and Path(srt_path).exists():
-            pre = "[vcat]"
             if fps < mdv.CAPTION_FPS:
-                filt += f";[vcat]fps={mdv.CAPTION_FPS}[vup]"
-                pre = "[vup]"
-            filt += f";{pre}{_subtitle_filter_landscape(srt_path)}[vout]"
+                filt += f";{out_label}fps={mdv.CAPTION_FPS}[vup]"
+                out_label = "[vup]"
+            filt += f";{out_label}{_subtitle_filter_landscape(srt_path)}[vout]"
             out_label = "[vout]"
         cmd = ["ffmpeg", "-y", "-loglevel", "error", *inputs,
                "-filter_complex", filt, "-map", out_label,
@@ -325,6 +331,8 @@ def assemble_landscape(pngs, durs, audio_path, srt_path, out_path, fps, motion=T
             f.write(f"file '{p}'\nduration {dur}\n")
         f.write(f"file '{pngs[-1]}'\n")
     vf = f"fps={fps},scale={PW}:{PH}:force_original_aspect_ratio=disable"
+    if mdv.CINEMATIC_GRADE:
+        vf += "," + mdv.grade_filter()
     if srt_path and Path(srt_path).exists():
         if fps < mdv.CAPTION_FPS:
             vf += f",fps={mdv.CAPTION_FPS}"
@@ -385,26 +393,51 @@ def process(json_path: str) -> str:
 
         print("[1/4] Rendering cards + narration...")
 
-        def add(card_img, text, label):
+        def add(card_imgs, text, label):
+            """card_imgs: one PIL image or a LIST of visual variants. One
+            narration spans them all; the dwell splits evenly, so a 2-image
+            beat cuts to its second photo mid-narration — reads as an edit.
+            Audio stays a single clip (concat alignment is by total time)."""
             nonlocal t_cursor
+            if not isinstance(card_imgs, (list, tuple)):
+                card_imgs = [card_imgs]
             nat = str(tmp / f"nat_{len(pngs):02d}.wav")
             dur, word_cues = mtv._narrate(text, nat, voice, tmp)
             card_dur = math.ceil(dur) + 0.35
             clip = str(tmp / f"clip_{len(pngs):02d}.wav")
             mtv._pad_to(nat, clip, card_dur)
-            png = str(tmp / f"card_{len(pngs):02d}.png")
-            card_img.save(png, "PNG")
-            pngs.append(png); durs.append(card_dur); clips.append(clip)
+            clips.append(clip)
+            share = card_dur / len(card_imgs)
+            for img_ in card_imgs:
+                png = str(tmp / f"card_{len(pngs):02d}.png")
+                img_.save(png, "PNG")
+                pngs.append(png); durs.append(share)
             # group THIS segment's words before offsetting (no cross-card bleed)
-            for c0, c1, ct in mdv._group_words_into_cues(word_cues, max_words=3):
-                caption_cues.append((t_cursor + c0, t_cursor + c1, ct))
+            for c0, c1, wlist in mdv._group_words_into_word_cues(word_cues, max_words=3):
+                caption_cues.append((t_cursor + c0, t_cursor + c1,
+                                     [(t_cursor + ws, t_cursor + we, w)
+                                      for ws, we, w in wlist]))
             t_cursor += card_dur
-            print(f"      [{label[:34]:<34}] {card_dur:.1f}s")
+            print(f"      [{label[:34]:<34}] {card_dur:.1f}s"
+                  + (f" ({len(card_imgs)} shots)" if len(card_imgs) > 1 else ""))
 
         add(render_intro(data), data.get("hook", data.get("subject_label", "")), "Intro")
         for i, b in enumerate(beats, 1):
-            add(render_beat(b, i, len(beats), category), b.get("narration", ""),
-                b.get("heading", f"Beat {i}"))
+            # Two distinct photos per beat when available — the mid-beat cut
+            # is what makes it feel edited rather than a slideshow.
+            try:
+                shots = stock_images.fetch_images(b.get("image_query", category), 2)
+                if len(shots) < 2:
+                    shots += stock_images.fetch_images(
+                        b.get("image_fallback", category), 2 - len(shots))
+            except Exception:
+                shots = []
+            if len(shots) >= 2:
+                imgs = [render_beat(b, i, len(beats), category, photo_path=p)
+                        for p in shots[:2]]
+            else:
+                imgs = render_beat(b, i, len(beats), category)
+            add(imgs, b.get("narration", ""), b.get("heading", f"Beat {i}"))
         v = data.get("verdict", {})
         add(render_verdict(data),
             f"{v.get('headline','')}. {v.get('detail','')}", "Verdict")
@@ -417,8 +450,8 @@ def process(json_path: str) -> str:
         mdv.VIDEO_FPS = mdv.safe_static_fps(total)
         print(f"      Total: {total:.0f}s  |  static-fps {mdv.VIDEO_FPS}")
 
-        srt_path = str(tmp / "captions.srt")
-        has_captions = mdv._write_srt(caption_cues, srt_path)
+        srt_path, has_captions = mdv._write_captions(caption_cues, str(tmp / "captions"),
+                                                     frame_w=PW, frame_h=PH)
         print(f"      Captions: {len(caption_cues)} cues" if has_captions
               else "      [WARN] No word timing — captions skipped")
 

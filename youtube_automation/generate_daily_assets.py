@@ -39,19 +39,24 @@ TYPE_CONFIG = {
         "sign_secs":    14,
         "max_words":    6,
     },
+    # Weekly horoscope is a REGULAR VIDEO by requirement (not a Short):
+    # 4 + 12x24 = 292s (~4m52s) — past YouTube's 3-minute Shorts cutoff, so
+    # the vertical upload lands on the watch page, not the Shorts shelf.
+    # (Weekly horoscopes are the one type explicitly EXEMPT from the 3-minute
+    # cap that applies to every other long-form type.)
     "weekly": {
         "noun":         "Weekly",
         "timeframe":    "this week",
         "period_label": "THIS WEEK",
-        "sign_secs":    14,
-        "max_words":    6,
+        "sign_secs":    24,
+        "max_words":    10,
     },
     "monthly": {
         "noun":         "Monthly",
         "timeframe":    "this month",
         "period_label": "THIS MONTH",
-        "sign_secs":    22,      # ~4m30s total → a regular video, more detail
-        "max_words":    10,
+        "sign_secs":    13,      # 4 + 12x13 = 160s — under the 3-minute cap
+        "max_words":    6,
     },
     # LONG-FORM daily for MONETIZATION: ~8.5 min (mid-roll-ad eligible), all 12
     # signs in depth. Card stays punchy (max_words 6); the extra "reading"

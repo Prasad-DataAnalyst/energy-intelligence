@@ -2,8 +2,8 @@
 """
 make_tarot_video.py
 Renders the weekly tarot-reading video from a tarotweekly_YYYYMMDD.json
-(generate_tarot_assets.py). Vertical 1080x1920 long-form (~7-8 min,
-monetizable): intro card → 12 sign cards → outro.
+(generate_tarot_assets.py). Vertical 1080x1920, under 3 minutes
+(short punchy readings): intro card → 12 sign cards → outro.
 
 Each sign card shows the REAL public-domain Rider–Waite–Smith card image
 (tarot_deck.card_image — drawn fallback if the scan is unavailable) framed
@@ -187,10 +187,31 @@ def render_thumbnail(data: dict, out_path: str) -> None:
     img = mdv._cosmic_bg(TW, TH, BG_TOP, BG_BOT, ACCENT, seed=7)
     d = ImageDraw.Draw(img)
     d.rectangle([0, 0, TW, 6], fill=GOLD); d.rectangle([0, TH - 6, TW, TH], fill=GOLD)
-    # three mini card-backs on the right
+    # a fanned trio of THIS WEEK'S real card scans on the right (clicks come
+    # from real art, not empty card-back rectangles); drawn fallback per card
+    # if a scan is unavailable, plain card-backs if everything fails.
+    try:
+        date_tag = data.get("_date_tag") or ""
+        spread = tarot_deck.draw_weekly(date_tag) if date_tag else None
+        picks = [spread[s] for s in ("aries", "leo", "pisces")] if spread else []
+    except Exception:
+        picks = []
     for i, dx in enumerate((0, 90, 180)):
-        x0 = TW - 380 + dx
-        d.rounded_rectangle([x0, 160 + i * 10, x0 + 170, 560 - i * 10], radius=12,
+        x0 = TW - 400 + dx
+        y0 = 150 + i * 8
+        card_w, card_h = 190, 330
+        if i < len(picks):
+            try:
+                art = tarot_deck.card_image(picks[i]).resize((card_w, card_h),
+                                                             Image.LANCZOS)
+                d.rectangle([x0 - 4, y0 - 4, x0 + card_w + 4, y0 + card_h + 4],
+                            outline=GOLD, width=4)
+                img.paste(art.convert("RGB"), (x0, y0))
+                d = ImageDraw.Draw(img)
+                continue
+            except Exception:
+                pass
+        d.rounded_rectangle([x0, y0, x0 + card_w, y0 + card_h + 60], radius=12,
                             fill=(26, 12, 44), outline=GOLD, width=4)
     tf = mdv._display_font(92, weight=700)
     y = 150
@@ -248,8 +269,10 @@ def process(json_path: str) -> str:
             png = str(tmp / f"card_{len(pngs):02d}.png")
             card_img.save(png, "PNG")
             pngs.append(png); durs.append(card_dur); clips.append(clip)
-            for c0, c1, ct in mdv._group_words_into_cues(word_cues, max_words=3):
-                caption_cues.append((t_cursor + c0, t_cursor + c1, ct))
+            for c0, c1, wlist in mdv._group_words_into_word_cues(word_cues, max_words=3):
+                caption_cues.append((t_cursor + c0, t_cursor + c1,
+                                     [(t_cursor + ws, t_cursor + we, w)
+                                      for ws, we, w in wlist]))
             if is_chapter:
                 chapters.append(f"{_ts(t_cursor)} {label}")
             t_cursor += card_dur
@@ -268,8 +291,7 @@ def process(json_path: str) -> str:
         mdv.VIDEO_FPS = mdv.safe_static_fps(total)
         print(f"      Total: {total:.0f}s ({int(total//60)}m {int(total%60)}s)  |  {mdv.VIDEO_FPS}fps")
 
-        srt_path = str(tmp / "captions.srt")
-        has_captions = mdv._write_srt(caption_cues, srt_path)
+        srt_path, has_captions = mdv._write_captions(caption_cues, str(tmp / "captions"))
         print(f"      Captions: {len(caption_cues)} cues" if has_captions
               else "      [WARN] No word timing — captions skipped")
 
@@ -306,6 +328,7 @@ def process(json_path: str) -> str:
         print(f"      OK — {size_mb:.1f} MB")
 
     print("\n[4/4] Thumbnail + metadata...")
+    data["_date_tag"] = date_tag   # lets the thumbnail show this week's real cards
     render_thumbnail(data, thumb_path)
     chapters_block = "\n".join(chapters)
     desc = data.get("description", "")

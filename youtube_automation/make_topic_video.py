@@ -98,7 +98,12 @@ def _narrate(text: str, out_wav: str, voice: str, tmp: Path) -> tuple:
     if not ok:
         mdv._generate_silence(3.0, out_wav)
         return 3.0, []
+    # areverse/silenceremove/areverse trims TRAILING dead air (edge-tts pads
+    # the clip end), keeping 0.15s as a natural breath — tightens pacing on
+    # every card without touching the attack of the first word.
     r = _sp.run(["ffmpeg", "-y", "-loglevel", "error", "-i", raw,
+                 "-af", ("areverse,silenceremove=start_periods=1:"
+                         "start_threshold=-45dB:start_silence=0.15,areverse"),
                  "-ar", mdv._AR, "-ac", mdv._AC, "-c:a", "pcm_s16le", out_wav],
                 capture_output=True, timeout=60)
     Path(raw).unlink(missing_ok=True)
@@ -159,26 +164,74 @@ def render_title_card(data: dict) -> Image.Image:
     return img.convert("RGB")
 
 
+# Real photo backgrounds on section cards (the "images" half of the quality
+# push). Off gracefully: no key / no result / disabled -> the cosmic+glyph
+# look stays. Fallback query per category when Claude didn't supply one.
+TOPIC_PHOTOS_ENABLED = os.getenv("TOPIC_PHOTOS_ENABLED", "true").lower() == "true"
+_CAT_PHOTO_QUERY = {
+    "lunar": "full moon night sky", "planets": "planets space",
+    "signs": "zodiac constellation", "compatibility": "couple silhouette sunset",
+    "love": "couple holding hands", "money": "money abundance",
+    "business": "city skyline night", "career": "city skyline night",
+    "stockmarket": "wall street", "crypto": "cryptocurrency bitcoin",
+    "political": "american flag", "celebrity": "red carpet lights",
+    "numerology": "glowing numbers abstract", "tarot": "tarot cards candle",
+    "manifestation": "sunrise meditation", "concepts": "starry night sky",
+    "deep": "galaxy nebula", "engagement": "night sky stars",
+    "wellness": "calm meditation nature", "health": "calm meditation nature",
+    "houses": "night sky stars", "aspects": "night sky stars",
+}
+
+
+def _section_photo(sec: dict, cat: str):
+    """Best-effort darkened vertical photo for a section card, or None."""
+    if not TOPIC_PHOTOS_ENABLED:
+        return None
+    try:
+        import stock_images
+        query = sec.get("image_query") or _CAT_PHOTO_QUERY.get((cat or "").lower(), "")
+        fallback = sec.get("image_fallback") or _CAT_PHOTO_QUERY.get(
+            (cat or "").lower(), "night sky")
+        path = stock_images.fetch_first(query or fallback, fallback)
+        if not path:
+            return None
+        photo = Image.open(path).convert("RGB")
+        iw, ih = photo.size
+        scale = max(W / iw, H / ih)
+        photo = photo.resize((int(iw * scale + 0.5), int(ih * scale + 0.5)),
+                             Image.LANCZOS)
+        left, top_ = (photo.width - W) // 2, (photo.height - H) // 2
+        photo = photo.crop((left, top_, left + W, top_ + H))
+        # dim for legibility (headings + captions sit on top)
+        return Image.blend(photo, Image.new("RGB", (W, H), (0, 0, 0)), 0.42)
+    except Exception as e:
+        print(f"[WARN] section photo lookup failed ({e})", file=sys.stderr)
+        return None
+
+
 def render_section_card(sec: dict, idx: int, total: int, cat: str) -> Image.Image:
     """Cinematic section background — NOT a slide. No bullet list: the actual
     words are delivered as burned, word-synced captions layered on top of this
     at assembly time (see _group_words_into_cues / assemble). This PNG only
-    provides the backdrop: category motif, heading, progress, and a caption
+    provides the backdrop: real darkened stock photo when available (cosmic
+    gradient + category motif otherwise), heading, progress, and a caption
     safe-zone scrim so the captions stay legible over any art underneath."""
     accent, top, bot = _accent(cat)
-    img = mdv._cosmic_bg(W, H, top, bot, accent, seed=100 + idx)
+    photo = _section_photo(sec, cat)
+    img = photo or mdv._cosmic_bg(W, H, top, bot, accent, seed=100 + idx)
     d = ImageDraw.Draw(img)
     d.rectangle([0, 0, W, 6], fill=GOLD); d.rectangle([0, H - 6, W, H], fill=GOLD)
 
-    # Large faint category glyph — the visual anchor of the frame, replacing
-    # the bullet panel. Centered in the open space below the heading.
-    glyph, gfont = mdv._icon(CAT_GLYPH.get((cat or "").lower(), "✦"), "*", 620)
-    gw = mdv._tw(glyph, gfont)
-    ov = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    ImageDraw.Draw(ov).text(((W - gw) // 2, H // 2 - 340), glyph, font=gfont,
-                            fill=(*accent, 30))
-    img = Image.alpha_composite(img.convert("RGBA"), ov)
-    d = ImageDraw.Draw(img)
+    # Large faint category glyph — the visual anchor of a NON-photo frame
+    # (on a real photo it just muddies the image, so it's skipped there).
+    if photo is None:
+        glyph, gfont = mdv._icon(CAT_GLYPH.get((cat or "").lower(), "✦"), "*", 620)
+        gw = mdv._tw(glyph, gfont)
+        ov = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        ImageDraw.Draw(ov).text(((W - gw) // 2, H // 2 - 340), glyph, font=gfont,
+                                fill=(*accent, 30))
+        img = Image.alpha_composite(img.convert("RGBA"), ov)
+        d = ImageDraw.Draw(img)
 
     # Progress pill, top-right — subtle, not a slide-deck page number.
     nf = mdv._ui_font(34, 700)
@@ -210,7 +263,7 @@ def render_section_card(sec: dict, idx: int, total: int, cat: str) -> Image.Imag
         a = int(150 * (i / steps))
         yy = scrim_top + int(i * (620 / steps))
         sd.rectangle([0, yy, W, yy + (620 // steps) + 1], fill=(0, 0, 0, a))
-    img = Image.alpha_composite(img, scrim)
+    img = Image.alpha_composite(img.convert("RGBA"), scrim)
     d = ImageDraw.Draw(img)
 
     # Footer
@@ -256,33 +309,36 @@ def assemble_video_motion_captions(png_files: list, durations: list,
     parts = []
     for i, dur in enumerate(durations):
         frames = max(1, int(round(dur * fps)))
-        # Slow linear zoom-in 1.00x -> 1.10x over the card's own dwell time.
-        # Upscale 1.2x first so the zoom crop never exceeds the source canvas;
-        # x/y center the crop (zoompan's own default is top-left, NOT centered).
-        # trim+setpts hard-caps each segment to exactly `frames` frames and
-        # resets timestamps to 0, which is what makes concat's duration math
-        # correct regardless of zoompan's internal frame accounting.
+        # Upscale 1.2x first so the zoom/pan crop never exceeds the source
+        # canvas; trim+setpts hard-caps each segment to exactly `frames`
+        # frames and resets timestamps to 0, which is what makes concat's
+        # duration math correct regardless of zoompan's internal accounting.
+        # Motion DIRECTION alternates per card (zoom in / zoom out / pan
+        # right / pan left) — identical motion on every card reads as a
+        # screensaver; alternating reads as editing.
         parts.append(
             f"[{i}:v]scale=w=iw*1.2:h=ih*1.2,"
-            f"zoompan=z='1+0.10*on/{frames}':d={frames}:"
-            f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':"
+            f"{mdv.kenburns_expr(i, frames)}:"
             f"s={mdv.WIDTH}x{mdv.HEIGHT}:fps={fps},"
             f"trim=end_frame={frames},setpts=PTS-STARTPTS[v{i}]"
         )
     concat_in = "".join(f"[v{i}]" for i in range(n))
     filt = ";".join(parts) + f";{concat_in}concat=n={n}:v=1:a=0[vcat]"
     out_label = "[vcat]"
+    if mdv.CINEMATIC_GRADE:
+        # grade at the low motion fps (cheap), before captions (crisp text)
+        filt += f";{out_label}{mdv.grade_filter()}[vgrade]"
+        out_label = "[vgrade]"
     if srt_path and Path(srt_path).exists():
         # Same fix as the static path: the motion fps (often 2-4fps to keep
         # zoompan's per-frame cost bounded) is far too sparse to reliably
         # catch short caption cues. Upsample via cheap frame duplication
         # BEFORE burning subtitles — the expensive zoompan work above is
         # unaffected, still done at the low `fps`.
-        pre = "[vcat]"
         if fps < mdv.CAPTION_FPS:
-            filt += f";[vcat]fps={mdv.CAPTION_FPS}[vcatup]"
-            pre = "[vcatup]"
-        filt += f";{pre}{mdv._subtitle_filter(srt_path)}[vout]"
+            filt += f";{out_label}fps={mdv.CAPTION_FPS}[vcatup]"
+            out_label = "[vcatup]"
+        filt += f";{out_label}{mdv._subtitle_filter(srt_path)}[vout]"
         out_label = "[vout]"
 
     cmd = [
@@ -337,10 +393,41 @@ def render_outro_card(data: dict) -> Image.Image:
 
 
 # ── Thumbnail (1280x720) ──────────────────────────────────────────────────────
+def _thumb_photo_bg(data: dict, TW: int, TH: int):
+    """Best-effort real-photo thumbnail background (thumbnails drive clicks
+    more than anything else on the watch page). Searches the topic title's
+    key words, falls back to the category, and returns None on any failure
+    so the cosmic gradient remains the safety net."""
+    try:
+        import stock_images
+        from PIL import Image as _Im
+        title = data.get("topic_title", "")
+        # strip filler words so the query is the topic's substance
+        stop = {"the", "a", "an", "of", "for", "your", "every", "what", "why",
+                "how", "and", "in", "on", "to", "it", "means", "explained",
+                "today", "tonight", "sign", "signs", "zodiac"}
+        words = [w.strip(":,.!?'\"").lower() for w in title.split()]
+        query = " ".join([w for w in words if w and w not in stop][:3])
+        path = stock_images.fetch_first(query or data.get("category", "astrology"),
+                                        data.get("category", "astrology"))
+        if not path:
+            return None
+        photo = _Im.open(path).convert("RGB")
+        iw, ih = photo.size
+        scale = max(TW / iw, TH / ih)
+        photo = photo.resize((int(iw * scale + 0.5), int(ih * scale + 0.5)), _Im.LANCZOS)
+        left, top_ = (photo.width - TW) // 2, (photo.height - TH) // 2
+        photo = photo.crop((left, top_, left + TW, top_ + TH))
+        return _Im.blend(photo, _Im.new("RGB", (TW, TH), (0, 0, 0)), 0.45)
+    except Exception as e:
+        print(f"[WARN] thumbnail photo lookup failed ({e}) — cosmic bg", file=sys.stderr)
+        return None
+
+
 def render_thumbnail(data: dict, out_path: str) -> None:
     accent, top, bot = _accent(data.get("category"))
     TW, TH = 1280, 720
-    img = mdv._cosmic_bg(TW, TH, top, bot, accent, seed=7)
+    img = _thumb_photo_bg(data, TW, TH) or mdv._cosmic_bg(TW, TH, top, bot, accent, seed=7)
     d = ImageDraw.Draw(img)
     d.rectangle([0, 0, TW, 6], fill=GOLD); d.rectangle([0, TH - 6, TW, TH], fill=GOLD)
     tf = mdv._display_font(96, weight=700)
@@ -413,9 +500,12 @@ def process(json_path: str) -> str:
             # Group THIS card's own words into caption phrases BEFORE applying
             # the global offset — grouping must never span two cards, or a cue
             # could straddle the hard cut between them (showing the previous
-            # card's last words on the next card). See make_daily_video.
-            for c_start, c_end, c_text in mdv._group_words_into_cues(word_cues, max_words=3):
-                caption_cues.append((t_cursor + c_start, t_cursor + c_end, c_text))
+            # card's last words on the next card). Word timings kept for the
+            # karaoke highlight. See make_daily_video.
+            for c0, c1, wlist in mdv._group_words_into_word_cues(word_cues, max_words=3):
+                caption_cues.append((t_cursor + c0, t_cursor + c1,
+                                     [(t_cursor + ws, t_cursor + we, w)
+                                      for ws, we, w in wlist]))
             if is_section:
                 chapters.append(f"{_ts(t_cursor)} {label}")
             t_cursor += card_dur
@@ -432,12 +522,12 @@ def process(json_path: str) -> str:
         mdv.VIDEO_FPS = mdv.safe_static_fps(total)
         print(f"      Total: {total:.0f}s ({int(total//60)}m {int(total%60)}s)  |  {mdv.VIDEO_FPS}fps")
 
-        # Write the single SRT spanning the whole assembled timeline (each
-        # card's cues already carry their global offset). Empty if word timing
-        # wasn't available anywhere (TTS fallback silence) — captions are then
-        # simply skipped, never a hard failure.
-        srt_path = str(tmp / "captions.srt")
-        has_captions = mdv._write_srt(caption_cues, srt_path)
+        # Write the caption file spanning the whole assembled timeline (each
+        # card's cues already carry their global offset): karaoke .ass by
+        # default, .srt fallback. Empty if word timing wasn't available
+        # anywhere (TTS fallback silence) — captions are then simply skipped,
+        # never a hard failure.
+        srt_path, has_captions = mdv._write_captions(caption_cues, str(tmp / "captions"))
         print(f"      Captions: {len(caption_cues)} cues" if has_captions
               else "      [WARN] No word-timing captured — captions skipped")
 

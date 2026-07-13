@@ -929,11 +929,12 @@ async def _tts_stream_with_words(text: str, out_mp3: str, voice: str,
 
 
 # ── Captions: word-boundary timing -> short TikTok/Reels-style phrase cues ───
-def _group_words_into_cues(word_cues: list, max_words: int = 3) -> list:
-    """Merge consecutive (start,end,word) tuples into short caption phrases
-    (few words each) so captions change in sync with speech without a full
-    karaoke-per-word flicker. A cue also breaks early at sentence-ending
-    punctuation so captions align with natural speech rhythm."""
+def _group_words_into_word_cues(word_cues: list, max_words: int = 3) -> list:
+    """Merge consecutive (start,end,word) tuples into short caption phrases,
+    KEEPING the per-word timing: returns [(start, end, [(ws,we,word),...])].
+    A cue breaks early at sentence-ending punctuation so captions align with
+    natural speech rhythm. The word timings inside each cue are what powers
+    the karaoke highlight in _write_karaoke_ass."""
     if not word_cues:
         return []
     cues, cur = [], []
@@ -941,11 +942,17 @@ def _group_words_into_cues(word_cues: list, max_words: int = 3) -> list:
         cur.append((start, end, word))
         ends_sentence = word.rstrip().endswith((".", "!", "?", ","))
         if len(cur) >= max_words or ends_sentence:
-            cues.append((cur[0][0], cur[-1][1], " ".join(w for _, _, w in cur)))
+            cues.append((cur[0][0], cur[-1][1], cur))
             cur = []
     if cur:
-        cues.append((cur[0][0], cur[-1][1], " ".join(w for _, _, w in cur)))
+        cues.append((cur[0][0], cur[-1][1], cur))
     return cues
+
+
+def _group_words_into_cues(word_cues: list, max_words: int = 3) -> list:
+    """Text-only view of _group_words_into_word_cues (SRT fallback + tests)."""
+    return [(s, e, " ".join(w for _, _, w in words))
+            for s, e, words in _group_words_into_word_cues(word_cues, max_words)]
 
 
 def _srt_timestamp(t: float) -> str:
@@ -968,6 +975,103 @@ def _write_srt(cues: list, path: str) -> bool:
         lines.append("")
     Path(path).write_text("\n".join(lines), encoding="utf-8")
     return True
+
+
+# Karaoke caption styling. ASS colors are &HAABBGGRR (blue-green-red!).
+# Spoken words flip from SecondaryColour to PrimaryColour as their \k
+# duration elapses — Primary=gold, Secondary=white gives the TikTok-style
+# "current word lights up gold" effect, driven by the REAL edge-tts word
+# timings (not an animation guess). Sizes are in the frame's own pixels
+# because the ASS header declares PlayResX/PlayResY explicitly (unlike the
+# SRT path, where libass applies its internal scaling — see
+# _subtitle_filter's calibration note).
+KARAOKE_ENABLED = os.getenv("KARAOKE_CAPTIONS", "true").lower() == "true"
+_ASS_GOLD  = "&H0000D7FF"   # RGB 255,215,0
+_ASS_WHITE = "&H00FFFFFF"
+
+
+def _ass_timestamp(t: float) -> str:
+    t = max(0.0, t)
+    h = int(t // 3600); m = int((t % 3600) // 60); s = int(t % 60)
+    cs = int(round((t - int(t)) * 100))
+    return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
+
+
+def _write_karaoke_ass(word_cues_grouped: list, path: str,
+                       frame_w: int, frame_h: int) -> bool:
+    """word_cues_grouped: [(start, end, [(ws,we,word),...]), ...] in global
+    seconds. Writes an ASS file with per-word \\k karaoke timing."""
+    if not word_cues_grouped:
+        return False
+    # Empirically calibrated per orientation (test-rendered + screenshotted,
+    # same method as the SRT sizes): values are real pixels at the declared
+    # PlayResX/PlayResY.
+    if frame_w >= frame_h:                 # landscape 1920x1080
+        fontsize, outline, margin_v = 60, 5, 150
+    else:                                   # vertical 1080x1920
+        fontsize, outline, margin_v = 64, 6, 330
+    header = (
+        "[Script Info]\n"
+        "ScriptType: v4.00+\n"
+        f"PlayResX: {frame_w}\n"
+        f"PlayResY: {frame_h}\n"
+        "WrapStyle: 2\n"
+        "ScaledBorderAndShadow: yes\n\n"
+        "[V4+ Styles]\n"
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
+        "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
+        "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
+        "Alignment, MarginL, MarginR, MarginV, Encoding\n"
+        f"Style: Cap,Poppins,{fontsize},{_ASS_GOLD},{_ASS_WHITE},"
+        f"&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,{outline},0,"
+        f"2,60,60,{margin_v},1\n\n"
+        "[Events]\n"
+        # NOTE: Effect must be declared — the Dialogue lines carry an (empty)
+        # Effect field; omitting it from Format shifts a field into the text
+        # and renders a stray leading comma (seen in calibration).
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+    )
+    lines = [header]
+    for start, end, words in word_cues_grouped:
+        if end <= start or not words:
+            continue
+        parts = []
+        for i, (ws, we, word) in enumerate(words):
+            # \k durations are consumed sequentially from the cue start, so
+            # each word's slice runs to the NEXT word's start (folding the
+            # inter-word gap in), keeping the highlight on the real clock.
+            nxt = words[i + 1][0] if i + 1 < len(words) else end
+            k_cs = max(1, int(round((nxt - ws) * 100)))
+            text = str(word).replace("{", "").replace("}", "").replace("\n", " ")
+            parts.append("{\\k%d}%s" % (k_cs, text))
+        lines.append(f"Dialogue: 0,{_ass_timestamp(start)},{_ass_timestamp(end)},"
+                     f"Cap,,0,0,0,,{' '.join(parts)}\n")
+    Path(path).write_text("".join(lines), encoding="utf-8")
+    return True
+
+
+def _write_captions(word_cues_grouped: list, base_path: str,
+                    frame_w: int = None, frame_h: int = None) -> tuple:
+    """Single entry point for every video maker: writes the karaoke .ass
+    (default) or the plain .srt fallback from grouped word cues, and returns
+    (caption_path, has_captions). Any ASS failure falls back to SRT — the
+    caption feature degrades, never dies."""
+    frame_w = frame_w or WIDTH
+    frame_h = frame_h or HEIGHT
+    if not word_cues_grouped:
+        return None, False
+    if KARAOKE_ENABLED:
+        try:
+            ass_path = f"{base_path}.ass"
+            if _write_karaoke_ass(word_cues_grouped, ass_path, frame_w, frame_h):
+                return ass_path, True
+        except Exception as e:
+            print(f"[WARN] karaoke ASS write failed ({e}) — falling back to SRT",
+                  file=sys.stderr)
+    srt_path = f"{base_path}.srt"
+    text_cues = [(s, e, " ".join(w for _, _, w in words))
+                 for s, e, words in word_cues_grouped]
+    return (srt_path, True) if _write_srt(text_cues, srt_path) else (None, False)
 
 
 def _audio_dur(path: str) -> float:
@@ -1109,8 +1213,22 @@ def _mix_voice_ambient(voice_path: str, ambient_path: str, out_path: str) -> boo
     # loudnorm resamples to 192 kHz internally; on ffmpeg 4.4 an in-graph
     # `aresample=44100` after it triggers "Error reinitializing filters". Fix:
     # drop the resample FILTER and let the encoder resample via the `-ar 44100`
-    # OUTPUT option instead. Tier 2 is the no-loudnorm compatibility fallback.
+    # OUTPUT option instead. Lower tiers are progressively simpler fallbacks.
+    #
+    # Tier 1 (broadcast mix): the voice gets a mastering chain — highpass to
+    # remove rumble, a gentle presence lift around 3.2 kHz, and light
+    # compression for even, confident delivery — and the ambient bed is
+    # SIDECHAIN-DUCKED by the voice: music automatically dips while the host
+    # speaks and swells back in the gaps. This is the single audio trick that
+    # separates "TTS over a loop" from a produced mix.
     tiers = [
+        "[0:a]highpass=f=80,equalizer=f=3200:t=q:w=1:g=2.5,"
+        "acompressor=threshold=-18dB:ratio=3:attack=8:release=120:makeup=4,"
+        "asplit=2[v][vsc];"
+        "[1:a]volume=0.55[amb];"
+        "[amb][vsc]sidechaincompress=threshold=0.02:ratio=8:attack=60:release=600[duck];"
+        "[v][duck]amix=inputs=2:duration=first:normalize=0,"
+        "loudnorm=I=-14:TP=-1.5:LRA=11[out]",
         "[0:a][1:a]amix=inputs=2:duration=first:normalize=0:weights='1 0.35',"
         "loudnorm=I=-14:TP=-1.5:LRA=11[out]",
         "[0:a]volume=2.0[v];[1:a]volume=0.7[a];"
@@ -1129,8 +1247,10 @@ def _mix_voice_ambient(voice_path: str, ambient_path: str, out_path: str) -> boo
         try:
             r = _sp.run(cmd, capture_output=True, timeout=600)
             if r.returncode == 0:
-                if i > 1:
-                    print(f"      [INFO] Mix used compatibility tier {i} (no loudness master)")
+                if i == 2:
+                    print("      [INFO] Mix tier 2 (no voice EQ / music ducking)")
+                elif i == 3:
+                    print("      [INFO] Mix tier 3 (compatibility — no loudness master)")
                 return True
             print(f"[WARN] Mix tier {i} failed: {r.stderr.decode()[-200:]}",
                   file=sys.stderr)
@@ -1235,20 +1355,58 @@ def assemble_video_motion(png_files: list, durations: list,
 
 
 # ── Video assembly ─────────────────────────────────────────────────────────────
+# Cinematic grade: a touch more saturation/contrast and a soft vignette.
+# Applied at the LOW base fps (before the caption-fps upsample) so the extra
+# per-frame cost stays tiny, and before the subtitle burn so text stays crisp.
+# NO film grain: animated noise is nearly incompressible — measured 192 MB on
+# a 74s prediction render (vs ~50 MB without), 4x the file for a subtle
+# effect, blowing QC's 150 MB cap and upload bandwidth.
+CINEMATIC_GRADE = os.getenv("CINEMATIC_GRADE", "true").lower() == "true"
+
+
+def grade_filter() -> str:
+    return "eq=saturation=1.06:contrast=1.04,vignette=PI/5"
+
+
+def kenburns_expr(idx: int, frames: int) -> str:
+    """A zoompan clause whose motion DIRECTION varies by card index —
+    zoom-in, zoom-out, pan-right, pan-left — so consecutive cards feel
+    edited rather than screensaver-uniform. Expects the input pre-scaled
+    ~1.2x so the crop never leaves the canvas. Caller appends :s=WxH:fps=N
+    and the trim/setpts hard-cap."""
+    variant = idx % 4
+    if variant == 0:      # slow zoom in, centered
+        return (f"zoompan=z='1+0.10*on/{frames}':d={frames}:"
+                f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'")
+    if variant == 1:      # slow zoom out, centered
+        return (f"zoompan=z='1.10-0.10*on/{frames}':d={frames}:"
+                f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'")
+    if variant == 2:      # gentle pan left -> right at fixed zoom
+        return (f"zoompan=z='1.08':d={frames}:"
+                f"x='(iw-iw/zoom)*on/{frames}':y='ih/2-(ih/zoom/2)'")
+    return (f"zoompan=z='1.08':d={frames}:"      # gentle pan right -> left
+            f"x='(iw-iw/zoom)*(1-on/{frames})':y='ih/2-(ih/zoom/2)'")
+
+
 def _subtitle_filter(srt_path: str) -> str:
     """ffmpeg subtitles filter clause using the bundled fonts (libass), with
-    the srt path escaped for the filter's own ':'/',' delimiters.
+    the path escaped for the filter's own ':'/',' delimiters.
 
-    Fontsize/MarginV below are EMPIRICALLY calibrated, not literal pixels:
-    this ffmpeg/libass build scales SRT-derived subtitles by a fixed internal
-    factor (~6.2x, consistent with an assumed ~1080x... no — measured via a
-    default-vs-forced-size probe on a 1080x1920 frame) regardless of the
-    `original_size` option, which measurably had ZERO effect here (identical
-    output bytes with/without it — verified, not assumed). Do not "fix" these
-    numbers to look like sane pixel values; they were tuned by rendering
-    single frames and visually checking placement, and land correctly THERE."""
+    A .ass file (the karaoke captions) carries its own complete style section
+    with explicit PlayResX/PlayResY, so it gets NO force_style — its sizes
+    are real pixels and already orientation-aware.
+
+    For .srt, Fontsize/MarginV below are EMPIRICALLY calibrated, not literal
+    pixels: this ffmpeg/libass build scales SRT-derived subtitles by a fixed
+    internal factor regardless of the `original_size` option, which measurably
+    had ZERO effect here (identical output bytes with/without it — verified,
+    not assumed). Do not "fix" these numbers to look like sane pixel values;
+    they were tuned by rendering single frames and visually checking
+    placement, and land correctly THERE."""
     esc = str(srt_path).replace("\\", "\\\\").replace(":", "\\:")
     fontsdir = str(Path(__file__).parent / "assets" / "fonts").replace(":", "\\:")
+    if str(srt_path).endswith(".ass"):
+        return f"subtitles={esc}:fontsdir={fontsdir}"
     style = ("FontName=Poppins,Fontsize=24,PrimaryColour=&H00FFFFFF,"
              "OutlineColour=&H00000000,BorderStyle=1,Outline=3,Shadow=0,"
              "Bold=1,Alignment=2,MarginV=55")
@@ -1279,6 +1437,8 @@ def assemble_video(png_files: list, durations: list,
     static_fps = min(FPS, VIDEO_FPS)
     preset = os.getenv("ENCODER_PRESET", "ultrafast")
     vf = f"fps={static_fps},scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=disable"
+    if CINEMATIC_GRADE:
+        vf += "," + grade_filter()     # at low fps, before captions — cheap + crisp text
     if srt_path and Path(srt_path).exists():
         # Upsample to CAPTION_FPS (cheap: duplicated frames, not re-rendered)
         # BEFORE burning subtitles, so short caption cues can't fall in the
@@ -1401,7 +1561,7 @@ def process(json_path: str) -> str:
         day_voice = _day_voice(date_tag)
         print(f"\n[2/5] Generating voice narration (edge-tts, voice: {day_voice})...")
         voice_clips: list = []
-        caption_cues: list = []   # (start, end, text) in GLOBAL video-timeline seconds
+        caption_cues: list = []   # (start, end, [(ws,we,word),...]) in GLOBAL seconds
         t_cursor = 0.0             # card durations are FIXED, so this tracks in lockstep
 
         def _cue_group(words, offset):
@@ -1411,9 +1571,11 @@ def process(json_path: str) -> str:
             straddle a hard cut (e.g. a sign's last word merged with the next
             sign's first words into one caption group), so the caption still
             shows fragments of the PREVIOUS card's speech after the video has
-            already visually cut to the next one."""
-            return [(offset + s, offset + e, txt)
-                    for s, e, txt in _group_words_into_cues(words, max_words=3)]
+            already visually cut to the next one. Word-level timings are kept
+            so _write_captions can emit karaoke highlighting."""
+            return [(offset + s, offset + e,
+                     [(offset + ws, offset + we, w) for ws, we, w in wlist])
+                    for s, e, wlist in _group_words_into_word_cues(words, max_words=3)]
 
         # Narrated intro — never open a Short with 4s of dead air.
         intro_voice = str(tmp / "voice_00_intro.wav")
@@ -1458,13 +1620,15 @@ def process(json_path: str) -> str:
                 print(f"      [outro]  (TTS failed, silence)")
             t_cursor += OUTRO_SECS
 
-        # Write the single SRT spanning the whole assembled timeline (global
-        # offsets already baked into each segment's cues above). Empty if word
-        # timing wasn't captured anywhere (all TTS failed) — captions are then
-        # simply skipped, never a hard failure.
-        srt_path = str(tmp / "captions.srt")
-        has_captions = _write_srt(caption_cues, srt_path)
-        print(f"      Captions: {len(caption_cues)} cues" if has_captions
+        # Write the caption file spanning the whole assembled timeline (global
+        # offsets already baked into each segment's cues above): karaoke .ass
+        # by default (spoken word lights up gold), .srt fallback. Empty if
+        # word timing wasn't captured anywhere (all TTS failed) — captions
+        # are then simply skipped, never a hard failure.
+        srt_path, has_captions = _write_captions(caption_cues, str(tmp / "captions"))
+        print(f"      Captions: {len(caption_cues)} cues"
+              f" ({'karaoke' if str(srt_path).endswith('.ass') else 'plain'})"
+              if has_captions
               else "      [WARN] No word-timing captured — captions skipped")
 
         voice_concat_path = str(tmp / "voice_all.wav")

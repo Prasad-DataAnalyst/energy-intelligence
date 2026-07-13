@@ -4,7 +4,8 @@ generate_tarot_assets.py
 Weekly LONG-FORM tarot-reading video script: one Major Arcana card per
 zodiac sign (deterministic weekly draw from tarot_deck.py — the card names
 and meanings are GROUND TRUTH handed to Claude, never invented by it), a
-~70-90 word spoken reading per sign, plus title/description/tags.
+~28-word spoken reading per sign (whole video <=3 min), plus
+title/description/tags.
 
 US audience. Safe framing baked in: readings are guidance/reflection
 ("this week favors...", "watch for..."), never certainty, never medical/
@@ -44,7 +45,8 @@ Tower, The Devil) are framed constructively — transformation, breakthrough,
 reclaiming power — never doom, never fear.
 
 Rules:
-- 70-90 words per sign, flowing spoken prose. No lists.
+- 24-32 words per sign, flowing spoken prose. No lists. The WHOLE video
+  must run under 3 minutes, so every reading is tight and punchy.
 - Guidance language only: "this week favors", "you may find", "watch for".
   NEVER certainty, NEVER predictions of specific events, NEVER medical,
   legal, or financial advice.
@@ -70,8 +72,11 @@ def _validate(data: dict, spread: dict) -> None:
         if not r:
             raise ValueError(f"missing reading for {sign}")
         words = len(str(r).split())
-        if words < 55:
+        if words < 18:
             raise ValueError(f"{sign} reading too short ({words} words)")
+        if words > 45:
+            raise ValueError(f"{sign} reading too long ({words} words — the "
+                             f"video must stay under 3 minutes)")
         # The reading must actually be about the drawn card.
         card_name = spread[sign]["name"]
         if card_name.lower().replace("the ", "") not in str(r).lower():
@@ -96,12 +101,12 @@ Write the weekly tarot reading video script. Return this EXACT JSON shape:
   "title": "SEO YouTube title for a weekly all-signs tarot reading, <=95 chars, include the week",
   "description": "2-3 sentence YouTube description",
   "tags": ["10-15 lowercase search tags"],
-  "intro": "35-50 spoken words welcoming viewers and teasing this week's cards",
+  "intro": "15-25 spoken words welcoming viewers and teasing this week's cards",
   "readings": {{
-    "aries": "70-90 word spoken reading interpreting Aries' drawn card for the week",
+    "aries": "24-32 word spoken reading interpreting Aries' drawn card for the week",
     "...": "one entry for EVERY sign, keys exactly: {', '.join(tarot_deck.SIGNS)}"
   }},
-  "outro": "25-40 spoken words: recap + ask to subscribe + tease next week's draw"
+  "outro": "15-25 spoken words: ask to subscribe + tease next week's draw"
 }}"""
 
     client = anthropic.Anthropic(timeout=180)

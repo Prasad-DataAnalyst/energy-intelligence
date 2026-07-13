@@ -76,6 +76,9 @@ DISCLAIMERS = {
 _COMMON_RULES = """
 Your audience is in the UNITED STATES — use American framing, references,
 and phrasing throughout.
+The "hook" must open a curiosity gap — tease the verdict without revealing
+it ("the chart picked a side tonight — and it's not who you think"), never
+a generic welcome. Speak directly to the viewer in second person.
 Write for SPOKEN delivery in a punchy, exciting, confident voice — this
 becomes word-synced captions, so use short sentences. STRICT LENGTH BUDGET
 (the finished video must stay under 90 seconds of speech): hook <= 15 words,

@@ -27,9 +27,12 @@ load_dotenv()
 HERE = Path(__file__).parent
 CALENDAR = HERE / "content_calendar.json"
 
-# Target ~7-9 minutes (mid-roll-ad eligible at 8+). Section count + narration
-# length drive the final duration (each card shows for its narration).
-N_SECTIONS = 8
+# Target UNDER 3 MINUTES (hard requirement: every long-form type except the
+# weekly horoscopes stays <=3min, to keep daily renders fast and the upload
+# schedule inside the YouTube API quota). Section count + per-section word
+# budget drive the final duration (each card shows for its narration):
+# hook (~8s) + 4 x ~65 words (~27s each) + outro (~10s) ≈ 2m10s.
+N_SECTIONS = 4
 
 # NOTE: section cards no longer show static bullet lists (that read as a
 # PowerPoint slide). The video now burns live word-synced captions generated
@@ -50,10 +53,22 @@ Rules:
 - Sound like a knowledgeable human host talking to one viewer, with natural
   rhythm and short punchy sentences — this will be shown as animated captions
   synced word-by-word to your narration, so avoid long run-on sentences.
-- Each section's "narration" is 110-150 words of flowing spoken paragraphs.
+- Each section's "narration" is 55-75 words of flowing spoken prose —
+  tight and punchy; the WHOLE video must run under 3 minutes.
 - Each section's "heading" is a SHORT punchy title (max 5 words) shown above
   the captions the whole time the section plays.
-- The "hook" is one punchy spoken sentence that makes people stay.
+- RETENTION CRAFT (this is what keeps people watching):
+  * The "hook" is one spoken sentence built on a curiosity gap — promise a
+    specific payoff without giving it away ("the third one surprises even
+    astrologers"), never a generic welcome.
+  * OPEN A LOOP early: the first section should reference something you'll
+    only resolve in the last section ("keep that in mind — it changes
+    everything at the end").
+  * Add ONE pattern interrupt in a middle section — a short turn like
+    "but here's the twist" / "now the part nobody talks about".
+  * Speak directly to the viewer ("your chart", "you've felt this") —
+    second person beats lecture voice.
+  * The outro resolves the open loop, then asks to subscribe.
 - Keep it broadly accurate to real astrology; it's entertainment/education, not
   fortune-telling claims of certainty.
 
@@ -153,13 +168,17 @@ def _validate(data: dict) -> None:
         if not data.get(k):
             raise ValueError(f"missing '{k}'")
     secs = data["sections"]
-    if not isinstance(secs, list) or len(secs) < 5:
-        raise ValueError(f"need >=5 sections, got {len(secs) if isinstance(secs, list) else 'none'}")
+    if not isinstance(secs, list) or len(secs) < 4:
+        raise ValueError(f"need >=4 sections, got {len(secs) if isinstance(secs, list) else 'none'}")
     for i, s in enumerate(secs):
         if not s.get("heading") or not s.get("narration"):
             raise ValueError(f"section {i}: missing heading/narration")
-        if len(str(s["narration"]).split()) < 60:
-            raise ValueError(f"section {i}: narration too short")
+        words = len(str(s["narration"]).split())
+        if words < 45:
+            raise ValueError(f"section {i}: narration too short ({words} words)")
+        if words > 90:
+            raise ValueError(f"section {i}: narration too long ({words} words — "
+                             f"the video must stay under 3 minutes)")
 
 
 def generate(period: str, date_tag: str = None, override: str = None) -> str:
@@ -186,7 +205,9 @@ Return this EXACT JSON shape:
   "hook": "one punchy spoken sentence to open the video",
   "sections": [
     {{"heading": "Short on-screen section title (max 5 words)",
-      "narration": "110-150 words of warm spoken paragraphs, short punchy sentences"}}
+      "narration": "55-75 words of warm spoken prose, short punchy sentences",
+      "image_query": "2-4 word stock-photo search phrase matching this section",
+      "image_fallback": "1-2 word broader stock-photo phrase"}}
   ],
   "outro": "closing spoken line: recap value + ask to subscribe + tease that a new astrology topic comes every day"
 }}"""

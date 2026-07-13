@@ -134,36 +134,37 @@ DOCTOR_CMD="0 5 * * * cd $REPO && $VENV_PYTHON doctor.py --email >> $LOG 2>&1"
 # DAILY pipeline at 5:30 AM (every day) → publishes 10:00 UTC as a Short.
 CRON_CMD="30 5 * * * cd $REPO && $VENV_PYTHON run_daily.py --date \$(date +\\%Y\\%m\\%d) --period \"\$(date +'\\%B \\%Y')\" --upload >> $LOG 2>&1"
 # WEEKLY pipeline — Sundays 07:30 (after the daily finishes, so the 1-core VM
-# never renders two videos at once). "This week" outlook, still a Short.
+# never renders two videos at once). "This week" outlook — ~4m52s, past the
+# 3-minute Shorts cutoff BY REQUIREMENT: weekly horoscopes post as regular
+# videos, not Shorts.
 WEEKLY_CMD="30 7 * * 0 cd $REPO && $VENV_PYTHON run_daily.py --type weekly --date \$(date +\\%Y\\%m\\%d) --period \"\$(date +'\\%B \\%Y')\" --upload >> $LOG 2>&1"
-# TOPIC pipeline at 06:00 (every day) — the LONG-FORM (~8 min) astrology
-# topic-of-the-day. This is the MONETIZATION engine: banks watch hours and is
-# mid-roll-ad eligible. Runs after the daily short so the 1-core VM renders one
-# at a time. Topic is chosen from content_calendar by day-of-year (365 unique).
+# TOPIC pipeline at 06:00 (every day) — the astrology topic-of-the-day,
+# capped UNDER 3 MINUTES (channel requirement — only weekly horoscopes may
+# run longer). Runs after the daily short so the 1-core VM renders one at a
+# time. Topic comes from content_calendar by day-of-year (365 unique), with
+# real astro events (astro_events.py) overriding on event days.
 TOPIC_CMD="0 6 * * * cd $REPO && $VENV_PYTHON run_daily.py --type topic --date \$(date +\\%Y\\%m\\%d) --period \"\$(date +'\\%B \\%Y')\" --upload >> $LOG 2>&1"
-# MONTHLY pipeline — 1st of the month 08:00. "This month" deep-dive; longer
-# (~4.5 min) so YouTube treats it as a regular video (better watch-time credit).
+# MONTHLY pipeline — 1st of the month 08:00. "This month" outlook, 160s
+# (under the 3-minute cap that applies to everything but weekly horoscopes).
 MONTHLY_CMD="0 8 1 * * cd $REPO && $VENV_PYTHON run_daily.py --type monthly --date \$(date +\\%Y\\%m\\%d) --period \"\$(date +'\\%B \\%Y')\" --upload >> $LOG 2>&1"
-# WEEKLYFULL pipeline — Mondays 09:00. LONG-FORM (~8 min) in-depth weekly
-# horoscope, all 12 signs with a full narrated reading each (not just short
-# lines) — mid-roll-ad eligible, for MONETIZATION. Runs well after the Monday
-# daily-short (5:30)/topic (6:00) and clear of Sunday's short weekly (7:30).
+# WEEKLYFULL pipeline — Mondays 09:00. The in-depth weekly horoscope, all
+# 12 signs with a full narrated reading each (~8 min) — weekly horoscopes
+# are the one type EXEMPT from the 3-minute cap and must post as regular
+# videos. Runs well after the Monday daily-short (5:30)/topic (6:00).
 WEEKLYFULL_CMD="0 9 * * 1 cd $REPO && $VENV_PYTHON run_daily.py --type weeklyfull --date \$(date +\\%Y\\%m\\%d) --period \"\$(date +'\\%B \\%Y')\" --upload >> $LOG 2>&1"
 # PREDICTION videos — SHORT (~90s) LANDSCAPE (16:9) with stock images + a
-# crispy astrology prediction + disclaimer. Four categories, staggered well
-# clear of the long-form renders (topic finishes ~6:15); each is a fast render
-# and the flock lock serializes anyway. A "no matches" sports day exits clean.
-#   sports    06:30 daily   — today's featured match, astrology pick
-#   crypto    06:50 daily   — today's crypto-market astrology mood (not advice)
-#   celebrity 07:10 daily   — a rotating zodiac sign's celebrity archetype
-#   political 07:20 Mon/Wed/Fri — general national 'mood' only (no elections)
-PRED_SPORTS_CMD="30 6 * * * cd $REPO && $VENV_PYTHON run_daily.py --type prediction --category sports --date \$(date +\\%Y\\%m\\%d) --period \"\$(date +'\\%B \\%Y')\" --upload >> $LOG 2>&1"
-PRED_CRYPTO_CMD="50 6 * * * cd $REPO && $VENV_PYTHON run_daily.py --type prediction --category crypto --date \$(date +\\%Y\\%m\\%d) --period \"\$(date +'\\%B \\%Y')\" --upload >> $LOG 2>&1"
-PRED_CELEB_CMD="10 7 * * * cd $REPO && $VENV_PYTHON run_daily.py --type prediction --category celebrity --date \$(date +\\%Y\\%m\\%d) --period \"\$(date +'\\%B \\%Y')\" --upload >> $LOG 2>&1"
-PRED_POLI_CMD="20 7 * * 1,3,5 cd $REPO && $VENV_PYTHON run_daily.py --type prediction --category political --date \$(date +\\%Y\\%m\\%d) --period \"\$(date +'\\%B \\%Y')\" --upload >> $LOG 2>&1"
-# WEEKLY TAROT — Saturdays 09:00. LONG-FORM (~7-8 min) all-signs tarot
-# reading with real public-domain Rider-Waite card imagery — mid-roll-ad
-# eligible, for MONETIZATION. Saturday has no other long-form render.
+# crispy astrology prediction + disclaimer. QUOTA RULE: exactly ONE
+# prediction per day (a videos.insert costs ~1600 of the 10,000-unit daily
+# API quota; running all four daily plus the other content types blew the
+# quota in production — uploads failed once the budget ran out). The four
+# categories ROTATE across the week at the same 06:30 slot:
+#   Mon/Thu sports · Tue/Fri crypto · Wed/Sat celebrity · Sun political
+PRED_SPORTS_CMD="30 6 * * 1,4 cd $REPO && $VENV_PYTHON run_daily.py --type prediction --category sports --date \$(date +\\%Y\\%m\\%d) --period \"\$(date +'\\%B \\%Y')\" --upload >> $LOG 2>&1"
+PRED_CRYPTO_CMD="30 6 * * 2,5 cd $REPO && $VENV_PYTHON run_daily.py --type prediction --category crypto --date \$(date +\\%Y\\%m\\%d) --period \"\$(date +'\\%B \\%Y')\" --upload >> $LOG 2>&1"
+PRED_CELEB_CMD="30 6 * * 3,6 cd $REPO && $VENV_PYTHON run_daily.py --type prediction --category celebrity --date \$(date +\\%Y\\%m\\%d) --period \"\$(date +'\\%B \\%Y')\" --upload >> $LOG 2>&1"
+PRED_POLI_CMD="30 6 * * 0 cd $REPO && $VENV_PYTHON run_daily.py --type prediction --category political --date \$(date +\\%Y\\%m\\%d) --period \"\$(date +'\\%B \\%Y')\" --upload >> $LOG 2>&1"
+# WEEKLY TAROT — Saturdays 09:00. All-signs tarot reading with real
+# public-domain Rider-Waite card imagery, under the 3-minute cap.
 TAROT_CMD="0 9 * * 6 cd $REPO && $VENV_PYTHON run_daily.py --type tarotweekly --date \$(date +\\%Y\\%m\\%d) --period \"\$(date +'\\%B \\%Y')\" --upload >> $LOG 2>&1"
 # Heartbeat check at 12:00 — emails an alert if no successful run in >28h
 # (catches: cron never fired, pipeline failing every day, crontab wiped).
@@ -179,7 +180,7 @@ HEARTBEAT_CMD="0 12 * * * cd $REPO && $VENV_PYTHON heartbeat.py --check >> $LOG 
 # + heartbeat (12:00)
 ( crontab -l 2>/dev/null; echo "$DOCTOR_CMD"; echo "$CRON_CMD"; echo "$TOPIC_CMD"; echo "$PRED_SPORTS_CMD"; echo "$PRED_CRYPTO_CMD"; echo "$PRED_CELEB_CMD"; echo "$PRED_POLI_CMD"; echo "$TAROT_CMD"; echo "$WEEKLY_CMD"; echo "$MONTHLY_CMD"; echo "$WEEKLYFULL_CMD"; echo "$HEARTBEAT_CMD" ) | crontab -
 
-echo "  OK: cron jobs installed (doctor 5:00, daily-short 5:30, topic 6:00, prediction sports/crypto/celebrity 6:30/6:50/7:10, prediction-political Mon/Wed/Fri 7:20, tarot Sat 9:00, weekly-short Sun 7:30, monthly 1st 8:00, weekly-long-form Mon 9:00, heartbeat 12:00)"
+echo "  OK: cron jobs installed (doctor 5:00, daily-short 5:30, topic 6:00, one rotating prediction 6:30 (Mon/Thu sports, Tue/Fri crypto, Wed/Sat celebrity, Sun political), tarot Sat 9:00, weekly-short Sun 7:30, monthly 1st 8:00, weekly-long-form Mon 9:00, heartbeat 12:00)"
 
 # ── 3b. Log rotation so $LOG doesn't grow without bound ───────────────────────
 echo ""

@@ -166,6 +166,80 @@ def fetch_first(query: str, fallback_query: str = None):
     return None
 
 
+# ── Stock VIDEO clips (Pexels video API) — Tier-3 experiment ─────────────────
+# Used only when PREDICTION_VIDEO_BG=true; same free key as photos. NOTE:
+# response shape coded against Pexels' documented videos schema, defensively
+# read — verify the first live run with:  python3 stock_images.py --video "city"
+_MAX_VIDEO_BYTES = 25_000_000     # skip files bigger than ~25 MB
+_CACHE_MAX_FILES = 80             # cap .stock_cache growth (oldest pruned)
+
+
+def _prune_cache():
+    try:
+        files = sorted(CACHE_DIR.glob("*"), key=lambda p: p.stat().st_mtime)
+        for p in files[:-_CACHE_MAX_FILES]:
+            p.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+def fetch_video(query: str, fallback_query: str = None):
+    """Local path of a short landscape stock VIDEO clip for the query, or
+    None. Pexels only (Pixabay's video API differs; one provider is enough
+    for an experiment). Picks an HD-ish rendition (1280-1920 wide) under the
+    size cap. Never raises."""
+    if not PEXELS_KEY:
+        return None
+    for q in [query] + ([fallback_query] if fallback_query else []):
+        if not q:
+            continue
+        try:
+            r = requests.get(
+                "https://api.pexels.com/videos/search",
+                headers={"Authorization": PEXELS_KEY, **_UA},
+                params={"query": q, "per_page": 5, "orientation": "landscape"},
+                timeout=REQUEST_TIMEOUT,
+            )
+            r.raise_for_status()
+            videos = r.json().get("videos", []) or []
+        except Exception as e:
+            print(f"[WARN] Pexels video search failed for '{q}': {e}", file=sys.stderr)
+            continue
+        for v in videos:
+            files = v.get("video_files", []) or []
+            # prefer the smallest rendition that is still >= 1280 wide
+            candidates = sorted(
+                (f for f in files
+                 if (f.get("width") or 0) >= 1280 and (f.get("width") or 0) <= 1920
+                 and str(f.get("file_type", "")).endswith("mp4")),
+                key=lambda f: f.get("width") or 9999)
+            for f in candidates:
+                url = f.get("link")
+                if not url:
+                    continue
+                CACHE_DIR.mkdir(parents=True, exist_ok=True)
+                key = hashlib.md5(f"{q}|{url}".encode()).hexdigest()[:16]
+                dest = CACHE_DIR / f"vid-{_slug(q)}-{key}.mp4"
+                if dest.exists() and dest.stat().st_size > 50_000:
+                    return dest
+                try:
+                    resp = requests.get(url, headers=_UA, timeout=60, stream=True)
+                    resp.raise_for_status()
+                    size = 0
+                    with open(dest, "wb") as fh:
+                        for chunk in resp.iter_content(chunk_size=1 << 16):
+                            size += len(chunk)
+                            if size > _MAX_VIDEO_BYTES:
+                                raise ValueError("clip too large")
+                            fh.write(chunk)
+                    _prune_cache()
+                    return dest
+                except Exception as e:
+                    dest.unlink(missing_ok=True)
+                    print(f"[WARN] video download failed: {e}", file=sys.stderr)
+    return None
+
+
 def main():
     if len(sys.argv) < 2:
         print("Usage: python3 stock_images.py 'search query' [count]")

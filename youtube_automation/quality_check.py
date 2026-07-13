@@ -133,18 +133,31 @@ def check_video(video_path: str) -> list:
                     ctype = json.loads(sidecar.read_text()).get("content_type", "")
             except Exception:
                 pass
-            # "prediction" is the SHORT LANDSCAPE format (≤~90s, 1920×1080);
-            # everything else is vertical 1080×1920. long-form types get the
-            # 60-min cap, Shorts get 180s.
+            # Duration policy (channel requirement, tied to the daily upload
+            # quota): ONLY the weekly horoscopes are allowed past 3 minutes
+            # (they must exceed it — a vertical video ≤3min is auto-classed
+            # as a Short, and the weeklies must land as regular videos).
+            # Every other long-form type is hard-capped at ~3 minutes;
+            # predictions at ~90s landscape; daily stays a ≤180s Short.
             is_prediction = ctype == "prediction"
-            long_form = ctype in ("monthly", "deep", "topic", "weeklyfull", "sports",
-                                  "tarotweekly")
             if is_prediction:
                 max_dur = 100          # 90s target + a little slack
-            elif long_form:
-                max_dur = 3600
+            elif ctype in ("weekly", "weeklyfull", "deep"):
+                max_dur = 600          # the weekly-horoscope exception
+            elif ctype in ("topic", "monthly", "tarotweekly", "sports"):
+                max_dur = 200          # 3min + encode slack
             else:
-                max_dur = 180
+                max_dur = 180          # daily Short
+
+            # The weeklies must NOT be Shorts: a vertical video at ≤180s (aka
+            # ≤3min in current YouTube policy) gets shelved as a Short, which
+            # is exactly what the requirement forbids for them.
+            if ctype in ("weekly", "weeklyfull"):
+                dur_check = float(fmt.get("duration", 0))
+                if 0 < dur_check <= 185:
+                    errors.append(f"Weekly horoscope is only {dur_check:.0f}s — "
+                                  f"≤3min vertical uploads become Shorts; it must "
+                                  f"exceed 3 minutes to post as a regular video")
 
             duration = float(fmt.get("duration", 0))
             if duration < 30:

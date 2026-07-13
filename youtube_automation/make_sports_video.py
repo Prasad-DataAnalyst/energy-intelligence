@@ -343,8 +343,10 @@ def process(json_path: str) -> str:
             # Group THIS card's own words into caption phrases BEFORE applying
             # the global offset — grouping must never span two cards, or a cue
             # could straddle the hard cut between them. See make_daily_video.
-            for c_start, c_end, c_text in mdv._group_words_into_cues(word_cues, max_words=3):
-                caption_cues.append((t_cursor + c_start, t_cursor + c_end, c_text))
+            for c0, c1, wlist in mdv._group_words_into_word_cues(word_cues, max_words=3):
+                caption_cues.append((t_cursor + c0, t_cursor + c1,
+                                     [(t_cursor + ws, t_cursor + we, w)
+                                      for ws, we, w in wlist]))
             if is_chapter:
                 chapters.append(f"{_ts(t_cursor)} {label}")
             t_cursor += card_dur
@@ -388,8 +390,7 @@ def process(json_path: str) -> str:
         mdv.VIDEO_FPS = mdv.safe_static_fps(total)
         print(f"      Total: {total:.0f}s ({int(total//60)}m {int(total%60)}s)  |  {mdv.VIDEO_FPS}fps")
 
-        srt_path = str(tmp / "captions.srt")
-        has_captions = mdv._write_srt(caption_cues, srt_path)
+        srt_path, has_captions = mdv._write_captions(caption_cues, str(tmp / "captions"))
         print(f"      Captions: {len(caption_cues)} cues" if has_captions
               else "      [WARN] No word-timing captured — captions skipped")
 
