@@ -1951,7 +1951,11 @@ def process(json_path: str) -> str:
         # 4. Assemble
         out_w, out_h = frame or (WIDTH, HEIGHT)
         mode = "motion (crossfade)" if MOTION_ENABLED else "static"
-        print(f"\n[4/5] Assembling {out_w}x{out_h} @ {FPS}fps  [{mode}]...")
+        # Motion renders at the full FPS constant; static uses the
+        # duration-aware VIDEO_FPS — print whichever will actually be used
+        # (the log used to claim 24fps for an 11fps static encode).
+        shown_fps = FPS if MOTION_ENABLED else VIDEO_FPS
+        print(f"\n[4/5] Assembling {out_w}x{out_h} @ {shown_fps}fps  [{mode}]...")
         cap_srt = srt_path if has_captions else None
         ok = False
         if MOTION_ENABLED:
