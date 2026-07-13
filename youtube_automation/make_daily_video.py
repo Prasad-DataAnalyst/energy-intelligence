@@ -772,6 +772,252 @@ def render_thumbnail(date_str: str, out_path: str) -> None:
     print(f"[INFO] Thumbnail → {out_path}")
 
 
+# ── LANDSCAPE card renderers (weekly / weeklyfull / monthly) ──────────────────
+# CHANNEL POLICY: only the DAILY horoscope ships vertical (a Short); every
+# other horoscope video is a 1920x1080 regular video. These are separate
+# functions rather than parameterized versions of the vertical renderers so
+# the daily Short's proven layout code is untouched.
+LS_W, LS_H = 1920, 1080
+
+
+def render_intro_card_ls(date_str: str) -> Image.Image:
+    img = _cosmic_bg(LS_W, LS_H, (6, 3, 22), (14, 6, 40), (170, 120, 255), seed=42)
+    d = ImageDraw.Draw(img)
+    d.rectangle([0, 0, LS_W, 8], fill=GOLD)
+    d.rectangle([0, LS_H - 8, LS_W, LS_H], fill=GOLD)
+
+    intro_label = {"daily": "DAILY", "weekly": "WEEKLY", "monthly": "MONTHLY",
+                   "weeklyfull": "WEEKLY", "deep": "DAILY"}.get(CONTENT_TYPE,
+                                                                CONTENT_TYPE.upper())
+    f_big = _display_font(116, weight=700)
+    title = f"{intro_label} HOROSCOPE"
+    w = _tw(title, f_big)
+    d.text(((LS_W - w) // 2 + 3, 103), title, font=f_big, fill=(0, 0, 0, 170))
+    d.text(((LS_W - w) // 2, 100), title, font=f_big, fill=GOLD)
+
+    f_sub = _ui_font(56, 600)
+    txt = "ALL 12 SIGNS"
+    w = _tw(txt, f_sub)
+    d.text(((LS_W - w) // 2, 260), txt, font=f_sub, fill=WHITE)
+
+    d.rectangle([160, 356, LS_W - 160, 360], fill=(*GOLD, 200))
+
+    # all 12 glyphs in a single row
+    glyphs = [SIGN_EMOJIS[s] for s in SIGNS]
+    f_g = _glyph_font(76)
+    col_w = (LS_W - 320) // 12
+    gx = 160 + col_w // 2
+    for g in glyphs:
+        gw = _tw(g, f_g)
+        d.text((gx - gw // 2, 392), g, font=f_g, fill=GOLD)
+        gx += col_w
+    d.rectangle([160, 512, LS_W - 160, 516], fill=(*GOLD, 200))
+
+    f_date = _ui_font(50, 500)
+    w = _tw(date_str, f_date)
+    d.text(((LS_W - w) // 2, 552), date_str, font=f_date, fill=SILVER)
+
+    f_cats = _ui_font(40, 500)
+    cats = "Love  •  Career  •  Money  •  Health  •  Lucky Guidance"
+    w = _tw(cats, f_cats)
+    d.text(((LS_W - w) // 2, 630), cats, font=f_cats, fill=(220, 210, 255))
+
+    f_hook = _ui_font(58, 700)
+    hook = "FIND YOUR SIGN"
+    w = _tw(hook, f_hook)
+    d.text(((LS_W - w) // 2 + 2, 724), hook, font=f_hook, fill=(0, 0, 0, 160))
+    d.text(((LS_W - w) // 2, 722), hook, font=f_hook, fill=WHITE)
+
+    f_cta = _ui_font(44, 700)
+    cta = "COMMENT YOUR SIGN"
+    cw = _tw(cta, f_cta)
+    cx = (LS_W - cw) // 2
+    d.rounded_rectangle([cx - 30, 846, cx + cw + 30, 846 + _th(f_cta) + 34],
+                        radius=18, fill=GOLD)
+    d.text((cx, 860), cta, font=f_cta, fill=(10, 5, 30))
+
+    f_ch = _ui_font(44, 500)
+    w = _tw(CHANNEL_TAG, f_ch)
+    d.text(((LS_W - w) // 2, LS_H - 84), CHANNEL_TAG, font=f_ch, fill=SILVER)
+    return img.convert("RGB")
+
+
+def render_sign_card_ls(sign: str, fields: dict, idx: int) -> Image.Image:
+    """Landscape sign card: header row (badge+name left, period pill right),
+    2x2 grid of the category glass panels, full-width Lucky Guidance panel,
+    progress dots + footer. Captions burn over the lower band."""
+    neon = SIGN_NEON.get(sign, WHITE)
+    top, bot = SIGN_GRADIENTS.get(sign, ((8, 4, 20), (16, 8, 40)))
+    img = _cosmic_bg(LS_W, LS_H, top, bot, neon, seed=hash(sign) % 65536)
+    glyph = SIGN_EMOJIS.get(sign, "")
+
+    # faint watermark glyph, right of center so panels stay readable
+    try:
+        wm_font = _glyph_font(560)
+        wm_w = _tw(glyph, wm_font)
+        ov = Image.new("RGBA", (LS_W, LS_H), (0, 0, 0, 0))
+        ImageDraw.Draw(ov).text((LS_W - wm_w - 120, LS_H // 2 - 280),
+                                glyph, font=wm_font, fill=(*neon, 14))
+        img = Image.alpha_composite(img, ov)
+    except Exception:
+        pass
+
+    # glass panels: 2x2 categories + full-width lucky guidance
+    panels = Image.new("RGBA", (LS_W, LS_H), (0, 0, 0, 0))
+    pd = ImageDraw.Draw(panels)
+    P_X0, COL_GAP = 70, 40
+    col_w = (LS_W - 2 * P_X0 - COL_GAP) // 2
+    P_H, ROW_GAP = 182, 24
+    rows_y = [206, 206 + P_H + ROW_GAP]
+    cat_boxes = []
+    for r in range(2):
+        for c in range(2):
+            x0 = P_X0 + c * (col_w + COL_GAP)
+            y0 = rows_y[r]
+            pd.rounded_rectangle([x0, y0, x0 + col_w, y0 + P_H], radius=24,
+                                 fill=(255, 255, 255, 16))
+            pd.rounded_rectangle([x0, y0, x0 + 10, y0 + P_H], radius=5,
+                                 fill=(*neon, 220))
+            cat_boxes.append((x0, y0))
+    luck_y, LUCK_H = rows_y[1] + P_H + 26, 210
+    pd.rounded_rectangle([P_X0, luck_y, LS_W - P_X0, luck_y + LUCK_H], radius=24,
+                         fill=(255, 215, 0, 22))
+    pd.rounded_rectangle([P_X0, luck_y, LS_W - P_X0, luck_y + 10], radius=5,
+                         fill=(*GOLD, 230))
+    img = Image.alpha_composite(img, panels)
+    draw = ImageDraw.Draw(img)
+    draw.rectangle([0, 0, LS_W, 6], fill=GOLD)
+    draw.rectangle([0, LS_H - 6, LS_W, LS_H], fill=GOLD)
+
+    # header: badge + name, left
+    hf = _display_font(84, weight=700)
+    name = sign.upper()
+    bad_r = 52
+    bcx, bcy = P_X0 + bad_r, 100
+    draw.ellipse([bcx - bad_r, bcy - bad_r, bcx + bad_r, bcy + bad_r],
+                 fill=(0, 0, 0, 130), outline=(*neon, 255), width=5)
+    bgf = _glyph_font(58)
+    gw_ = _tw(glyph, bgf)
+    draw.text((bcx - gw_ // 2, bcy - _th(bgf) // 2 - 8), glyph, font=bgf, fill=neon)
+    nx = P_X0 + bad_r * 2 + 28
+    draw.text((nx + 3, 61), name, font=hf, fill=(0, 0, 0, 170))
+    draw.text((nx, 58), name, font=hf, fill=GOLD)
+    draw.rectangle([nx, 168, nx + _tw(name, hf), 173], fill=(*neon, 220))
+
+    # period pill, right
+    pf = _ui_font(30, 700)
+    pl_w = _tw(PERIOD_LABEL, pf)
+    ppx = LS_W - P_X0 - pl_w - 44
+    draw.rounded_rectangle([ppx, 72, ppx + pl_w + 44, 72 + _th(pf) + 20],
+                           radius=14, fill=(*neon, 60), outline=(*neon, 235), width=2)
+    draw.text((ppx + 22, 80), PERIOD_LABEL, font=pf, fill=WHITE)
+
+    # category panel contents
+    lf = _ui_font(38, 600)
+    vf2 = _ui_font(46, 400)
+    cats = [
+        ("♥", "❤", "LOVE",   fields.get("love",   "—")),
+        ("★", "*", "CAREER", fields.get("career", "—")),
+        ("$", "$", "MONEY",  fields.get("money",  "—")),
+        ("✚", "+", "HEALTH", fields.get("health", "—")),
+    ]
+    for (sym, fb, label, value), (x0, y0) in zip(cats, cat_boxes):
+        tx = x0 + 36
+        iy = y0 + 22
+        isym, ifont = _icon(sym, fb, 34)
+        draw.text((tx, iy), isym, font=ifont, fill=neon)
+        draw.text((tx + 48, iy), label, font=lf, fill=GOLD)
+        ty = y0 + 22 + _th(lf) + 14
+        for ln in _wrap(str(value), vf2, col_w - 70)[:2]:
+            draw.text((tx, ty), ln, font=vf2, fill=WHITE)
+            ty += _th(vf2) + 6
+
+    # lucky guidance
+    isym, ifont = _icon("☾", "★", 34)
+    ly = luck_y + 20
+    draw.text((P_X0 + 36, ly), isym, font=ifont, fill=GOLD)
+    draw.text((P_X0 + 92, ly), "LUCKY GUIDANCE", font=lf, fill=GOLD)
+    klf = _ui_font(28, 500)
+    kvf = _ui_font(44, 600)
+    minis = [("NUMBER", str(fields.get("lucky_number", "?"))),
+             ("COLOR",  str(fields.get("lucky_color",  "?"))),
+             ("TIME",   str(fields.get("best_time",    "—")))]
+    mini_w = (LS_W - 2 * P_X0 - 700) // 3
+    for i, (ml, mv) in enumerate(minis):
+        cx = P_X0 + 700 + mini_w * i + mini_w // 2
+        draw.text((cx - _tw(ml, klf) // 2, luck_y + 24), ml, font=klf,
+                  fill=(*SILVER, 235))
+        f_fit = kvf if _tw(mv, kvf) <= mini_w - 24 else _ui_font(34, 600)
+        draw.text((cx - _tw(mv, f_fit) // 2, luck_y + 24 + _th(klf) + 10), mv,
+                  font=f_fit, fill=neon)
+    advice = str(fields.get("advice", fields.get("note", "—")))
+    af = _ui_font(40, 500)
+    ay = luck_y + 118
+    for ln in _wrap(advice, af, LS_W - 2 * P_X0 - 90)[:2]:
+        draw.text((P_X0 + 36, ay), ln, font=af, fill=WHITE)
+        ay += _th(af) + 6
+
+    # progress dots + footer
+    dot_r, dot_sp = 8, 28
+    total_w = 12 * dot_r * 2 + 11 * (dot_sp - dot_r * 2)
+    dot_x0, dot_y = (LS_W - total_w) // 2, LS_H - 122
+    for i in range(12):
+        cx = dot_x0 + i * dot_sp + dot_r
+        if i == idx:
+            draw.ellipse([cx - dot_r - 3, dot_y - dot_r - 3,
+                          cx + dot_r + 3, dot_y + dot_r + 3], fill=GOLD)
+        elif i < idx:
+            draw.ellipse([cx - dot_r + 2, dot_y - dot_r + 2,
+                          cx + dot_r - 2, dot_y + dot_r - 2], fill=(*neon, 160))
+        else:
+            draw.ellipse([cx - dot_r, dot_y - dot_r, cx + dot_r, dot_y + dot_r],
+                         outline=(*SILVER, 130), width=2)
+    ff = _ui_font(36, 500)
+    tag = f"{CHANNEL_TAG}  •  {idx + 1} of 12"
+    fw = _tw(tag, ff)
+    draw.text(((LS_W - fw) // 2, LS_H - 78), tag, font=ff, fill=(*SILVER, 235))
+    return img.convert("RGB")
+
+
+def render_outro_card_ls(luckiest_sign: str) -> Image.Image:
+    neon = SIGN_NEON.get((luckiest_sign or "").lower(), (170, 120, 255))
+    img = _cosmic_bg(LS_W, LS_H, (6, 3, 22), (14, 6, 40), neon, seed=777)
+    draw = ImageDraw.Draw(img)
+    draw.rectangle([0, 0, LS_W, 8], fill=GOLD)
+    draw.rectangle([0, LS_H - 8, LS_W, LS_H], fill=GOLD)
+
+    period = {"deep": "TODAY'S", "weeklyfull": "THIS WEEK'S"}.get(CONTENT_TYPE, "TODAY'S")
+    f_lbl = _ui_font(50, 600)
+    lbl = f"{period} LUCKIEST SIGN"
+    w = _tw(lbl, f_lbl)
+    draw.text(((LS_W - w) // 2, 120), lbl, font=f_lbl, fill=(220, 210, 255))
+
+    glyph = SIGN_EMOJIS.get((luckiest_sign or "").lower(), "★")
+    gf = _glyph_font(300)
+    gw = _tw(glyph, gf)
+    draw.text(((LS_W - gw) // 2, 230), glyph, font=gf, fill=neon)
+
+    f_sign = _display_font(104, weight=700)
+    name = (luckiest_sign or "Every Sign").upper()
+    w = _tw(name, f_sign)
+    draw.text(((LS_W - w) // 2 + 3, 653), name, font=f_sign, fill=(0, 0, 0, 170))
+    draw.text(((LS_W - w) // 2, 650), name, font=f_sign, fill=GOLD)
+
+    f_cta = _ui_font(48, 700)
+    cta = ("SUBSCRIBE FOR WEEKLY READINGS" if CONTENT_TYPE == "weeklyfull"
+           else "SUBSCRIBE FOR DAILY READINGS")
+    cw = _tw(cta, f_cta)
+    cx = (LS_W - cw) // 2
+    draw.rounded_rectangle([cx - 34, 824, cx + cw + 34, 824 + _th(f_cta) + 36],
+                           radius=20, fill=GOLD)
+    draw.text((cx, 840), cta, font=f_cta, fill=(10, 5, 30))
+
+    f_ch = _ui_font(44, 500)
+    w = _tw(CHANNEL_TAG, f_ch)
+    draw.text(((LS_W - w) // 2, LS_H - 84), CHANNEL_TAG, font=f_ch, fill=SILVER)
+    return img.convert("RGB")
+
+
 # ── Audio ──────────────────────────────────────────────────────────────────────
 def _generate_ambient(duration: float, out_path: str) -> bool:
     """Cosmic pad: mid-register detuned major triad (A3+C#4+A4, with a 0.5 Hz
@@ -1291,9 +1537,11 @@ def _mux_audio(tmp_video: str, audio_path: str | None, out_path: str) -> bool:
 
 def assemble_video_motion(png_files: list, durations: list,
                           audio_path: str | None, out_path: str,
-                          srt_path: str | None = None) -> bool:
+                          srt_path: str | None = None,
+                          frame: tuple | None = None) -> bool:
     """Crossfade each card into the next for a smooth, 'alive' feel.
     Falls back to the static assembler on any failure."""
+    fw, fh = frame or (WIDTH, HEIGHT)
     tmp_video = out_path.replace(".mp4", "_motion.mp4")
     n = len(png_files)
     T = XFADE_SECS
@@ -1303,7 +1551,7 @@ def assemble_video_motion(png_files: list, durations: list,
 
     # Normalize every still, then chain xfades with cumulative offsets.
     parts = [
-        f"[{i}:v]scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=disable,"
+        f"[{i}:v]scale={fw}:{fh}:force_original_aspect_ratio=disable,"
         f"setsar=1,fps={FPS},settb=AVTB,format=yuv420p[v{i}]"
         for i in range(n)
     ]
@@ -1415,7 +1663,11 @@ def _subtitle_filter(srt_path: str) -> str:
 
 def assemble_video(png_files: list, durations: list,
                    audio_path: str | None, out_path: str,
-                   srt_path: str | None = None) -> bool:
+                   srt_path: str | None = None,
+                   frame: tuple | None = None) -> bool:
+    """frame=(w,h) selects output size — default vertical WIDTHxHEIGHT (the
+    daily Short); landscape types pass (LS_W, LS_H)."""
+    fw, fh = frame or (WIDTH, HEIGHT)
     tmp_video = out_path.replace(".mp4", "_noaudio.mp4")
     concat_txt = out_path.replace(".mp4", "_concat.txt")
 
@@ -1436,7 +1688,7 @@ def assemble_video(png_files: list, durations: list,
     # source). Set ENCODER_PRESET in .env only on a bigger machine.
     static_fps = min(FPS, VIDEO_FPS)
     preset = os.getenv("ENCODER_PRESET", "ultrafast")
-    vf = f"fps={static_fps},scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=disable"
+    vf = f"fps={static_fps},scale={fw}:{fh}:force_original_aspect_ratio=disable"
     if CINEMATIC_GRADE:
         vf += "," + grade_filter()     # at low fps, before captions — cheap + crisp text
     if srt_path and Path(srt_path).exists():
@@ -1504,6 +1756,13 @@ def process(json_path: str) -> str:
     PERIOD_LABEL = data.get("period_label", "TODAY")
     sign_secs    = int(data.get("sign_secs", SIGN_SECS))
 
+    # CHANNEL POLICY: only the daily horoscope is vertical (a Short). Every
+    # other type this module renders (weekly/weeklyfull/monthly/deep) is a
+    # landscape 1920x1080 regular video — landscape uploads are never
+    # auto-classed as Shorts regardless of length.
+    is_landscape = CONTENT_TYPE != "daily"
+    frame = (LS_W, LS_H) if is_landscape else None
+
     # Extract YYYYMMDD from filename <type>_horoscope_YYYYMMDD.json
     date_tag = path.stem.split("_")[-1]
 
@@ -1533,9 +1792,10 @@ def process(json_path: str) -> str:
         durations: list = []
 
         # 1. Render cards
-        print("[1/4] Rendering cards...")
+        print(f"[1/4] Rendering cards ({'landscape' if is_landscape else 'vertical'})...")
         intro_png = str(tmp / "00_intro.png")
-        render_intro_card(date_str).save(intro_png, "PNG")
+        intro_card = render_intro_card_ls(date_str) if is_landscape else render_intro_card(date_str)
+        intro_card.save(intro_png, "PNG")
         png_files.append(intro_png)
         durations.append(INTRO_SECS)
         print(f"      [intro]  {INTRO_SECS}s")
@@ -1544,7 +1804,9 @@ def process(json_path: str) -> str:
         for idx, sign in enumerate(SIGNS):
             fields   = signs_data.get(sign, {})
             card_png = str(tmp / f"{idx + 1:02d}_{sign}.png")
-            render_sign_card(sign, fields, idx).save(card_png, "PNG")
+            sign_card = (render_sign_card_ls(sign, fields, idx) if is_landscape
+                        else render_sign_card(sign, fields, idx))
+            sign_card.save(card_png, "PNG")
             png_files.append(card_png)
             durations.append(sign_secs)
             print(f"      [{sign.title():<14}]  {sign_secs}s")
@@ -1552,7 +1814,9 @@ def process(json_path: str) -> str:
         luckiest_sign = str(data.get("luckiest_sign", "")).strip()
         if has_outro:
             outro_png = str(tmp / "99_outro.png")
-            render_outro_card(luckiest_sign).save(outro_png, "PNG")
+            outro_card = (render_outro_card_ls(luckiest_sign) if is_landscape
+                         else render_outro_card(luckiest_sign))
+            outro_card.save(outro_png, "PNG")
             png_files.append(outro_png)
             durations.append(OUTRO_SECS)
             print(f"      [outro]  {OUTRO_SECS}s  (luckiest: {luckiest_sign or '—'})")
@@ -1672,16 +1936,17 @@ def process(json_path: str) -> str:
             print("      [WARN] No audio — video will be silent")
 
         # 4. Assemble
+        out_w, out_h = frame or (WIDTH, HEIGHT)
         mode = "motion (crossfade)" if MOTION_ENABLED else "static"
-        print(f"\n[4/5] Assembling {WIDTH}x{HEIGHT} @ {FPS}fps  [{mode}]...")
+        print(f"\n[4/5] Assembling {out_w}x{out_h} @ {FPS}fps  [{mode}]...")
         cap_srt = srt_path if has_captions else None
         ok = False
         if MOTION_ENABLED:
             ok = assemble_video_motion(png_files, durations, audio_path, video_path,
-                                       srt_path=cap_srt)
+                                       srt_path=cap_srt, frame=frame)
         if not ok:
             ok = assemble_video(png_files, durations, audio_path, video_path,
-                                srt_path=cap_srt)
+                                srt_path=cap_srt, frame=frame)
         if not ok:
             print("[ERROR] Assembly failed", file=sys.stderr)
             sys.exit(1)

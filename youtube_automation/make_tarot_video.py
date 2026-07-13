@@ -2,7 +2,8 @@
 """
 make_tarot_video.py
 Renders the weekly tarot-reading video from a tarotweekly_YYYYMMDD.json
-(generate_tarot_assets.py). Vertical 1080x1920, under 3 minutes
+(generate_tarot_assets.py). LANDSCAPE 1920x1080 regular video (channel
+policy: only the daily horoscope is vertical/Shorts), under 3 minutes
 (short punchy readings): intro card → 12 sign cards → outro.
 
 Each sign card shows the REAL public-domain Rider–Waite–Smith card image
@@ -29,9 +30,9 @@ import make_daily_video as mdv
 import make_topic_video as mtv   # _narrate / _pad_to / motion+captions assembly
 import tarot_deck
 
-W, H = mdv.WIDTH, mdv.HEIGHT
+W, H = mdv.LS_W, mdv.LS_H   # landscape — see module docstring
 GOLD, WHITE, SILVER = mdv.GOLD, mdv.WHITE, mdv.SILVER
-PAD = 64
+PAD = 90
 
 ACCENT = (190, 140, 255)          # tarot purple (matches the topic category)
 BG_TOP, BG_BOT = (14, 6, 24), (34, 16, 52)
@@ -42,52 +43,54 @@ def render_intro_card(data: dict) -> Image.Image:
     d = ImageDraw.Draw(img)
     d.rectangle([0, 0, W, 8], fill=GOLD); d.rectangle([0, H - 8, W, H], fill=GOLD)
 
-    cf = mdv._ui_font(36, 700)
+    cf = mdv._ui_font(34, 700)
     chip = "WEEKLY TAROT"
     cw = mdv._tw(chip, cf)
     cx = (W - cw - 48) // 2
-    d.rounded_rectangle([cx, 280, cx + cw + 48, 280 + mdv._th(cf) + 24], radius=16,
+    d.rounded_rectangle([cx, 78, cx + cw + 48, 78 + mdv._th(cf) + 22], radius=16,
                         fill=(*ACCENT, 60), outline=(*ACCENT, 235), width=2)
-    d.text((cx + 24, 290), chip, font=cf, fill=WHITE)
+    d.text((cx + 24, 86), chip, font=cf, fill=WHITE)
 
-    tf = mdv._display_font(96, weight=700)
+    tf = mdv._display_font(82, weight=700)
     for i, ln in enumerate(["YOUR SIGN'S", "CARD THIS WEEK"]):
         w_ = mdv._tw(ln, tf)
-        d.text(((W - w_) // 2 + 3, 430 + i * (mdv._th(tf) + 14) + 3), ln,
+        d.text(((W - w_) // 2 + 3, 168 + i * (mdv._th(tf) + 10) + 3), ln,
                font=tf, fill=(0, 0, 0, 170))
-        d.text(((W - w_) // 2, 430 + i * (mdv._th(tf) + 14)), ln, font=tf, fill=GOLD)
+        d.text(((W - w_) // 2, 168 + i * (mdv._th(tf) + 10)), ln, font=tf, fill=GOLD)
 
-    # a fan of three face-down card backs as the visual motif
-    card_w, card_h = 260, 440
-    for i, (dx, rot) in enumerate([(-240, -12), (0, 0), (240, 12)]):
+    # a fan of three face-down card backs as the visual motif — sized to fit
+    # the short 1080px-tall frame below the title and above the date/footer.
+    card_w, card_h = 210, 356
+    for i, (dx, rot) in enumerate([(-220, -12), (0, 0), (220, 12)]):
         card = Image.new("RGBA", (card_w, card_h), (26, 12, 44, 255))
         cd = ImageDraw.Draw(card)
         cd.rectangle([6, 6, card_w - 6, card_h - 6], outline=(212, 175, 55), width=5)
-        star, sf_ = mdv._icon("✵", "*", 120)
+        star, sf_ = mdv._icon("✵", "*", 96)
         sw = mdv._tw(star, sf_)
-        cd.text(((card_w - sw) // 2, card_h // 2 - 80), star, font=sf_,
+        cd.text(((card_w - sw) // 2, card_h // 2 - 64), star, font=sf_,
                 fill=(*ACCENT, 220))
         card = card.rotate(rot, expand=True, resample=Image.BICUBIC)
-        img.paste(card, (W // 2 - card.width // 2 + dx, 800), card)
+        img.paste(card, (W // 2 - card.width // 2 + dx, 480), card)
 
-    sf = mdv._ui_font(46, 500)
+    sf = mdv._ui_font(42, 500)
     sub = data.get("date", "")
     sw_ = mdv._tw(sub, sf)
-    d.text(((W - sw_) // 2, 1420), sub, font=sf, fill=(225, 220, 245))
-    chf = mdv._ui_font(46, 600)
+    d.text(((W - sw_) // 2, 900), sub, font=sf, fill=(225, 220, 245))
+    chf = mdv._ui_font(42, 600)
     cw2 = mdv._tw(mdv.CHANNEL_TAG, chf)
-    d.text(((W - cw2) // 2, H - 120), mdv.CHANNEL_TAG, font=chf, fill=GOLD)
+    d.text(((W - cw2) // 2, H - 84), mdv.CHANNEL_TAG, font=chf, fill=GOLD)
     return img.convert("RGB")
 
 
 def render_sign_card(sign: str, card: dict, idx: int) -> Image.Image:
-    """Sign header + the real card image (gold-framed, centered) + card name,
-    with a caption scrim at the bottom for the burned reading."""
+    """Landscape layout: real card art on the LEFT (portrait cards fit a tall
+    box naturally), sign header + card name on the RIGHT, caption scrim
+    spanning the full-width bottom band for the burned reading."""
     img = mdv._cosmic_bg(W, H, BG_TOP, BG_BOT, ACCENT, seed=500 + idx)
     d = ImageDraw.Draw(img)
     d.rectangle([0, 0, W, 6], fill=GOLD); d.rectangle([0, H - 6, W, H], fill=GOLD)
 
-    # progress pill
+    # progress pill, top-right
     nf = mdv._ui_font(34, 700)
     tag = f"{idx} / 12"
     tw_ = mdv._tw(tag, nf)
@@ -96,62 +99,72 @@ def render_sign_card(sign: str, card: dict, idx: int) -> Image.Image:
                         radius=14, fill=(*ACCENT, 50), outline=(*ACCENT, 200), width=2)
     d.text((px0 + 18, 74), tag, font=nf, fill=WHITE)
 
-    # sign header (zodiac glyph badge + name), same style family as the
-    # horoscope cards
-    glyph = {"aries": "♈", "taurus": "♉", "gemini": "♊", "cancer": "♋",
-             "leo": "♌", "virgo": "♍", "libra": "♎", "scorpio": "♏",
-             "sagittarius": "♐", "capricorn": "♑", "aquarius": "♒",
-             "pisces": "♓"}.get(sign, "✦")
-    gsym, gfont = mdv._icon(glyph, "*", 64)
-    hf = mdv._display_font(88, weight=700)
-    name = sign.upper()
-    name_w = mdv._tw(name, hf)
-    total_w = 80 + 24 + name_w
-    x0 = (W - total_w) // 2
-    d.ellipse([x0, 78, x0 + 80, 158], fill=(0, 0, 0, 130), outline=(*ACCENT, 255), width=4)
-    gw = mdv._tw(gsym, gfont)
-    d.text((x0 + 40 - gw // 2, 118 - mdv._th(gfont) // 2 - 6), gsym, font=gfont, fill=ACCENT)
-    d.text((x0 + 104 + 2, 82), name, font=hf, fill=(0, 0, 0, 170))
-    d.text((x0 + 104, 80), name, font=hf, fill=GOLD)
-
-    # the card itself — real RWS scan (or drawn fallback), gold-framed.
-    # RWS cards are ~600x1050; fit into a 640x1060 box centered.
+    # the card itself — real RWS scan (or drawn fallback), gold-framed, LEFT
+    # side. RWS cards are ~600x1050; fit into a 480x840 box.
     art = tarot_deck.card_image(card)
-    box_w, box_h = 640, 1060
+    box_w, box_h = 480, 840
     aw, ah = art.size
     scale = min(box_w / aw, box_h / ah)
     art = art.resize((int(aw * scale), int(ah * scale)), Image.LANCZOS)
-    ax = (W - art.width) // 2
-    ay = 250
-    d.rectangle([ax - 12, ay - 12, ax + art.width + 12, ay + art.height + 12],
+    ax, ay = 110, 130
+    d.rectangle([ax - 10, ay - 10, ax + art.width + 10, ay + art.height + 10],
                 fill=(10, 6, 18), outline=GOLD, width=6)
     img.paste(art, (ax, ay))
     d = ImageDraw.Draw(img)
 
-    # card name + numeral beneath the art
-    cnf = mdv._display_font(64, weight=700)
-    label = f"{card['numeral']} · {card['name']}"
-    lw = mdv._tw(label, cnf)
-    ly = ay + art.height + 34
-    d.text(((W - lw) // 2 + 2, ly + 2), label, font=cnf, fill=(0, 0, 0, 170))
-    d.text(((W - lw) // 2, ly), label, font=cnf, fill=GOLD)
+    # right column: sign header (glyph badge + name), then card name/numeral
+    rx = ax + art.width + 90
+    rw = W - PAD - rx
+    glyph = {"aries": "♈", "taurus": "♉", "gemini": "♊", "cancer": "♋",
+             "leo": "♌", "virgo": "♍", "libra": "♎", "scorpio": "♏",
+             "sagittarius": "♐", "capricorn": "♑", "aquarius": "♒",
+             "pisces": "♓"}.get(sign, "✦")
+    gsym, gfont = mdv._icon(glyph, "*", 60)
+    hf = mdv._display_font(78, weight=700)
+    name = sign.upper()
+    bad_r = 50
+    bcy = ay + 50
+    d.ellipse([rx, bcy - bad_r, rx + bad_r * 2, bcy + bad_r], fill=(0, 0, 0, 130),
+              outline=(*ACCENT, 255), width=4)
+    gw = mdv._tw(gsym, gfont)
+    d.text((rx + bad_r - gw // 2, bcy - mdv._th(gfont) // 2 - 6), gsym, font=gfont, fill=ACCENT)
+    nx = rx + bad_r * 2 + 24
+    d.text((nx + 2, bcy - mdv._th(hf) // 2 + 2), name, font=hf, fill=(0, 0, 0, 170))
+    d.text((nx, bcy - mdv._th(hf) // 2), name, font=hf, fill=GOLD)
+    d.rectangle([rx, ay + 130, rx + rw, ay + 135], fill=(*ACCENT, 220))
 
-    # caption scrim (lower third)
+    cnf = mdv._display_font(58, weight=700)
+    cy = ay + 190
+    for ln in mdv._wrap(f"{card['numeral']} · {card['name']}", cnf, rw)[:3]:
+        d.text((rx + 2, cy + 2), ln, font=cnf, fill=(0, 0, 0, 170))
+        d.text((rx, cy), ln, font=cnf, fill=GOLD)
+        cy += mdv._th(cnf) + 12
+
+    kf = mdv._ui_font(40, 500)
+    kw_ = mdv._wrap(card.get("keywords", ""), kf, rw)[:4]
+    ky = cy + 30
+    for ln in kw_:
+        d.text((rx, ky), ln, font=kf, fill=(225, 220, 245))
+        ky += mdv._th(kf) + 8
+
+    # caption scrim: full-width bottom band (same height as every other
+    # landscape module, for a consistent caption safe zone across the channel)
+    SCRIM_H = 340
     scrim = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     sd = ImageDraw.Draw(scrim)
-    top = H - 420
+    top = H - SCRIM_H
     steps = 48
     for i in range(steps):
-        a = int(150 * (i / steps))
-        yy = top + int(i * (420 / steps))
-        sd.rectangle([0, yy, W, yy + (420 // steps) + 1], fill=(0, 0, 0, a))
+        a = int(160 * (i / steps))
+        yy = top + int(i * (SCRIM_H / steps))
+        sd.rectangle([0, yy, W, yy + (SCRIM_H // steps) + 1], fill=(0, 0, 0, a))
     img = Image.alpha_composite(img.convert("RGBA"), scrim)
     d = ImageDraw.Draw(img)
 
-    ff = mdv._ui_font(36, 500)
+    ff = mdv._ui_font(34, 500)
     foot = f"{mdv.CHANNEL_TAG}  •  Weekly Tarot"
     fw = mdv._tw(foot, ff)
-    d.text(((W - fw) // 2, H - 78), foot, font=ff, fill=(*SILVER, 200))
+    d.text(((W - fw) // 2, H - 56), foot, font=ff, fill=(*SILVER, 200))
     return img.convert("RGB")
 
 
@@ -159,26 +172,26 @@ def render_outro_card(data: dict) -> Image.Image:
     img = mdv._cosmic_bg(W, H, BG_TOP, BG_BOT, ACCENT, seed=999)
     d = ImageDraw.Draw(img)
     d.rectangle([0, 0, W, 8], fill=GOLD); d.rectangle([0, H - 8, W, H], fill=GOLD)
-    tf = mdv._display_font(96, weight=700)
+    tf = mdv._display_font(80, weight=700)
     for i, ln in enumerate(["SAME TIME", "NEXT WEEK"]):
         w_ = mdv._tw(ln, tf)
-        d.text(((W - w_) // 2, 420 + i * (mdv._th(tf) + 12)), ln, font=tf, fill=GOLD)
-    df = mdv._ui_font(40, 500)
-    dy = 720
-    for ln in mdv._wrap(data.get("disclaimer", ""), df, W - 2 * PAD)[:3]:
+        d.text(((W - w_) // 2, 130 + i * (mdv._th(tf) + 10)), ln, font=tf, fill=GOLD)
+    df = mdv._ui_font(38, 500)
+    dy = 380
+    for ln in mdv._wrap(data.get("disclaimer", ""), df, W - 2 * PAD)[:2]:
         w_ = mdv._tw(ln, df)
         d.text(((W - w_) // 2, dy), ln, font=df, fill=(225, 220, 245))
         dy += mdv._th(df) + 8
-    cf = mdv._ui_font(58, 700)
+    cf = mdv._ui_font(54, 700)
     cta = "SUBSCRIBE"
     cw = mdv._tw(cta, cf)
     cx = (W - cw - 80) // 2
-    d.rounded_rectangle([cx, dy + 60, cx + cw + 80, dy + 60 + mdv._th(cf) + 44],
+    d.rounded_rectangle([cx, dy + 50, cx + cw + 80, dy + 50 + mdv._th(cf) + 40],
                         radius=22, fill=(220, 40, 40))
-    d.text((cx + 40, dy + 82), cta, font=cf, fill=WHITE)
-    chf = mdv._ui_font(46, 600)
+    d.text((cx + 40, dy + 70), cta, font=cf, fill=WHITE)
+    chf = mdv._ui_font(44, 600)
     cw2 = mdv._tw(mdv.CHANNEL_TAG, chf)
-    d.text(((W - cw2) // 2, H - 130), mdv.CHANNEL_TAG, font=chf, fill=GOLD)
+    d.text(((W - cw2) // 2, H - 84), mdv.CHANNEL_TAG, font=chf, fill=GOLD)
     return img.convert("RGB")
 
 
@@ -319,9 +332,10 @@ def process(json_path: str) -> str:
         if not ok:
             print(f"\n[3/4] Assembling {W}x{H} @ {mdv.VIDEO_FPS}fps (static)...")
             ok = mdv.assemble_video(pngs, durs, audio, video_path,
-                                    srt_path=srt_path if has_captions else None)
+                                    srt_path=srt_path if has_captions else None,
+                                    frame=(W, H))
         if not ok:
-            ok = mdv.assemble_video(pngs, durs, audio, video_path)
+            ok = mdv.assemble_video(pngs, durs, audio, video_path, frame=(W, H))
         if not ok:
             print("[ERROR] Assembly failed (all tiers)", file=sys.stderr); sys.exit(1)
         size_mb = os.path.getsize(video_path) / 1_048_576

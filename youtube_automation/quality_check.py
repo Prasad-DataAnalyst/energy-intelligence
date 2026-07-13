@@ -133,12 +133,20 @@ def check_video(video_path: str) -> list:
                     ctype = json.loads(sidecar.read_text()).get("content_type", "")
             except Exception:
                 pass
+            # ORIENTATION POLICY (channel requirement): ONLY the daily
+            # horoscope is vertical (a Short). Every other content type is a
+            # 1920x1080 landscape regular video — landscape uploads are never
+            # auto-classed as Shorts regardless of length, which is also why
+            # only "daily" is subject to the Shorts duration ceiling below.
+            is_landscape = ctype != "daily" and ctype != ""
+            want_dims = (1920, 1080) if is_landscape else (1080, 1920)
+
             # Duration policy (channel requirement, tied to the daily upload
             # quota): ONLY the weekly horoscopes are allowed past 3 minutes
-            # (they must exceed it — a vertical video ≤3min is auto-classed
-            # as a Short, and the weeklies must land as regular videos).
-            # Every other long-form type is hard-capped at ~3 minutes;
-            # predictions at ~90s landscape; daily stays a ≤180s Short.
+            # (landscape removes the Shorts risk, but they're still meant to
+            # be a longer in-depth format). Every other long-form type is
+            # hard-capped at ~3 minutes; predictions at ~90s; daily Short
+            # stays ≤180s.
             is_prediction = ctype == "prediction"
             if is_prediction:
                 max_dur = 100          # 90s target + a little slack
@@ -149,23 +157,12 @@ def check_video(video_path: str) -> list:
             else:
                 max_dur = 180          # daily Short
 
-            # The weeklies must NOT be Shorts: a vertical video at ≤180s (aka
-            # ≤3min in current YouTube policy) gets shelved as a Short, which
-            # is exactly what the requirement forbids for them.
-            if ctype in ("weekly", "weeklyfull"):
-                dur_check = float(fmt.get("duration", 0))
-                if 0 < dur_check <= 185:
-                    errors.append(f"Weekly horoscope is only {dur_check:.0f}s — "
-                                  f"≤3min vertical uploads become Shorts; it must "
-                                  f"exceed 3 minutes to post as a regular video")
-
             duration = float(fmt.get("duration", 0))
             if duration < 30:
                 errors.append(f"Too short: {duration:.1f}s (need ≥30s)")
             elif duration > max_dur:
                 errors.append(f"Too long: {duration:.1f}s (need ≤{max_dur}s)")
 
-            want_dims = (1920, 1080) if is_prediction else (1080, 1920)
             vstreams = [s for s in streams if s.get("codec_type") == "video"]
             if not vstreams:
                 errors.append("No video stream")

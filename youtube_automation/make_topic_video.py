@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """
 make_topic_video.py
-Renders a long-form astrology TOPIC video (title → sections → outro) from a
+Renders the astrology TOPIC video (title → sections → outro) from a
 topic_YYYYMMDD.json produced by generate_topic_assets.py.
 
-Vertical 1080x1920, narrated, ambient music, chapters. Duration is driven by
-the narration length of each section (~7-9 min → monetizable / mid-roll).
-Reuses the audio + assembly + fonts from make_daily_video.
+LANDSCAPE 1920x1080 regular video (channel policy: only the daily horoscope
+is vertical/Shorts — every other type, including this one, is landscape so
+it's never auto-classed as a Short). Narrated, ambient music, chapters;
+capped under 3 minutes by generate_topic_assets.py's word budget. Reuses
+the audio + assembly + fonts from make_daily_video.
 
 Usage:
   python3 make_topic_video.py topic_20260706.json
@@ -28,9 +30,9 @@ import make_daily_video as mdv   # reuse fonts, cosmic bg, audio, assembly
 
 load_dotenv()
 
-W, H = mdv.WIDTH, mdv.HEIGHT
+W, H = mdv.LS_W, mdv.LS_H   # landscape — see module docstring
 GOLD, WHITE, SILVER = mdv.GOLD, mdv.WHITE, mdv.SILVER
-PAD = 64
+PAD = 90
 CW  = W - 2 * PAD
 
 # Accent color + background tone per category.
@@ -119,7 +121,7 @@ def _pad_to(in_wav: str, out_wav: str, dur: float) -> None:
              "-c:a", "pcm_s16le", out_wav], capture_output=True, timeout=60)
 
 
-# ── Cards ─────────────────────────────────────────────────────────────────────
+# ── Cards (1920x1080 landscape) ────────────────────────────────────────────────
 def render_title_card(data: dict) -> Image.Image:
     accent, top, bot = _accent(data.get("category"))
     img = mdv._cosmic_bg(W, H, top, bot, accent, seed=11)
@@ -127,40 +129,42 @@ def render_title_card(data: dict) -> Image.Image:
     d.rectangle([0, 0, W, 8], fill=GOLD); d.rectangle([0, H - 8, W, H], fill=GOLD)
 
     # Category chip
-    cf = mdv._ui_font(34, 700)
+    cf = mdv._ui_font(32, 700)
     chip = (data.get("category", "astrology")).upper()
     cw = mdv._tw(chip, cf)
     cx = (W - cw - 44) // 2
-    d.rounded_rectangle([cx, 300, cx + cw + 44, 300 + mdv._th(cf) + 22], radius=16,
+    d.rounded_rectangle([cx, 90, cx + cw + 44, 90 + mdv._th(cf) + 22], radius=16,
                         fill=(*accent, 60), outline=(*accent, 235), width=2)
-    d.text((cx + 22, 308), chip, font=cf, fill=WHITE)
+    d.text((cx + 22, 98), chip, font=cf, fill=WHITE)
 
-    # Title (Cinzel, wrapped, centered)
-    tf = mdv._display_font(84, weight=700)
-    lines = mdv._wrap(data.get("topic_title", data.get("title", "Astrology")), tf, CW)[:4]
-    y = 430
+    # Title (Cinzel, wrapped, centered) — the short landscape frame only has
+    # room for ~3 lines before crowding the hook/footer, vs 4 in the old
+    # vertical layout.
+    tf = mdv._display_font(76, weight=700)
+    lines = mdv._wrap(data.get("topic_title", data.get("title", "Astrology")), tf, CW)[:3]
+    y = 230
     for ln in lines:
         w = mdv._tw(ln, tf)
         d.text(((W - w) // 2 + 3, y + 3), ln, font=tf, fill=(0, 0, 0, 170))
         d.text(((W - w) // 2,     y),     ln, font=tf, fill=GOLD)
-        y += mdv._th(tf) + 16
+        y += mdv._th(tf) + 14
 
-    d.rectangle([PAD, y + 20, W - PAD, y + 25], fill=(*accent, 220))
+    d.rectangle([PAD, y + 16, W - PAD, y + 20], fill=(*accent, 220))
 
     # Hook line
-    hf = mdv._ui_font(46, 500)
-    for ln in mdv._wrap(data.get("hook", ""), hf, CW)[:3]:
+    hf = mdv._ui_font(42, 500)
+    for ln in mdv._wrap(data.get("hook", ""), hf, CW)[:2]:
         w = mdv._tw(ln, hf)
-        d.text(((W - w) // 2, y + 60), ln, font=hf, fill=(225, 220, 245))
+        d.text(((W - w) // 2, y + 50), ln, font=hf, fill=(225, 220, 245))
         y += mdv._th(hf) + 8
 
     # Date + channel
-    df = mdv._ui_font(44, 500)
+    df = mdv._ui_font(40, 500)
     dw = mdv._tw(data.get("date", ""), df)
-    d.text(((W - dw) // 2, H - 260), data.get("date", ""), font=df, fill=SILVER)
-    chf = mdv._ui_font(46, 600)
+    d.text(((W - dw) // 2, H - 150), data.get("date", ""), font=df, fill=SILVER)
+    chf = mdv._ui_font(42, 600)
     cw2 = mdv._tw(mdv.CHANNEL_TAG, chf)
-    d.text(((W - cw2) // 2, H - 120), mdv.CHANNEL_TAG, font=chf, fill=GOLD)
+    d.text(((W - cw2) // 2, H - 84), mdv.CHANNEL_TAG, font=chf, fill=GOLD)
     return img.convert("RGB")
 
 
@@ -224,11 +228,14 @@ def render_section_card(sec: dict, idx: int, total: int, cat: str) -> Image.Imag
 
     # Large faint category glyph — the visual anchor of a NON-photo frame
     # (on a real photo it just muddies the image, so it's skipped there).
+    # Sized/positioned for the short 1080px-tall landscape frame (was tuned
+    # for a 1920-tall vertical canvas — that size/offset would mostly hide
+    # behind the caption scrim here).
     if photo is None:
-        glyph, gfont = mdv._icon(CAT_GLYPH.get((cat or "").lower(), "✦"), "*", 620)
+        glyph, gfont = mdv._icon(CAT_GLYPH.get((cat or "").lower(), "✦"), "*", 460)
         gw = mdv._tw(glyph, gfont)
         ov = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-        ImageDraw.Draw(ov).text(((W - gw) // 2, H // 2 - 340), glyph, font=gfont,
+        ImageDraw.Draw(ov).text(((W - gw) // 2, H // 2 - 260), glyph, font=gfont,
                                 fill=(*accent, 30))
         img = Image.alpha_composite(img.convert("RGBA"), ov)
         d = ImageDraw.Draw(img)
@@ -243,34 +250,36 @@ def render_section_card(sec: dict, idx: int, total: int, cat: str) -> Image.Imag
     d.text((px0 + 18, 74), tag, font=nf, fill=WHITE)
 
     # Heading (Cinzel, wrapped, top-left) — stays on screen the whole section.
-    hf = mdv._display_font(72, weight=700)
-    y = 150
-    for ln in mdv._wrap(sec.get("heading", ""), hf, CW - 200)[:2]:
+    hf = mdv._display_font(68, weight=700)
+    y = 90
+    for ln in mdv._wrap(sec.get("heading", ""), hf, CW - 220)[:2]:
         d.text((PAD + 2, y + 2), ln, font=hf, fill=(0, 0, 0, 170))
         d.text((PAD,     y),     ln, font=hf, fill=GOLD)
-        y += mdv._th(hf) + 12
-    d.rectangle([PAD, y + 14, PAD + 300, y + 20], fill=(*accent, 220))
+        y += mdv._th(hf) + 10
+    d.rectangle([PAD, y + 12, PAD + 300, y + 17], fill=(*accent, 220))
 
-    # Caption safe-zone scrim: a soft dark gradient over the lower third so
+    # Caption safe-zone scrim: a soft dark gradient over the lower band so
     # burned captions read cleanly against any background art. Drawn now (in
     # PIL) rather than left to the subtitle renderer, so it composites with
-    # the nebula/stars underneath instead of sitting flatly on top.
+    # the nebula/stars underneath instead of sitting flatly on top. Height
+    # matched to make_prediction_video's landscape scrim (proven legible).
+    SCRIM_H = 340
     scrim = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     sd = ImageDraw.Draw(scrim)
-    scrim_top = H - 620
-    steps = 60
+    scrim_top = H - SCRIM_H
+    steps = 48
     for i in range(steps):
-        a = int(150 * (i / steps))
-        yy = scrim_top + int(i * (620 / steps))
-        sd.rectangle([0, yy, W, yy + (620 // steps) + 1], fill=(0, 0, 0, a))
+        a = int(160 * (i / steps))
+        yy = scrim_top + int(i * (SCRIM_H / steps))
+        sd.rectangle([0, yy, W, yy + (SCRIM_H // steps) + 1], fill=(0, 0, 0, a))
     img = Image.alpha_composite(img.convert("RGBA"), scrim)
     d = ImageDraw.Draw(img)
 
     # Footer
-    ff = mdv._ui_font(36, 500)
+    ff = mdv._ui_font(34, 500)
     foot = f"{mdv.CHANNEL_TAG}  •  Astrology Explained"
     fw = mdv._tw(foot, ff)
-    d.text(((W - fw) // 2, H - 78), foot, font=ff, fill=(*SILVER, 200))
+    d.text(((W - fw) // 2, H - 56), foot, font=ff, fill=(*SILVER, 200))
     return img.convert("RGB")
 
 
@@ -319,7 +328,7 @@ def assemble_video_motion_captions(png_files: list, durations: list,
         parts.append(
             f"[{i}:v]scale=w=iw*1.2:h=ih*1.2,"
             f"{mdv.kenburns_expr(i, frames)}:"
-            f"s={mdv.WIDTH}x{mdv.HEIGHT}:fps={fps},"
+            f"s={W}x{H}:fps={fps},"
             f"trim=end_frame={frames},setpts=PTS-STARTPTS[v{i}]"
         )
     concat_in = "".join(f"[v{i}]" for i in range(n))
@@ -367,28 +376,28 @@ def render_outro_card(data: dict) -> Image.Image:
     d = ImageDraw.Draw(img)
     d.rectangle([0, 0, W, 8], fill=GOLD); d.rectangle([0, H - 8, W, H], fill=GOLD)
 
-    tf = mdv._display_font(96, weight=700)
+    tf = mdv._display_font(84, weight=700)
     for i, ln in enumerate(["THANKS FOR", "WATCHING"]):
         w = mdv._tw(ln, tf)
-        d.text(((W - w) // 2, 420 + i * (mdv._th(tf) + 12)), ln, font=tf, fill=GOLD)
+        d.text(((W - w) // 2, 130 + i * (mdv._th(tf) + 10)), ln, font=tf, fill=GOLD)
 
-    sf = mdv._ui_font(52, 500)
+    sf = mdv._ui_font(46, 500)
     for i, ln in enumerate(["A new astrology topic", "every single day."]):
         w = mdv._tw(ln, sf)
-        d.text(((W - w) // 2, 720 + i * (mdv._th(sf) + 10)), ln, font=sf, fill=(225, 220, 245))
+        d.text(((W - w) // 2, 420 + i * (mdv._th(sf) + 8)), ln, font=sf, fill=(225, 220, 245))
 
     # Subscribe pill
-    cf = mdv._ui_font(58, 700)
+    cf = mdv._ui_font(54, 700)
     cta = "SUBSCRIBE"
     cw = mdv._tw(cta, cf)
     cx = (W - cw - 80) // 2
-    d.rounded_rectangle([cx, 1020, cx + cw + 80, 1020 + mdv._th(cf) + 44],
+    d.rounded_rectangle([cx, 620, cx + cw + 80, 620 + mdv._th(cf) + 40],
                         radius=22, fill=(220, 40, 40))
-    d.text((cx + 40, 1042), cta, font=cf, fill=WHITE)
+    d.text((cx + 40, 640), cta, font=cf, fill=WHITE)
 
-    chf = mdv._ui_font(48, 600)
+    chf = mdv._ui_font(44, 600)
     cw2 = mdv._tw(mdv.CHANNEL_TAG, chf)
-    d.text(((W - cw2) // 2, H - 130), mdv.CHANNEL_TAG, font=chf, fill=GOLD)
+    d.text(((W - cw2) // 2, H - 84), mdv.CHANNEL_TAG, font=chf, fill=GOLD)
     return img.convert("RGB")
 
 
@@ -560,10 +569,11 @@ def process(json_path: str) -> str:
         if not ok:
             print(f"\n[3/4] Assembling {W}x{H} @ {mdv.VIDEO_FPS}fps (static)...")
             ok = mdv.assemble_video(pngs, durs, audio, video_path,
-                                    srt_path=srt_path if has_captions else None)
+                                    srt_path=srt_path if has_captions else None,
+                                    frame=(W, H))
         if not ok:
             print("      Captioned static tier failed — falling back to plain static")
-            ok = mdv.assemble_video(pngs, durs, audio, video_path)
+            ok = mdv.assemble_video(pngs, durs, audio, video_path, frame=(W, H))
         if not ok:
             print("[ERROR] Assembly failed (all tiers)", file=sys.stderr); sys.exit(1)
         size_mb = os.path.getsize(video_path) / 1_048_576
