@@ -143,10 +143,26 @@ def render_intro(data) -> Image.Image:
     return img.convert("RGB")
 
 
-def render_beat(beat, idx, total, cat, photo_path=None) -> Image.Image:
+def render_beat(beat, idx, total, cat, photo_path=None,
+                transparent=False) -> Image.Image:
+    """The beat card. transparent=True returns CHROME ONLY on an RGBA
+    canvas (framelines, chip, heading, caption scrim, footer — no photo):
+    the Tier-3 video-background path overlays this onto a moving stock clip
+    in ffmpeg, so the chrome must not carry its own background."""
     accent, top, bot = _accent(cat)
-    img = _photo_bg(beat.get("image_query", cat), beat.get("image_fallback", cat),
-                    accent, top, bot, seed=40 + idx, path=photo_path)
+    if transparent:
+        img = Image.new("RGBA", (PW, PH), (0, 0, 0, 0))
+        # caption scrim baked into the chrome (the video bg is only eq-dimmed)
+        sd = ImageDraw.Draw(img)
+        band_top = PH - 340
+        steps = 48
+        for i in range(steps):
+            a = int(165 * (i / steps))
+            y_ = band_top + int(i * (340 / steps))
+            sd.rectangle([0, y_, PW, y_ + (340 // steps) + 1], fill=(0, 0, 0, a))
+    else:
+        img = _photo_bg(beat.get("image_query", cat), beat.get("image_fallback", cat),
+                        accent, top, bot, seed=40 + idx, path=photo_path)
     d = ImageDraw.Draw(img)
     _framelines(d, accent)
 
@@ -167,7 +183,7 @@ def render_beat(beat, idx, total, cat, photo_path=None) -> Image.Image:
         y += mdv._th(hf) + 6
     d.rectangle([PAD, y + 12, PAD + 320, y + 19], fill=(*accent, 235))
     _footer(d, "Astrology Prediction")
-    return img.convert("RGB")
+    return img if transparent else img.convert("RGB")
 
 
 def render_verdict(data) -> Image.Image:
@@ -355,6 +371,86 @@ def assemble_landscape(pngs, durs, audio_path, srt_path, out_path, fps, motion=T
         Path(concat_txt).unlink(missing_ok=True)
 
 
+def assemble_landscape_segments(segments, audio_path, srt_path, out_path, fps) -> bool:
+    """Tier-3 experimental path (PREDICTION_VIDEO_BG=true): pre-render each
+    card to its own small mp4 segment — beats with a fetched stock VIDEO clip
+    get the moving clip (looped, cover-cropped, dimmed) with the transparent
+    chrome overlaid; every other card gets its usual Ken Burns still — then
+    concat the segments, grade, burn captions, mux audio. Any failure returns
+    False so the caller falls back to the proven still-image path.
+
+    segments: [{"type": "video", "clip": path, "chrome": png, "dur": s} |
+               {"type": "png", "path": png, "dur": s}]"""
+    seg_files = []
+    try:
+        for i, seg in enumerate(segments):
+            seg_mp4 = out_path.replace(".mp4", f"_seg{i:02d}.mp4")
+            frames = max(1, int(round(seg["dur"] * fps)))
+            if seg["type"] == "video":
+                cmd = ["ffmpeg", "-y", "-loglevel", "error",
+                       "-stream_loop", "-1", "-i", str(seg["clip"]),
+                       "-loop", "1", "-i", str(seg["chrome"]),
+                       "-filter_complex",
+                       (f"[0:v]scale={PW}:{PH}:force_original_aspect_ratio=increase,"
+                        f"crop={PW}:{PH},fps={fps},eq=brightness=-0.14:saturation=1.03[bg];"
+                        f"[bg][1:v]overlay=0:0[v]"),
+                       "-map", "[v]", "-frames:v", str(frames), "-r", str(fps),
+                       "-an", "-c:v", "libx264", "-preset", "ultrafast",
+                       "-crf", "23", "-pix_fmt", "yuv420p", seg_mp4]
+            else:
+                cmd = ["ffmpeg", "-y", "-loglevel", "error",
+                       "-loop", "1", "-i", str(seg["path"]),
+                       "-vf",
+                       (f"scale=w=iw*1.2:h=ih*1.2,"
+                        f"{mdv.kenburns_expr(i, frames)}:s={PW}x{PH}:fps={fps},"
+                        f"trim=end_frame={frames},setpts=PTS-STARTPTS"),
+                       "-frames:v", str(frames),
+                       "-an", "-c:v", "libx264", "-preset", "ultrafast",
+                       "-crf", "23", "-pix_fmt", "yuv420p", seg_mp4]
+            r = _sp.run(cmd, capture_output=True, timeout=600)
+            if r.returncode != 0:
+                print(f"[WARN] segment {i} pre-render failed: "
+                      f"{r.stderr.decode()[-200:]}", file=sys.stderr)
+                return False
+            seg_files.append(seg_mp4)
+
+        concat_txt = out_path.replace(".mp4", "_segs.txt")
+        with open(concat_txt, "w") as f:
+            for p in seg_files:
+                # ABSOLUTE paths: the concat demuxer resolves relative entries
+                # against the list file's own directory, so a relative
+                # "outputs/..." entry inside "outputs/.../x_segs.txt" doubles
+                # the prefix and fails to open (hit in testing).
+                f.write(f"file '{Path(p).resolve()}'\n")
+        vf = f"fps={fps}"
+        if mdv.CINEMATIC_GRADE:
+            vf += "," + mdv.grade_filter()
+        if srt_path and Path(srt_path).exists():
+            if fps < mdv.CAPTION_FPS:
+                vf += f",fps={mdv.CAPTION_FPS}"
+            vf += "," + _subtitle_filter_landscape(srt_path)
+        tmp_video = out_path.replace(".mp4", "_v.mp4")
+        cmd = ["ffmpeg", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0",
+               "-i", concat_txt, "-vf", vf, "-pix_fmt", "yuv420p",
+               "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+               "-threads", "0", "-movflags", "+faststart", tmp_video]
+        r = _sp.run(cmd, capture_output=True, timeout=_MOTION_TIMEOUT)
+        if r.returncode != 0:
+            print(f"[WARN] segment concat failed: {r.stderr.decode()[-200:]}",
+                  file=sys.stderr)
+            return False
+        ok = mdv._mux_audio(tmp_video, audio_path, out_path)
+        Path(tmp_video).unlink(missing_ok=True)
+        return ok
+    except Exception as e:
+        print(f"[WARN] segment assembly exception: {e}", file=sys.stderr)
+        return False
+    finally:
+        for p in seg_files:
+            Path(p).unlink(missing_ok=True)
+        Path(out_path.replace(".mp4", "_segs.txt")).unlink(missing_ok=True)
+
+
 def _ts(secs: float) -> str:
     s = int(secs)
     return f"{s // 60}:{s % 60:02d}"
@@ -385,19 +481,25 @@ def process(json_path: str) -> str:
     print(f"\n{'='*58}\n  PREDICTION ({category}) — {data.get('subject_label','')[:38]}\n"
           f"  {len(beats)} beats | landscape {PW}x{PH} | voice {voice}\n{'='*58}\n")
 
+    video_bg_on = os.getenv("PREDICTION_VIDEO_BG", "false").lower() == "true"
+
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
         pngs, durs, clips = [], [], []
+        segments = []      # Tier-3 spec list, parallel in time to pngs/durs
         caption_cues = []
         t_cursor = 0.0
 
         print("[1/4] Rendering cards + narration...")
 
-        def add(card_imgs, text, label):
+        def add(card_imgs, text, label, video_clip=None, chrome_img=None):
             """card_imgs: one PIL image or a LIST of visual variants. One
             narration spans them all; the dwell splits evenly, so a 2-image
             beat cuts to its second photo mid-narration — reads as an edit.
-            Audio stays a single clip (concat alignment is by total time)."""
+            Audio stays a single clip (concat alignment is by total time).
+            video_clip + chrome_img (Tier-3): this card's segment plays the
+            stock VIDEO clip with the transparent chrome overlaid; the still
+            card_imgs remain the fallback for the proven image path."""
             nonlocal t_cursor
             if not isinstance(card_imgs, (list, tuple)):
                 card_imgs = [card_imgs]
@@ -408,10 +510,23 @@ def process(json_path: str) -> str:
             mtv._pad_to(nat, clip, card_dur)
             clips.append(clip)
             share = card_dur / len(card_imgs)
+            first_png = None
             for img_ in card_imgs:
                 png = str(tmp / f"card_{len(pngs):02d}.png")
                 img_.save(png, "PNG")
+                first_png = first_png or png
                 pngs.append(png); durs.append(share)
+            if video_clip and chrome_img is not None:
+                chrome_png = str(tmp / f"chrome_{len(pngs):02d}.png")
+                chrome_img.save(chrome_png, "PNG")
+                segments.append({"type": "video", "clip": str(video_clip),
+                                 "chrome": chrome_png, "dur": card_dur})
+            else:
+                # still segments mirror pngs/durs one-to-one
+                start = len(pngs) - len(card_imgs)
+                for k in range(len(card_imgs)):
+                    segments.append({"type": "png", "path": pngs[start + k],
+                                     "dur": share})
             # group THIS segment's words before offsetting (no cross-card bleed)
             for c0, c1, wlist in mdv._group_words_into_word_cues(word_cues, max_words=3):
                 caption_cues.append((t_cursor + c0, t_cursor + c1,
@@ -419,12 +534,22 @@ def process(json_path: str) -> str:
                                       for ws, we, w in wlist]))
             t_cursor += card_dur
             print(f"      [{label[:34]:<34}] {card_dur:.1f}s"
-                  + (f" ({len(card_imgs)} shots)" if len(card_imgs) > 1 else ""))
+                  + (" (video bg)" if video_clip else
+                     (f" ({len(card_imgs)} shots)" if len(card_imgs) > 1 else "")))
 
         add(render_intro(data), data.get("hook", data.get("subject_label", "")), "Intro")
         for i, b in enumerate(beats, 1):
+            # Tier 3 (flag-gated): a real moving stock clip behind the beat.
+            vclip = None
+            if video_bg_on:
+                try:
+                    vclip = stock_images.fetch_video(b.get("image_query", category),
+                                                     b.get("image_fallback", category))
+                except Exception as e:
+                    print(f"[WARN] video bg fetch failed: {e}", file=sys.stderr)
             # Two distinct photos per beat when available — the mid-beat cut
-            # is what makes it feel edited rather than a slideshow.
+            # is what makes it feel edited rather than a slideshow. (Also the
+            # fallback visuals when the video path is on but fails later.)
             try:
                 shots = stock_images.fetch_images(b.get("image_query", category), 2)
                 if len(shots) < 2:
@@ -437,7 +562,10 @@ def process(json_path: str) -> str:
                         for p in shots[:2]]
             else:
                 imgs = render_beat(b, i, len(beats), category)
-            add(imgs, b.get("narration", ""), b.get("heading", f"Beat {i}"))
+            chrome = (render_beat(b, i, len(beats), category, transparent=True)
+                      if vclip else None)
+            add(imgs, b.get("narration", ""), b.get("heading", f"Beat {i}"),
+                video_clip=vclip, chrome_img=chrome)
         v = data.get("verdict", {})
         add(render_verdict(data),
             f"{v.get('headline','')}. {v.get('detail','')}", "Verdict")
@@ -469,12 +597,22 @@ def process(json_path: str) -> str:
 
         motion_on = os.getenv("PREDICTION_MOTION_ENABLED", "true").lower() == "true"
         m_fps = mdv.safe_static_fps(total, frame_budget=_MOTION_FRAME_BUDGET, min_fps=3, max_fps=12)
-        print(f"\n[3/4] Assembling {PW}x{PH} @ {m_fps if motion_on else mdv.VIDEO_FPS}fps"
-              f" ({'motion' if motion_on else 'static'})...")
-        ok = assemble_landscape(pngs, durs, audio,
-                                srt_path if has_captions else None,
-                                video_path, m_fps if motion_on else mdv.VIDEO_FPS,
-                                motion=motion_on)
+        ok = False
+        has_video_segs = any(s["type"] == "video" for s in segments)
+        if video_bg_on and has_video_segs:
+            print(f"\n[3/4] Assembling {PW}x{PH} @ {m_fps}fps (VIDEO backgrounds)...")
+            ok = assemble_landscape_segments(segments, audio,
+                                             srt_path if has_captions else None,
+                                             video_path, m_fps)
+            if not ok:
+                print("      Video-bg tier failed — falling back to stills")
+        if not ok:
+            print(f"\n[3/4] Assembling {PW}x{PH} @ {m_fps if motion_on else mdv.VIDEO_FPS}fps"
+                  f" ({'motion' if motion_on else 'static'})...")
+            ok = assemble_landscape(pngs, durs, audio,
+                                    srt_path if has_captions else None,
+                                    video_path, m_fps if motion_on else mdv.VIDEO_FPS,
+                                    motion=motion_on)
         if not ok:
             print("[ERROR] Assembly failed", file=sys.stderr); sys.exit(1)
         size_mb = os.path.getsize(video_path) / 1_048_576
