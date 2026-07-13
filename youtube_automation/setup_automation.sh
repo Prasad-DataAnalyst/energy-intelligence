@@ -174,10 +174,11 @@ HEARTBEAT_CMD="0 12 * * * cd $REPO && $VENV_PYTHON heartbeat.py --check >> $LOG 
 # the legacy daily_runner.py 3 PM job installed by first_time_setup.py).
 ( crontab -l 2>/dev/null | grep -v -e "run_daily.py" -e "daily_runner.py" -e "doctor.py" -e "heartbeat.py" ) | crontab - 2>/dev/null || true
 
-# Add doctor (5:00) + daily short (5:30) + topic long-form (6:00) + prediction
-# sports/crypto/celebrity (6:30/6:50/7:10 daily) + political (Mon/Wed/Fri 7:20)
-# + weekly short (Sun 7:30) + monthly (1st 8:00) + weekly long-form (Mon 9:00)
-# + heartbeat (12:00)
+# Add doctor (5:00) + daily short (5:30, vertical) + topic long-form (6:00,
+# landscape) + ONE rotating prediction (6:30, landscape — Mon/Thu sports,
+# Tue/Fri crypto, Wed/Sat celebrity, Sun political) + weekly (Sun 7:30,
+# landscape) + monthly (1st 8:00, landscape) + weekly tarot (Sat 9:00,
+# landscape) + weekly long-form (Mon 9:00, landscape) + heartbeat (12:00)
 ( crontab -l 2>/dev/null; echo "$DOCTOR_CMD"; echo "$CRON_CMD"; echo "$TOPIC_CMD"; echo "$PRED_SPORTS_CMD"; echo "$PRED_CRYPTO_CMD"; echo "$PRED_CELEB_CMD"; echo "$PRED_POLI_CMD"; echo "$TAROT_CMD"; echo "$WEEKLY_CMD"; echo "$MONTHLY_CMD"; echo "$WEEKLYFULL_CMD"; echo "$HEARTBEAT_CMD" ) | crontab -
 
 echo "  OK: cron jobs installed (doctor 5:00, daily-short 5:30, topic 6:00, one rotating prediction 6:30 (Mon/Thu sports, Tue/Fri crypto, Wed/Sat celebrity, Sun political), tarot Sat 9:00, weekly-short Sun 7:30, monthly 1st 8:00, weekly-long-form Mon 9:00, heartbeat 12:00)"
@@ -214,8 +215,10 @@ echo "============================================"
 echo "  SETUP COMPLETE"
 echo "============================================"
 echo ""
-echo "  Schedule : Every day at 5:30 AM (VM time)"
-echo "  Mode     : All 12 signs in one video (148s)"
+echo "  Daily    : 5:30 AM (VM time) — 12-sign horoscope, ~2m52s, VERTICAL Short"
+echo "  Also     : topic 6:00 · 1 rotating prediction 6:30 · (Sun) weekly 7:30"
+echo "             (1st) monthly 8:00 · (Sat) tarot 9:00 · (Mon) weekly-full 9:00"
+echo "  Format   : only the daily is vertical; everything else is 1920x1080 landscape"
 echo "  Log file : $LOG"
 echo ""
 echo "  To check what time it is on VM:"
