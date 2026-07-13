@@ -27,20 +27,42 @@ PYTHON = sys.executable
 _LOCK_PATH = Path(__file__).parent / ".run_daily.lock"
 
 
-def _acquire_pipeline_lock():
-    """Non-blocking cross-invocation lock. The VM is 1-core: cron schedules
-    daily/topic/weekly/monthly/weeklyfull with gaps sized for TYPICAL render
-    times, but a slow day (retries, a big render) can run long enough to
-    still be going when the next job fires. Two renders fighting for the
-    same core is worse than skipping a run — both slow down and risk the
-    same timeout that was already hit in production once. Held for the
-    process lifetime; the OS releases it when the process exits."""
+def _acquire_pipeline_lock(max_wait_secs: int | None = None):
+    """Cross-invocation lock with a bounded WAIT. The VM is 1-core: cron
+    schedules daily/topic/prediction/weekly/... with gaps sized for TYPICAL
+    render times, but a slow day (retries, a big render) can still be going
+    when the next job fires. Two renders fighting for the same core is worse
+    than serializing — both slow down and risk the timeout already hit in
+    production once.
+
+    Previously a busy lock SKIPPED the run entirely (exit 0) — which silently
+    dropped a whole day's video whenever the 5:30 daily overran 6:00 (topic)
+    or 6:30 (prediction). Now we WAIT for the current render to finish (poll
+    every 30s, up to LOCK_WAIT_SECS — default 90 min, comfortably above the
+    45-min render timeout + retry) and only give up past the deadline. The
+    later publish times (7-11 AM ET) leave hours of slack for a queued job.
+    Held for the process lifetime; the OS releases it when the process exits."""
+    if max_wait_secs is None:
+        max_wait_secs = int(os.environ.get("LOCK_WAIT_SECS", "5400"))
     fd = open(_LOCK_PATH, "w")
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        return fd
-    except BlockingIOError:
-        return None
+    deadline = time.time() + max_wait_secs
+    announced = False
+    while True:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            if announced:
+                print("  [INFO] Lock acquired — the earlier render finished; proceeding.")
+            return fd
+        except BlockingIOError:
+            if time.time() >= deadline:
+                fd.close()
+                return None
+            if not announced:
+                print(f"  [INFO] Another pipeline is rendering on this 1-core VM — "
+                      f"waiting up to {max_wait_secs // 60} min for it to finish "
+                      f"(instead of skipping today's video)...")
+                announced = True
+            time.sleep(30)
 
 
 def _utcnow() -> datetime:
@@ -95,19 +117,43 @@ def _daemon(action: str) -> None:
                    capture_output=True, text=True)
 
 
-def _publish_utc_dt(date_tag: str) -> datetime:
+# Staggered publish hours (US Eastern, DST-aware) — one per content type.
+# Publishing everything at the same instant floods subscribers' feeds and
+# makes our own videos compete against each other in the algorithm's
+# crucial first hour. Instead each type gets its own slot across the US
+# morning: the daily Short lands first (prime "check my horoscope" time),
+# then the rest follow hourly. Override per type with
+# PUBLISH_ET_HOUR_<TYPE> (e.g. PUBLISH_ET_HOUR_TOPIC=12) or globally with
+# PUBLISH_ET_HOUR / PUBLISH_HOUR_UTC in .env.
+_PUBLISH_ET_HOURS = {
+    "daily":       7,    # 7 AM ET — morning horoscope check
+    "topic":       8,
+    "prediction":  9,
+    "sports":      9,    # legacy long-form (not on cron)
+    "weekly":     10,    # Sundays
+    "weeklyfull": 10,    # Mondays
+    "tarotweekly":10,    # Saturdays
+    "monthly":    11,    # 1st of the month
+}
+
+
+def _publish_utc_dt(date_tag: str, ctype: str = "daily") -> datetime:
     """UTC datetime at which the video should go public, targeting a real
     US-morning hour so it's live when the US audience wakes up.
 
-    Default: PUBLISH_ET_HOUR (7) AM US Eastern, DST-AWARE — so it stays 7 AM ET
-    year-round instead of drifting an hour between EDT and EST. A fixed
-    PUBLISH_HOUR_UTC in .env overrides (advanced use)."""
+    Default: the per-type hour from _PUBLISH_ET_HOURS (US Eastern, DST-AWARE —
+    stays fixed ET year-round instead of drifting between EDT and EST).
+    Overrides: PUBLISH_ET_HOUR_<TYPE> > PUBLISH_ET_HOUR > per-type default;
+    a fixed PUBLISH_HOUR_UTC in .env trumps everything (advanced use)."""
     d = datetime.strptime(date_tag, "%Y%m%d")
 
     if os.environ.get("PUBLISH_HOUR_UTC"):
         return d.replace(hour=int(os.environ["PUBLISH_HOUR_UTC"]), minute=0, second=0)
 
-    et_hour = int(os.environ.get("PUBLISH_ET_HOUR", "7"))
+    et_hour = int(
+        os.environ.get(f"PUBLISH_ET_HOUR_{ctype.upper()}")
+        or os.environ.get("PUBLISH_ET_HOUR")
+        or _PUBLISH_ET_HOURS.get(ctype, 7))
     try:
         from zoneinfo import ZoneInfo
         et = datetime(d.year, d.month, d.day, et_hour, 0, tzinfo=ZoneInfo("America/New_York"))
@@ -229,8 +275,9 @@ def _upload_flow(video_path: str, assets_json: str, thumb_path: str,
             "date":           run_key,
             "privacy_status": "public",
         }
-        # Publish 7 AM US Eastern (DST-aware); if past, schedule ASAP.
-        pub_dt = _publish_utc_dt(args.date)
+        # Publish at this type's staggered US-morning slot (DST-aware, see
+        # _PUBLISH_ET_HOURS); if that moment already passed, schedule ASAP.
+        pub_dt = _publish_utc_dt(args.date, getattr(args, "type", "daily") or "daily")
         if pub_dt <= _utcnow():
             pub_dt = _utcnow() + timedelta(minutes=15)
         publish_at = pub_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -850,11 +897,21 @@ def main():
 
     lock_fd = _acquire_pipeline_lock()
     if lock_fd is None:
-        print("[WARN] Another run_daily.py pipeline is already running on this "
-              "1-core VM — skipping this invocation rather than compete for "
-              "CPU (that competition is what caused the earlier render "
-              "timeouts).", file=sys.stderr)
-        sys.exit(0)
+        # We already WAITED (default 90 min) — a lock still held now means the
+        # other render is pathologically stuck. Fail LOUDLY: exit 1 + email,
+        # never a silent exit-0 that drops a day's video without a trace.
+        msg = (f"Another run_daily.py held the render lock for the entire "
+               f"wait window — giving up on this {getattr(args, 'type', 'daily')} "
+               f"run. The other pipeline is likely stuck; check the log.")
+        print(f"[ERROR] {msg}", file=sys.stderr)
+        try:
+            send_summary_email(args.date, {f"{args.type}_lock_timeout": {
+                "assets": "❌ skipped — render lock held >90 min",
+                "video": "—", "quality": "—", "upload": "",
+            }}, 0, args.upload)
+        except Exception:
+            pass
+        sys.exit(1)
 
     # ── Long-form daily astrology TOPIC video (monetization) ───────────────────
     if args.type == "topic":

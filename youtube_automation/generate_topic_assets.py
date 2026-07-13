@@ -168,8 +168,19 @@ def _validate(data: dict) -> None:
         if not data.get(k):
             raise ValueError(f"missing '{k}'")
     secs = data["sections"]
-    if not isinstance(secs, list) or len(secs) < 4:
-        raise ValueError(f"need >=4 sections, got {len(secs) if isinstance(secs, list) else 'none'}")
+    # EXACTLY N_SECTIONS — an under-count starves the video, but an OVER-count
+    # is worse: narration drives duration, so 6x90-word sections would render
+    # ~3.5 min, fail the 200s quality gate AFTER the full render, and drop the
+    # day's upload. The old `< 4` check only caught the under-count.
+    if not isinstance(secs, list) or len(secs) != N_SECTIONS:
+        raise ValueError(f"need EXACTLY {N_SECTIONS} sections, got "
+                         f"{len(secs) if isinstance(secs, list) else 'none'}")
+    # Hook/outro are narrated too — unbounded, they'd silently stretch the
+    # video past the cap the section budget was tuned for.
+    for field, hi in (("hook", 30), ("outro", 45)):
+        w = len(str(data[field]).split())
+        if not (4 <= w <= hi):
+            raise ValueError(f"'{field}' must be 4-{hi} spoken words, got {w}")
     for i, s in enumerate(secs):
         if not s.get("heading") or not s.get("narration"):
             raise ValueError(f"section {i}: missing heading/narration")
@@ -217,11 +228,17 @@ Return this EXACT JSON shape:
     last_err = None
     for attempt in range(1, 4):
         try:
+            # Feed the previous rejection back so the retry actually fixes it
+            # (same pattern as generate_tarot_assets — a blind identical retry
+            # tends to fail the same validation three times).
+            msg = user_msg if last_err is None else (
+                f"{user_msg}\n\nYour previous attempt was rejected: {last_err}. "
+                f"Fix exactly that and return the corrected JSON.")
             resp = client.messages.create(
                 model="claude-sonnet-4-6",
                 max_tokens=8000,
                 system=SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": user_msg}],
+                messages=[{"role": "user", "content": msg}],
             )
             raw = resp.content[0].text.strip()
             raw = re.sub(r"^```[a-z]*\n?", "", raw)

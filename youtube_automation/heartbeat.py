@@ -117,8 +117,11 @@ def check(alert: bool = True) -> bool:
 
 
 def _post_due_comments() -> None:
-    """The 12:00 cron runs after the 10:00 publish — post any queued pinned
-    comments now that the video is public."""
+    """Post any queued pinned comments whose video has gone public. Publishes
+    are staggered 7-11 AM US Eastern per content type (comments become due
+    10 min after each publish, i.e. up to 16:10 UTC in EST months), so the
+    hourly `--comments` cron (11:15-17:15 UTC) catches each one within ~1h
+    of its video going live. Free when the queue is empty (no API calls)."""
     try:
         import os as _os
         _os.chdir(HERE)          # uploader paths (logs/, token) are CWD-relative
@@ -131,6 +134,10 @@ def _post_due_comments() -> None:
 
 
 def main():
+    if "--comments" in sys.argv:
+        # Comments-only pass (hourly cron): never emails, never alerts.
+        _post_due_comments()
+        sys.exit(0)
     if "--check" in sys.argv:
         _post_due_comments()
         sys.exit(0 if check(alert=True) else 1)

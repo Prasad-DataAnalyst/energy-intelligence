@@ -123,9 +123,8 @@ def check_video(video_path: str) -> list:
             fmt    = info.get("format", {})
             streams = info.get("streams", [])
 
-            # Max duration depends on format: Shorts ≤ 180s; long-form
-            # (monthly / deep / topic) up to 60 min. Detect via the sibling
-            # _assets.json content_type.
+            # Max duration depends on content type (policy block below).
+            # Detect via the sibling _assets.json content_type.
             ctype = ""
             try:
                 sidecar = path.parent / (path.stem + "_assets.json")

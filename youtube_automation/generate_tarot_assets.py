@@ -66,21 +66,40 @@ def _validate(data: dict, spread: dict) -> None:
     for k in ("title", "description", "tags", "intro", "outro", "readings"):
         if not data.get(k):
             raise ValueError(f"missing '{k}'")
+    # Word caps are the DURATION guarantee: narration drives card dwell
+    # (make_tarot_video pads each card to its spoken length), so the QC 200s
+    # ceiling maps back to spoken words at ~2.4 words/sec worst case.
+    # 12x36 + 30 + 30 = 492 absolute per-field max, but the TOTAL cap below
+    # (420) is what actually bounds the video: 420 words ≈ 175s + ~14s of
+    # per-card ceil/padding ≈ 190s < the 200s quality gate. The old cap
+    # (45/sign, intro/outro unchecked) admitted scripts that rendered ~4min,
+    # failed QC AFTER a 30-min render, and dropped the Saturday upload.
+    for field, lo, hi in (("intro", 8, 30), ("outro", 8, 30)):
+        w = len(str(data[field]).split())
+        if not (lo <= w <= hi):
+            raise ValueError(f"'{field}' must be {lo}-{hi} spoken words, got {w}")
     readings = data["readings"]
+    total_words = (len(str(data["intro"]).split())
+                   + len(str(data["outro"]).split()))
     for sign in tarot_deck.SIGNS:
         r = readings.get(sign)
         if not r:
             raise ValueError(f"missing reading for {sign}")
         words = len(str(r).split())
+        total_words += words
         if words < 18:
             raise ValueError(f"{sign} reading too short ({words} words)")
-        if words > 45:
-            raise ValueError(f"{sign} reading too long ({words} words — the "
-                             f"video must stay under 3 minutes)")
+        if words > 36:
+            raise ValueError(f"{sign} reading too long ({words} words, max 36 — "
+                             f"the video must stay under 3 minutes)")
         # The reading must actually be about the drawn card.
         card_name = spread[sign]["name"]
         if card_name.lower().replace("the ", "") not in str(r).lower():
             raise ValueError(f"{sign} reading never mentions its card '{card_name}'")
+    if total_words > 420:
+        raise ValueError(f"script too long overall ({total_words} spoken words, "
+                         f"max 420 — trim the longest readings so the video "
+                         f"stays under 3 minutes)")
 
 
 def generate(date_tag: str = None) -> str:

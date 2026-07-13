@@ -131,7 +131,10 @@ echo "[3/4] Installing cron job (runs daily at 5:30 AM UTC — all 12 signs, aut
 # Preflight doctor at 5:00 AM — emails you 30 min early if anything is broken
 # (bad key, expired token, low disk) so you can fix it before the 5:30 run.
 DOCTOR_CMD="0 5 * * * cd $REPO && $VENV_PYTHON doctor.py --email >> $LOG 2>&1"
-# DAILY pipeline at 5:30 AM (every day) → publishes 10:00 UTC as a Short.
+# DAILY pipeline at 5:30 AM (every day) → publishes 7 AM US Eastern as a
+# Short. (Publish times are STAGGERED per type — see _PUBLISH_ET_HOURS in
+# run_daily.py: daily 7 ET, topic 8, prediction 9, weekly/tarot/full 10,
+# monthly 11 — so our own videos never compete in the same first hour.)
 CRON_CMD="30 5 * * * cd $REPO && $VENV_PYTHON run_daily.py --date \$(date +\\%Y\\%m\\%d) --period \"\$(date +'\\%B \\%Y')\" --upload >> $LOG 2>&1"
 # WEEKLY pipeline — Sundays 07:30 (after the daily finishes, so the 1-core VM
 # never renders two videos at once). "This week" outlook — ~4m52s, past the
@@ -169,6 +172,11 @@ TAROT_CMD="0 9 * * 6 cd $REPO && $VENV_PYTHON run_daily.py --type tarotweekly --
 # Heartbeat check at 12:00 — emails an alert if no successful run in >28h
 # (catches: cron never fired, pipeline failing every day, crontab wiped).
 HEARTBEAT_CMD="0 12 * * * cd $REPO && $VENV_PYTHON heartbeat.py --check >> $LOG 2>&1"
+# Pinned-comment poster, hourly 11:15-17:15 UTC — publishes are staggered
+# 7-11 AM ET (up to 16:10 UTC comment-due in EST months), so each queued
+# pinned comment posts within ~1h of its video going public instead of
+# waiting for tomorrow's pipeline. Free when the queue is empty.
+COMMENTS_CMD="15 11-17 * * * cd $REPO && $VENV_PYTHON heartbeat.py --comments >> $LOG 2>&1"
 
 # Remove any old version of these cron jobs first (both the current runner and
 # the legacy daily_runner.py 3 PM job installed by first_time_setup.py).
@@ -179,9 +187,9 @@ HEARTBEAT_CMD="0 12 * * * cd $REPO && $VENV_PYTHON heartbeat.py --check >> $LOG 
 # Tue/Fri crypto, Wed/Sat celebrity, Sun political) + weekly (Sun 7:30,
 # landscape) + monthly (1st 8:00, landscape) + weekly tarot (Sat 9:00,
 # landscape) + weekly long-form (Mon 9:00, landscape) + heartbeat (12:00)
-( crontab -l 2>/dev/null; echo "$DOCTOR_CMD"; echo "$CRON_CMD"; echo "$TOPIC_CMD"; echo "$PRED_SPORTS_CMD"; echo "$PRED_CRYPTO_CMD"; echo "$PRED_CELEB_CMD"; echo "$PRED_POLI_CMD"; echo "$TAROT_CMD"; echo "$WEEKLY_CMD"; echo "$MONTHLY_CMD"; echo "$WEEKLYFULL_CMD"; echo "$HEARTBEAT_CMD" ) | crontab -
+( crontab -l 2>/dev/null; echo "$DOCTOR_CMD"; echo "$CRON_CMD"; echo "$TOPIC_CMD"; echo "$PRED_SPORTS_CMD"; echo "$PRED_CRYPTO_CMD"; echo "$PRED_CELEB_CMD"; echo "$PRED_POLI_CMD"; echo "$TAROT_CMD"; echo "$WEEKLY_CMD"; echo "$MONTHLY_CMD"; echo "$WEEKLYFULL_CMD"; echo "$HEARTBEAT_CMD"; echo "$COMMENTS_CMD" ) | crontab -
 
-echo "  OK: cron jobs installed (doctor 5:00, daily-short 5:30, topic 6:00, one rotating prediction 6:30 (Mon/Thu sports, Tue/Fri crypto, Wed/Sat celebrity, Sun political), tarot Sat 9:00, weekly-short Sun 7:30, monthly 1st 8:00, weekly-long-form Mon 9:00, heartbeat 12:00)"
+echo "  OK: cron jobs installed (doctor 5:00, daily-short 5:30, topic 6:00, one rotating prediction 6:30 (Mon/Thu sports, Tue/Fri crypto, Wed/Sat celebrity, Sun political), tarot Sat 9:00, weekly-short Sun 7:30, monthly 1st 8:00, weekly-long-form Mon 9:00, heartbeat 12:00, comment-poster hourly 11:15-17:15)"
 
 # ── 3b. Log rotation so $LOG doesn't grow without bound ───────────────────────
 echo ""

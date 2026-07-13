@@ -397,8 +397,9 @@ def queue_comment(video_id: str, text: str, post_after_iso: str) -> None:
 
 def process_pending_comments() -> int:
     """Post any queued comments whose post_after has passed. Returns count posted.
-    Called from the 12:00 heartbeat cron (video publishes at 10:00) and from the
-    next day's upload step as a fallback."""
+    Called from the hourly `heartbeat.py --comments` cron (11:15-17:15 UTC —
+    publishes are staggered 7-11 AM ET per type), from the 12:00 --check, and
+    from the next day's upload step as a final fallback."""
     items = _read_json(_PENDING_COMMENTS, [])
     if not items:
         return 0
