@@ -126,7 +126,7 @@ fi
 
 # ── 3. Install cron job ───────────────────────────────────────────────────────
 echo ""
-echo "[3/4] Installing cron job (runs daily at 5:30 AM UTC — all 12 signs, auto-upload)..."
+echo "[3/4] Installing cron jobs (renders 5:30-9:00 UTC, publishes staggered 7-11 AM ET)..."
 
 # Preflight doctor at 5:00 AM — emails you 30 min early if anything is broken
 # (bad key, expired token, low disk) so you can fix it before the 5:30 run.
@@ -216,7 +216,12 @@ fi
 echo ""
 echo "[4/4] Verification..."
 echo ""
-crontab -l | grep "run_daily" || echo "  WARNING: cron job not found!"
+# Show EVERY installed job (render pipelines + doctor + heartbeat + comment
+# poster) — grepping only run_daily hid the support jobs from verification.
+crontab -l | grep -E "run_daily|doctor|heartbeat" || echo "  WARNING: cron jobs not found!"
+N_JOBS=$(crontab -l | grep -cE "run_daily|doctor|heartbeat")
+echo ""
+echo "  Installed: $N_JOBS cron jobs (expected 13: 10 render + doctor + heartbeat + comment-poster)"
 
 echo ""
 echo "============================================"
