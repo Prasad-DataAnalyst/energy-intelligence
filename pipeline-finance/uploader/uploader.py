@@ -44,6 +44,7 @@ class UploadConfig:
     made_for_kids: bool = False
     language: str = "en"
     location: str = "United States"
+    video_type: str = "weekday"   # "weekday" | "shorts" | "sunday" — used for playlist routing + manifest
 
     def _compliance_description(self) -> str:
         """

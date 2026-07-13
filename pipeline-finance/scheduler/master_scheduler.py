@@ -129,6 +129,64 @@ def run_monitor_check() -> None:
         logger.warning("Monitor check failed: %s", exc)
 
 
+def run_pipeline_retry() -> None:
+    """30 min after the main slots: resume today's pipeline if it didn't finish."""
+    try:
+        from scheduler.deadman import retry_if_needed
+        pipeline = "sunday" if datetime.now().weekday() == 6 else "weekday"
+        retry_if_needed(pipeline)
+    except Exception as exc:
+        logger.error("Pipeline retry job failed: %s", exc)
+
+
+def run_deadman_check() -> None:
+    """18:00 ET — alert if no video was uploaded today."""
+    try:
+        from scheduler.deadman import check_todays_upload
+        from scheduler.weekday_scheduler import WeekdayScheduler
+        weekday = datetime.now().weekday()
+        is_content_day = weekday == 6 or WeekdayScheduler().is_market_day()
+        check_todays_upload(is_content_day=is_content_day)
+    except Exception as exc:
+        logger.error("Dead-man check failed: %s", exc)
+
+
+def run_analytics_pull() -> None:
+    """21:30 ET daily — pull video stats via YouTube Analytics API."""
+    try:
+        from channel_manager.analytics_tracker import AnalyticsTracker
+        AnalyticsTracker().run_daily_pull()
+    except Exception as exc:
+        logger.warning("Analytics pull failed: %s", exc)
+
+
+def run_comment_check() -> None:
+    """20:00 ET daily — fetch, classify, and reply-draft comments; flag spam."""
+    try:
+        from channel_manager.comment_monitor import CommentMonitor
+        CommentMonitor().run_daily_check()
+    except Exception as exc:
+        logger.warning("Comment check failed: %s", exc)
+
+
+def run_community_post() -> None:
+    """Sunday 09:00 ET — weekly watchlist community post."""
+    try:
+        from channel_manager.community_poster import CommunityPoster
+        CommunityPoster().run_weekly_post()
+    except Exception as exc:
+        logger.warning("Community post failed: %s", exc)
+
+
+def run_description_refresh() -> None:
+    """Monday 07:30 ET — refresh channel description with current date."""
+    try:
+        from channel_manager.post_manager import PostManager
+        PostManager().refresh_channel_description()
+    except Exception as exc:
+        logger.warning("Channel description refresh failed: %s", exc)
+
+
 def start_scheduler() -> None:
     """Start APScheduler with all jobs configured."""
     try:
@@ -193,6 +251,68 @@ def start_scheduler() -> None:
         CronTrigger(minute="0,30"),
         id="heartbeat",
         name="Scheduler Heartbeat",
+        max_instances=1,
+        coalesce=True,
+    )
+
+    # ── Reliability: pipeline retry (30 min after main slots) ─────────────
+    scheduler.add_job(
+        run_pipeline_retry,
+        CronTrigger(day_of_week="mon-fri", hour="8,17", minute=45, timezone=tz),
+        id="pipeline_retry_weekday",
+        name="Weekday Pipeline Retry (checkpoint resume)",
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
+        run_pipeline_retry,
+        CronTrigger(day_of_week="sun", hour=11, minute=45, timezone=tz),
+        id="pipeline_retry_sunday",
+        name="Sunday Pipeline Retry (checkpoint resume)",
+        max_instances=1,
+        coalesce=True,
+    )
+
+    # ── Reliability: dead-man switch (18:00 ET daily) ──────────────────────
+    scheduler.add_job(
+        run_deadman_check,
+        CronTrigger(hour=18, minute=0, timezone=tz),
+        id="deadman_check",
+        name="Dead-Man Upload Check",
+        max_instances=1,
+        coalesce=True,
+    )
+
+    # ── Channel management ─────────────────────────────────────────────────
+    scheduler.add_job(
+        run_comment_check,
+        CronTrigger(hour=20, minute=0, timezone=tz),
+        id="comment_check",
+        name="Daily Comment Monitor",
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
+        run_analytics_pull,
+        CronTrigger(hour=21, minute=30, timezone=tz),
+        id="analytics_pull",
+        name="Daily Analytics Pull",
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
+        run_community_post,
+        CronTrigger(day_of_week="sun", hour=9, minute=0, timezone=tz),
+        id="community_post",
+        name="Weekly Community Post",
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
+        run_description_refresh,
+        CronTrigger(day_of_week="mon", hour=7, minute=30, timezone=tz),
+        id="description_refresh",
+        name="Weekly Channel Description Refresh",
         max_instances=1,
         coalesce=True,
     )

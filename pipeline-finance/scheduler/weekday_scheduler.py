@@ -39,12 +39,32 @@ class PipelineResult:
 class WeekdayScheduler:
     """Orchestrates the weekday market recap pipeline end-to-end."""
 
-    def __init__(self):
+    def __init__(self, api_retry_delay: int = 300):
         self.run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.errors: list[str] = []
+        self._api_retry_delay = api_retry_delay
 
     def _log_step(self, step: str, detail: str = "") -> None:
         logger.info("[%s] STEP: %s %s", self.run_id, step, f"— {detail}" if detail else "")
+
+    def _apis_healthy(self) -> bool:
+        """
+        Pre-flight API liveness gate: Claude + yfinance must respond before
+        the pipeline spends anything. One retry after api_retry_delay.
+        """
+        import time as _time
+        from monitor.monitor import PipelineMonitor
+        pm = PipelineMonitor()
+        if pm.check_api_status():
+            return True
+        logger.warning(
+            "API pre-check failed — retrying once in %ds", self._api_retry_delay
+        )
+        _time.sleep(self._api_retry_delay)
+        if pm.check_api_status():
+            return True
+        logger.error("API pre-check failed twice — aborting run (checkpoint preserved)")
+        return False
 
     def is_market_day(self, dt: Optional[datetime] = None) -> bool:
         """Return True if dt (default: now) is a US market trading day (Mon–Fri, not a holiday)."""
@@ -146,39 +166,108 @@ class WeekdayScheduler:
         start = datetime.now()
         logger.info("WeekdayScheduler run started: %s", self.run_id)
 
+        from scheduler.pipeline_state import PipelineState
+        state = PipelineState("weekday")
+        if state.outcome == "success":
+            logger.info("Weekday pipeline already succeeded today — skipping re-run")
+            return PipelineResult(
+                success=True, video_id=state.video_id, title=None,
+                script_path=None, video_path=None, upload_result=None,
+                duration_seconds=0.0, errors=[],
+            )
+
         script_path = None
         video_path = None
         video_id = None
         title = None
 
+        # ── Step 0: API health gate ─────────────────────────────────────────
+        if not self._apis_healthy():
+            self.errors.append("API pre-check failed (Claude/yfinance unreachable)")
+            state.finish(success=False)
+            return PipelineResult(
+                success=False, video_id=None, title=None, script_path=None,
+                video_path=None, upload_result=None,
+                duration_seconds=(datetime.now() - start).total_seconds(),
+                errors=self.errors,
+            )
+
         try:
             # ── Step 1: Scrape market data ─────────────────────────────────
             self._log_step("1/7", "Scraping market data")
-            from scrapers.market_scraper import scrape_market
+            state.mark_started("scrape_market")
+            from scrapers.market_scraper import scrape_market, MarketScraper
             market = scrape_market()
             market_narrative = market.to_narrative()
 
+            # VIX pre-check → tone hint injected into the script context
+            try:
+                vix = MarketScraper().vix_market_state()
+                if vix.get("level") is not None:
+                    market_narrative += (
+                        f"\n\nVIX is at {vix['level']} — market fear is {vix['state']}. "
+                        f"Deliver this recap in a {vix['tone_hint']} tone."
+                    )
+                    logger.info("VIX pre-check: %s", vix)
+            except Exception as exc:
+                logger.warning("VIX pre-check skipped: %s", exc)
+            state.mark_done("scrape_market")
+
             # ── Step 2: Scrape earnings ────────────────────────────────────
             self._log_step("2/7", "Scraping earnings calendar")
+            state.mark_started("scrape_earnings")
             from scrapers.earnings_scraper import scrape_earnings
             earnings = scrape_earnings()
             earnings_narrative = earnings.to_narrative()
+            state.mark_done("scrape_earnings")
 
             # ── Step 3: Scrape economic data ───────────────────────────────
             self._log_step("3/7", "Scraping economic indicators")
+            state.mark_started("scrape_economic")
             from scrapers.economic_scraper import scrape_economic_data
             economic = scrape_economic_data()
             economic_narrative = economic.to_narrative()
+            state.mark_done("scrape_economic")
 
-            # ── Step 4: Generate script ────────────────────────────────────
+            # ── Step 4: Generate script (checkpoint: reuse today's script) ──
             self._log_step("4/7", "Generating script via Claude AI")
-            from generators.script_gen import generate_weekday_script
-            script = generate_weekday_script(
-                market_narrative=market_narrative,
-                earnings_narrative=earnings_narrative,
-                economic_narrative=economic_narrative,
-            )
-            script_path = script.save(settings.output_dir / "scripts")
+            from generators.script_gen import generate_weekday_script, GeneratedScript
+            cached_text = state.artifact("generate_script", "script_text")
+            cached_segments = state.artifact("generate_script", "segments_json")
+            if state.is_done("generate_script") and cached_text and cached_segments:
+                logger.info("Resuming with checkpointed script (Claude call skipped)")
+                script = GeneratedScript(
+                    video_type="weekday",
+                    title_draft=state.artifact("generate_script", "title_draft") or "",
+                    script=cached_text,
+                    word_count=len(cached_text.split()),
+                    estimated_duration_seconds=int(
+                        float(state.artifact("generate_script", "est_duration") or 0)
+                    ),
+                    segments=json.loads(cached_segments),
+                    tier=state.artifact("generate_script", "tier") or "tier3",
+                    style=state.artifact("generate_script", "style") or "",
+                    raw_prompt="", model="", tokens_used=0,
+                )
+                script_path_str = state.artifact("generate_script", "script_path")
+                script_path = Path(script_path_str) if script_path_str else None
+            else:
+                state.mark_started("generate_script")
+                script = generate_weekday_script(
+                    market_narrative=market_narrative,
+                    earnings_narrative=earnings_narrative,
+                    economic_narrative=economic_narrative,
+                )
+                script_path = script.save(settings.output_dir / "scripts")
+                state.mark_done("generate_script", artifacts={
+                    "script_text": script.script,
+                    "segments_json": json.dumps(script.segments),
+                    "title_draft": script.title_draft,
+                    "tier": script.tier,
+                    "style": script.style,
+                    "est_duration": script.estimated_duration_seconds,
+                    "script_path": script_path,
+                })
 
             # ── Step 5: Compliance check ───────────────────────────────────
             self._log_step("5/7", "Running compliance filter")
@@ -191,22 +280,28 @@ class WeekdayScheduler:
                 if compliance.risk_level == "high":
                     self.errors.append(f"HIGH compliance risk — manual review required: {compliance.issues}")
                     logger.error("Script has HIGH compliance risk — aborting upload")
+                    state.mark_failed("compliance_check", str(compliance.issues))
+                    state.finish(success=False)
                     return PipelineResult(
                         success=False, video_id=None, title=script.title_draft,
                         script_path=script_path, video_path=None, upload_result=None,
                         duration_seconds=(datetime.now() - start).total_seconds(),
                         errors=self.errors,
                     )
+            state.mark_done("compliance_check")
 
             # ── Step 6: Generate supporting assets ────────────────────────
             self._log_step("6/7", "Generating charts, audio, thumbnail, titles")
+            state.mark_started("generate_assets")
 
             from generators.chart_generator import generate_all_charts
             charts = generate_all_charts(market)
             chart_paths = [c.path for c in charts]
 
-            from generators.audio_gen import generate_audio
+            from generators.audio_gen import generate_audio, normalize_loudness
             audio = generate_audio(script.segments, "weekday")
+            if audio.merged_path:
+                normalize_loudness(audio.merged_path)   # -16 LUFS, non-fatal
 
             sentiment = market.sp500.sentiment.replace("strongly_", "")
             from generators.title_gen import generate_title_set
@@ -225,9 +320,15 @@ class WeekdayScheduler:
                 sentiment=sentiment,
                 chart_path=chart_paths[0] if chart_paths else None,
             )
+            state.mark_done("generate_assets", artifacts={
+                "audio_path": audio.merged_path or "",
+                "thumbnail_path": thumbnail.path,
+                "title": title,
+            })
 
             # ── Step 7: Build video ────────────────────────────────────────
             self._log_step("7a/7", "Building main video")
+            state.mark_started("build_video")
             from builders.video_builder import build_video, VideoAssets
             if audio.merged_path:
                 video_assets = VideoAssets(
@@ -263,6 +364,9 @@ class WeekdayScheduler:
                 except Exception as exc:
                     logger.warning("Short build failed (non-fatal): %s", exc)
 
+            if video_path:
+                state.mark_done("build_video", artifacts={"video_path": video_path})
+
             # ── Upload ─────────────────────────────────────────────────────
             if video_path and video_path.exists():
                 from uploader.quota_tracker import QuotaTracker
@@ -270,31 +374,87 @@ class WeekdayScheduler:
 
                 quota = QuotaTracker()
                 if quota.can_upload():
+                    # Description: base + chapter markers, tags enriched
+                    description = title_set.description or _fallback_description(market, earnings)
+                    tags = _build_tags(market)
+                    try:
+                        from generators.title_gen import generate_chapter_markers, extract_script_tags
+                        chapters = generate_chapter_markers(
+                            script.script, audio.total_duration_seconds
+                        )
+                        if chapters:
+                            description += f"\n\n⏱️ Chapters:\n{chapters}"
+                        tags = (tags + extract_script_tags(script.script))[:30]
+                    except Exception as exc:
+                        logger.warning("Chapter/tag enrichment skipped: %s", exc)
+
                     publish_at = _next_publish_time()
                     config = UploadConfig(
                         title=title,
-                        description=title_set.description or _fallback_description(market, earnings),
-                        tags=_build_tags(market),
+                        description=description,
+                        tags=tags,
                         publish_at=publish_at,
+                        video_type="weekday",
                     )
-                    upload_result = upload_full(
+
+                    # Preflight gate — never spend quota on broken artifacts
+                    from uploader.preflight import PreflightChecker
+                    preflight = PreflightChecker(quota_tracker=quota).run(
                         video_path=video_path,
-                        config=config,
                         thumbnail_path=thumbnail.path,
-                        quota_tracker=quota,
+                        title=config.title,
+                        description=config._compliance_description(),
+                        script_path=script_path,
+                        audio_path=audio.merged_path,
                     )
-                    video_id = upload_result.video_id
-                    logger.info("Upload result: %s", upload_result)
+                    if not preflight.passed:
+                        self.errors.append(f"Preflight failed: {preflight.errors}")
+                        logger.error("Upload blocked by preflight: %s", preflight.summary())
+                        state.mark_failed("upload", f"preflight: {preflight.errors}")
+                    else:
+                        state.mark_started("upload")
+                        upload_result = upload_full(
+                            video_path=video_path,
+                            config=config,
+                            thumbnail_path=thumbnail.path,
+                            quota_tracker=quota,
+                        )
+                        video_id = upload_result.video_id
+                        logger.info("Upload result: %s", upload_result)
+                        if video_id:
+                            state.mark_done("upload", artifacts={"video_id": video_id})
+
+                            # ── Post-upload: manifest, playlist, captions, etc.
+                            state.mark_started("post_upload")
+                            from scheduler.post_upload import finalize_upload
+                            finalize_upload(
+                                video_id=video_id,
+                                video_type="weekday",
+                                title=title,
+                                upload_result=upload_result,
+                                upload_config=config,
+                                script_text=script.script,
+                                topic=script.title_draft,
+                                video_duration_seconds=audio.total_duration_seconds,
+                            )
+                            state.mark_done("post_upload")
+                        else:
+                            state.mark_failed("upload", upload_result.error or "unknown")
                 else:
                     logger.warning("Upload skipped — quota exceeded. %s", quota.report())
 
         except Exception as exc:
             logger.exception("Pipeline error: %s", exc)
             self.errors.append(str(exc))
+            current = state.next_step()
+            if current:
+                state.mark_failed(current, str(exc))
 
         duration = (datetime.now() - start).total_seconds()
+        success = len(self.errors) == 0 and video_path is not None
+        state.finish(success=success, video_id=video_id)
         return PipelineResult(
-            success=len(self.errors) == 0 and video_path is not None,
+            success=success,
             video_id=video_id,
             title=title,
             script_path=script_path,

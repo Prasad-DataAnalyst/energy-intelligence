@@ -185,14 +185,36 @@ class SundayScheduler:
         start = datetime.now()
         logger.info("SundayScheduler started: %s", self.run_id)
 
+        from scheduler.pipeline_state import PipelineState
+        state = PipelineState("sunday")
+        if state.outcome == "success":
+            logger.info("Sunday pipeline already succeeded today — skipping re-run")
+            from scheduler.weekday_scheduler import PipelineResult
+            return PipelineResult(
+                success=True, video_id=state.video_id, title=None,
+                script_path=None, video_path=None, upload_result=None,
+                duration_seconds=0.0, errors=[],
+            )
+
         video_path = None
         video_id = None
         title = None
 
         try:
-            # ── Pick topic ─────────────────────────────────────────────────
+            # ── Pick topic (with 14-day dedup gate) ────────────────────────
+            state.mark_started("pick_topic")
+            from scheduler.post_upload import check_topic_duplicate
             library = _load_topic_library()
             topic_data = _pick_topic(library)
+            for _attempt in range(3):
+                if not check_topic_duplicate(topic_data.get("title", "")):
+                    break
+                logger.info(
+                    "Topic '%s' duplicates recent content — re-picking",
+                    topic_data.get("title", "")[:60],
+                )
+                topic_data = _pick_topic(library)
+            state.mark_done("pick_topic", artifacts={"topic": topic_data.get("title", "")})
 
             topic = topic_data["title"]
             current_relevance = topic_data.get("current_relevance", "")
@@ -203,16 +225,24 @@ class SundayScheduler:
             week_context = current_relevance or "Markets were active this week."
             bonus_theme = topic_data.get("bonus_theme", "macro_finance")
 
-            # ── Generate script ────────────────────────────────────────────
+            # ── Generate script (day-scoped cache avoids duplicate Claude calls)
             logger.info("Generating Sunday script for: %s | theme=%s", topic, theme)
-            from generators.script_gen import generate_sunday_script
-            script = generate_sunday_script(
-                topic=topic,
-                theme=theme,
-                week_context=week_context,
-                bonus_theme=bonus_theme,
-            )
+            state.mark_started("generate_script")
+            from generators.script_gen import generate_sunday_script, ScriptGenerator
+            _sg = ScriptGenerator()
+            script = _sg.get_cached_script("sunday", topic, tier=0)
+            if script is not None:
+                logger.info("Using cached Sunday script (Claude call skipped)")
+            else:
+                script = generate_sunday_script(
+                    topic=topic,
+                    theme=theme,
+                    week_context=week_context,
+                    bonus_theme=bonus_theme,
+                )
+                _sg.cache_script(script, topic=topic, tier=0)
             script.save(settings.output_dir / "scripts")
+            state.mark_done("generate_script")
 
             # ── Compliance ─────────────────────────────────────────────────
             from generators.compliance_filter import check_compliance, auto_fix_script
@@ -221,7 +251,10 @@ class SundayScheduler:
                 script.script = auto_fix_script(script.script, compliance)
                 if compliance.risk_level == "high":
                     self.errors.append(f"High compliance risk: {compliance.issues}")
+                    state.mark_failed("compliance_check", str(compliance.issues))
+                    state.finish(success=False)
                     return None
+            state.mark_done("compliance_check")
 
             # ── Charts (educational — concept charts) ──────────────────────
             # Sunday videos use simpler concept charts (no market data needed)
@@ -237,8 +270,10 @@ class SundayScheduler:
                 chart_paths = []
 
             # ── Audio ──────────────────────────────────────────────────────
-            from generators.audio_gen import generate_audio
+            from generators.audio_gen import generate_audio, normalize_loudness
             audio = generate_audio(script.segments, "sunday")
+            if audio.merged_path:
+                normalize_loudness(audio.merged_path)   # -16 LUFS, non-fatal
 
             # ── Titles ─────────────────────────────────────────────────────
             from generators.title_gen import generate_title_set
@@ -293,35 +328,86 @@ class SundayScheduler:
                         "investing education", "financial literacy", "DriftWire326",
                         "stock market explained", "finance for beginners", "2026 investing",
                     ]
+                    description = title_set.description or (
+                        f"{topic}\n\n{current_relevance}\n\n"
+                        f"⚠️ {settings.disclaimer_text}\n\n" +
+                        " ".join(f"#{t.replace(' ', '')}" for t in tags[:10])
+                    )
+                    try:
+                        from generators.title_gen import generate_chapter_markers
+                        chapters = generate_chapter_markers(
+                            script.script, audio.total_duration_seconds
+                        )
+                        if chapters:
+                            description += f"\n\n⏱️ Chapters:\n{chapters}"
+                    except Exception as exc:
+                        logger.warning("Chapter enrichment skipped: %s", exc)
+
                     config = UploadConfig(
                         title=title,
-                        description=title_set.description or (
-                            f"{topic}\n\n{current_relevance}\n\n"
-                            f"⚠️ {settings.disclaimer_text}\n\n" +
-                            " ".join(f"#{t.replace(' ', '')}" for t in tags[:10])
-                        ),
+                        description=description,
                         tags=tags[:30],
                         category="Education",
                         publish_at=publish_at_utc,
+                        video_type="sunday",
                     )
-                    upload_result = upload_full(
+
+                    # Preflight gate — never spend quota on broken artifacts
+                    from uploader.preflight import PreflightChecker
+                    preflight = PreflightChecker(quota_tracker=quota).run(
                         video_path=video_path,
-                        config=config,
                         thumbnail_path=thumbnail.path,
-                        quota_tracker=quota,
+                        title=config.title,
+                        description=config._compliance_description(),
+                        audio_path=audio.merged_path,
                     )
-                    video_id = upload_result.video_id
+                    if not preflight.passed:
+                        self.errors.append(f"Preflight failed: {preflight.errors}")
+                        logger.error("Sunday upload blocked by preflight: %s", preflight.summary())
+                        state.mark_failed("upload", f"preflight: {preflight.errors}")
+                    else:
+                        state.mark_started("upload")
+                        upload_result = upload_full(
+                            video_path=video_path,
+                            config=config,
+                            thumbnail_path=thumbnail.path,
+                            quota_tracker=quota,
+                        )
+                        video_id = upload_result.video_id
+                        if video_id:
+                            state.mark_done("upload", artifacts={"video_id": video_id})
+                            state.mark_started("post_upload")
+                            from scheduler.post_upload import finalize_upload
+                            finalize_upload(
+                                video_id=video_id,
+                                video_type="sunday",
+                                title=title,
+                                upload_result=upload_result,
+                                upload_config=config,
+                                script_text=script.script,
+                                topic=topic,
+                                video_duration_seconds=audio.total_duration_seconds,
+                                sunday_theme=theme,
+                            )
+                            state.mark_done("post_upload")
+                        else:
+                            state.mark_failed("upload", upload_result.error or "unknown")
                 else:
                     logger.warning("Sunday upload skipped — quota exceeded")
 
         except Exception as exc:
             logger.exception("Sunday pipeline error: %s", exc)
             self.errors.append(str(exc))
+            current = state.next_step()
+            if current:
+                state.mark_failed(current, str(exc))
 
         duration = (datetime.now() - start).total_seconds()
+        success = len(self.errors) == 0 and video_path is not None
+        state.finish(success=success, video_id=video_id)
         from scheduler.weekday_scheduler import PipelineResult
         return PipelineResult(
-            success=len(self.errors) == 0 and video_path is not None,
+            success=success,
             video_id=video_id,
             title=title,
             script_path=None,

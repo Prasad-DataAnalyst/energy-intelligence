@@ -14,10 +14,12 @@ pipeline-finance/
 │   ├── settings.py          Pydantic settings (loads from .env)
 │   ├── prompts.py           All Claude prompt templates
 │   └── finance_oauth.json   YouTube OAuth2 credential placeholder
-├── scrapers/        Market data, economic indicators, earnings
-│   ├── market_scraper.py    yfinance — prices, movers, sector performance
+├── scrapers/        Market data, economic indicators, earnings, news
+│   ├── market_scraper.py    yfinance — prices, movers, sectors, VIX pre-check
 │   ├── economic_scraper.py  FRED API — CPI, GDP, unemployment, Fed rate
 │   ├── earnings_scraper.py  SEC EDGAR + Finnhub — EPS beats/misses
+│   ├── trends_scraper.py    Google Trends via pytrends (free, no key)
+│   ├── rss_scraper.py       Financial news RSS via feedparser (free, no key)
 │   └── topic_library.py     Sunday educational topic bank
 ├── generators/      AI-powered content generation
 │   ├── script_gen.py        Claude API — full scripts with [SECTION] markers
@@ -28,22 +30,34 @@ pipeline-finance/
 │   └── title_gen.py         Claude API — scored titles, descriptions, tags
 ├── builders/        Video assembly (MoviePy/ffmpeg)
 │   ├── video_builder.py     Main video — Ken Burns, captions, watermark
-│   └── shorts_builder.py    YouTube Shorts — cards, ≤60s hard limit
+│   ├── shorts_builder.py    YouTube Shorts — cards, ≤60s hard limit
+│   └── fallback_builder.py  Emergency video — cached data + gTTS + static frame
 ├── uploader/        YouTube Data API v3
-│   ├── uploader.py          OAuth2 upload, 30-min gap, failed queue
-│   └── quota_tracker.py     10,000 unit/day tracking, reset, alerts
-├── scheduler/       APScheduler — automated daily runs
-│   ├── weekday_scheduler.py Mon–Fri market pipelines + NYSE holiday check
-│   ├── sunday_scheduler.py  4-theme educational cycle
-│   └── master_scheduler.py  Process-isolated runners + 30-min heartbeat
+│   ├── uploader.py          OAuth2 upload, 30-min gap, failed queue, upload manifest
+│   ├── quota_tracker.py     10,000 unit/day tracking, reset, alerts
+│   └── preflight.py         Pre-upload gate — video/audio/thumbnail/quota/compliance
+├── scheduler/       APScheduler — automated daily runs + reliability layer
+│   ├── weekday_scheduler.py Mon–Fri pipeline (checkpointed, preflight-gated)
+│   ├── sunday_scheduler.py  4-theme educational cycle (dedup + script cache)
+│   ├── master_scheduler.py  12 scheduled jobs, process isolation, heartbeat
+│   ├── pipeline_state.py    Checkpoint/resume — crashed runs resume mid-pipeline
+│   ├── post_upload.py       Post-upload chain: playlist, captions, pin, manifest
+│   └── deadman.py           18:00 ET dead-man switch + checkpoint retry job
 ├── monitor/         Health checks, KPI tracking, alerts
 │   └── monitor.py           Pipeline health, quota, API status, email alerts
-├── channel_manager/ Channel-level automation (Modules 21–24)
+├── channel_manager/ Channel-level automation (Modules 21–32)
 │   ├── playlist_manager.py  Auto-creates & routes videos to 6 playlists
 │   ├── community_poster.py  Weekly watchlist post Sunday 09:00 ET (Claude-generated)
 │   ├── analytics_tracker.py YouTube Analytics daily pull + weekly report + CTR A/B swap
-│   └── comment_monitor.py   Daily comment pull, classify, reply, spam flagging
-├── tests/           pytest test suite — 246 tests, all passing
+│   ├── comment_monitor.py   Daily comment pull, classify, reply, spam flagging
+│   ├── end_screen_manager.py Subscribe + best-video end screens (best-effort API)
+│   ├── post_manager.py      Pinned disclaimer comment + channel description refresh
+│   ├── subtitle_manager.py  SRT caption generation + upload (400 units/video)
+│   ├── performance_tracker.py EMA-weighted best style/hook/template/time slot
+│   └── content_tracker.py   14-day topic dedup window (Jaccard similarity)
+├── deploy/
+│   └── driftwire326.service systemd unit — auto-restart scheduler daemon
+├── tests/           pytest test suite — 365 tests, all passing
 ├── assets/
 │   └── templates/           Thumbnail template PNGs (A–G, place before first run)
 ├── logs/
@@ -172,17 +186,49 @@ pytest tests/ -v
 
 ## Schedule
 
-| Day       | Time (ET)  | Action                                          |
-|-----------|------------|-------------------------------------------------|
-| Mon–Fri   | 6:00 AM    | Scrape + generate script + build video          |
-| Mon–Fri   | 7:00 AM    | Upload main morning briefing                    |
-| Mon–Fri   | 12:30 PM   | Upload midday Short                             |
-| Mon–Fri   | 4:30 PM    | Upload afternoon market wrap video              |
-| Sunday    | 10:00 AM   | Upload Sunday educational deep-dive             |
-| Sunday    | 4:00 PM    | Upload Sunday afternoon Short                   |
-| Every 30m | —          | Heartbeat log + health checks                   |
+| Day       | Time (ET)  | Action                                            |
+|-----------|------------|---------------------------------------------------|
+| Mon–Fri   | 8:00 AM    | Pre-market pipeline (scrape → script → build → upload) |
+| Mon–Fri   | 8:45 AM    | Pipeline retry (resumes from checkpoint if incomplete) |
+| Mon–Fri   | 5:00 PM    | Post-market pipeline                              |
+| Mon–Fri   | 5:45 PM    | Pipeline retry (checkpoint resume)                |
+| Sunday    | 9:00 AM    | Weekly community post (watchlist)                 |
+| Sunday    | 11:00 AM   | Sunday educational pipeline                       |
+| Sunday    | 11:45 AM   | Pipeline retry (checkpoint resume)                |
+| Monday    | 7:30 AM    | Channel description refresh                       |
+| Daily     | 6:00 PM    | **Dead-man switch** — email alert if no upload today |
+| Daily     | 8:00 PM    | Comment monitor (classify, reply drafts, spam flags) |
+| Daily     | 9:30 PM    | Analytics pull (views, CTR, watch time)           |
+| Every 2h  | —          | Channel performance monitor                       |
+| Every 30m | —          | Heartbeat log                                     |
 
 Market-day check respects NYSE observed holidays (New Year's Day, MLK Day, Presidents Day, Good Friday, Memorial Day, Juneteenth, Independence Day, Labor Day, Thanksgiving, Christmas).
+
+---
+
+## Reliability Layer (error-free daily output)
+
+Five mechanisms keep the channel publishing even when something breaks:
+
+1. **API health gate** — before spending anything, each run verifies Claude and
+   yfinance respond (one retry after 5 min). Failures abort cleanly with the
+   checkpoint preserved.
+2. **Checkpoint/resume** (`scheduler/pipeline_state.py`) — every step records
+   completion + artifacts to `logs/pipeline_state/`. A crashed run resumed by
+   the retry job skips completed steps — the Claude script call is never repeated.
+3. **Preflight gate** (`uploader/preflight.py`) — video streams (ffprobe), audio
+   duration/silence (pydub), thumbnail, title, compliance phrases, and quota are
+   all verified *before* the 1,600-unit upload is attempted.
+4. **Dead-man switch** (`scheduler/deadman.py`) — at 18:00 ET, if no upload is
+   recorded in `logs/upload_manifest.jsonl`, an email alert fires with pipeline
+   diagnostics. Silence never means failure.
+5. **Emergency fallback video** (`builders/fallback_builder.py`) — a minimal
+   publishable video (cached market data → gTTS → static branded frame → ffmpeg)
+   that needs neither Claude nor live market data. Set `FALLBACK_AUTO_UPLOAD=true`
+   in `.env` to let the dead-man switch publish it automatically as a last resort.
+
+Deploy as a self-restarting daemon with `deploy/driftwire326.service`
+(systemd — `Restart=on-failure`).
 
 ---
 
@@ -345,7 +391,7 @@ Every video description automatically includes:
 ## Testing
 
 ```bash
-# Run all 206 tests
+# Run all 365 tests
 pytest tests/ -v
 
 # With coverage report
@@ -357,21 +403,23 @@ pytest tests/test_chart_generator.py -v
 
 | Test file | Tests | Module |
 |-----------|-------|--------|
-| `test_market_scraper.py` | 12 | market_scraper |
-| `test_economic_scraper.py` | 12 | economic_scraper |
-| `test_earnings_scraper.py` | 12 | earnings_scraper |
-| `test_script_gen.py` | 15 | script_gen |
-| `test_compliance.py` | 17 | compliance_filter |
+| `test_scraper.py` | 43 | market/economic/earnings scrapers |
+| `test_script_gen.py` | 19 | script_gen |
+| `test_compliance.py` | 11 | compliance_filter |
 | `test_chart_generator.py` | 8 | ChartGenerator class |
 | `test_audio_gen.py` | 10 | AudioGenerator class |
 | `test_title_gen.py` | 11 | TitleGenerator class |
 | `test_thumbnail_gen.py` | 10 | ThumbnailGenerator class |
-| `test_builders.py` | 18 | VideoBuilder + ShortsBuilder |
-| `test_scheduler.py` | 18 | WeekdayScheduler + SundayScheduler |
-| `test_monitor.py` | 13 | PipelineMonitor + ChannelMonitor |
-| `test_youtube_uploader.py` | 20 | YouTubeUploader + QuotaTracker |
+| `test_builders.py` | 21 | VideoBuilder + ShortsBuilder |
+| `test_video_builder.py` | 6 | video assembly details |
+| `test_scheduler.py` | 19 | WeekdayScheduler + SundayScheduler |
+| `test_monitor.py` | 14 | PipelineMonitor + ChannelMonitor |
+| `test_uploader.py` | 15 | upload config + queue |
+| `test_youtube_uploader.py` | 19 | YouTubeUploader + QuotaTracker |
 | `test_channel_manager.py` | 40 | PlaylistManager + CommunityPoster + AnalyticsTracker + CommentMonitor |
-| **Total** | **246** | All passing, no live API calls |
+| `test_enhancements.py` | 76 | Modules 25–32 (end screens, captions, trends, RSS, preflight, trackers) |
+| `test_reliability.py` | 43 | Checkpoints, post-upload chain, dead-man switch, fallback builder |
+| **Total** | **365** | All passing, no live API calls |
 
 All tests run without API keys using `unittest.mock` patches.
 

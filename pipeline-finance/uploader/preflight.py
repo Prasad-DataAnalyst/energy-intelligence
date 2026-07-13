@@ -84,6 +84,82 @@ class PreflightChecker:
             result.add_error(f"Video file not found: {p}")
         elif p.stat().st_size < 1024:
             result.add_error(f"Video file too small (<1 KB): {p}")
+        else:
+            self._check_video_streams(p, result)
+
+    def _check_video_streams(self, video_path: Path, result: PreflightResult) -> None:
+        """
+        ffprobe check: the file must open and contain both a video and an
+        audio stream. Catches the 'build succeeded but produced garbage'
+        failure class before quota is spent. Warns (not errors) if ffprobe
+        is unavailable.
+        """
+        import json as _json
+        import subprocess
+        try:
+            proc = subprocess.run(
+                [
+                    "ffprobe", "-v", "quiet", "-print_format", "json",
+                    "-show_streams", str(video_path),
+                ],
+                capture_output=True, text=True, timeout=60,
+            )
+            if proc.returncode != 0:
+                result.add_error(f"ffprobe cannot read video file: {video_path.name}")
+                return
+            streams = _json.loads(proc.stdout or "{}").get("streams", [])
+            codec_types = {s.get("codec_type") for s in streams}
+            if "video" not in codec_types:
+                result.add_error(f"No video stream in {video_path.name}")
+            if "audio" not in codec_types:
+                result.add_error(f"No audio stream in {video_path.name}")
+        except FileNotFoundError:
+            result.add_warning("ffprobe not installed — video streams not verified")
+        except Exception as exc:
+            result.add_warning(f"Video stream check skipped: {exc}")
+
+    def check_audio(
+        self,
+        audio_path: Optional[Path],
+        result: PreflightResult,
+        min_seconds: float = MIN_AUDIO_SECONDS,
+        max_seconds: float = 20 * 60,
+    ) -> None:
+        """
+        Audio quality gate: file exists, duration within bounds, not silent.
+        Silence detection uses pydub RMS (dBFS); a track quieter than
+        -50 dBFS average is effectively dead air.
+        """
+        if audio_path is None:
+            result.add_warning("No audio path provided — audio not checked")
+            return
+        p = Path(audio_path)
+        if not p.exists():
+            result.add_error(f"Audio file not found: {p}")
+            return
+        if p.stat().st_size < 1024:
+            result.add_error(f"Audio file too small (<1 KB): {p}")
+            return
+        try:
+            from pydub import AudioSegment as _PydubSegment
+            seg = _PydubSegment.from_file(str(p))
+            duration = len(seg) / 1000.0
+            if duration < min_seconds:
+                result.add_error(
+                    f"Audio too short: {duration:.0f}s < {min_seconds:.0f}s minimum"
+                )
+            elif duration > max_seconds:
+                result.add_warning(
+                    f"Audio unusually long: {duration:.0f}s > {max_seconds:.0f}s"
+                )
+            if seg.dBFS == float("-inf") or seg.dBFS < -50.0:
+                result.add_error(
+                    f"Audio appears silent (avg {seg.dBFS:.1f} dBFS): {p.name}"
+                )
+        except ImportError:
+            result.add_warning("pydub not installed — audio duration/silence not verified")
+        except Exception as exc:
+            result.add_warning(f"Audio check skipped: {exc}")
 
     def check_thumbnail(self, thumbnail_path: Optional[Path], result: PreflightResult) -> None:
         if thumbnail_path is None:
@@ -170,6 +246,7 @@ class PreflightChecker:
         title: Optional[str] = None,
         description: Optional[str] = None,
         script_path: Optional[Path] = None,
+        audio_path: Optional[Path] = None,
         check_quota: bool = True,
     ) -> PreflightResult:
         """
@@ -183,6 +260,8 @@ class PreflightChecker:
         self.check_title(title, result)
         self.check_description(description, result)
         self.check_script(script_path, result)
+        if audio_path is not None:
+            self.check_audio(audio_path, result)
         if check_quota:
             self.check_quota(result)
 

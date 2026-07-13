@@ -1,0 +1,38 @@
+# DriftWire326 master scheduler — systemd unit
+#
+# Install:
+#   sudo cp deploy/driftwire326.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now driftwire326
+#
+# Logs:
+#   journalctl -u driftwire326 -f
+#   (pipeline logs also written to pipeline-finance/logs/)
+#
+# Adjust User= and the two paths below to your deployment.
+
+[Unit]
+Description=DriftWire326 YouTube automation scheduler
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=driftwire
+WorkingDirectory=/opt/driftwire326/pipeline-finance
+EnvironmentFile=/opt/driftwire326/pipeline-finance/.env
+# Running main.py with no arguments starts the full APScheduler daemon
+ExecStart=/usr/bin/python3 main.py
+
+# Auto-resurrect: if the scheduler process dies, restart it after 30s.
+Restart=on-failure
+RestartSec=30
+# Give a hung shutdown 2 minutes before SIGKILL
+TimeoutStopSec=120
+
+# Hardening (relax if your paths differ)
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
