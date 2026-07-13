@@ -1467,17 +1467,30 @@ def _mix_voice_ambient(voice_path: str, ambient_path: str, out_path: str) -> boo
     # SIDECHAIN-DUCKED by the voice: music automatically dips while the host
     # speaks and swells back in the gaps. This is the single audio trick that
     # separates "TTS over a loop" from a produced mix.
+    # Tier 1 graph is a DIAMOND (asplit feeds both amix and sidechaincompress),
+    # and those two filters have disjoint native sample formats (ffmpeg 4.4:
+    # amix=fltp-only, sidechaincompress=packed-dbl-only). ffmpeg >= 5.1 has a
+    # rewritten negotiator that auto-converts; 4.4 (Ubuntu 22.04 — the
+    # production VM) fails the whole graph with "could not choose their
+    # formats / consider inserting the (a)format filter" — seen live
+    # 2026-07-13. So we insert those aformat pins OURSELVES at every branch
+    # point: each multi-input filter now receives explicitly identical,
+    # natively-supported formats, leaving the negotiator nothing to solve.
+    _DBL  = "aformat=sample_fmts=dbl:sample_rates=44100:channel_layouts=stereo"
+    _FLTP = "aformat=sample_fmts=fltp"
     tiers = [
         "[0:a]highpass=f=80,equalizer=f=3200:t=q:w=1:g=2.5,"
         "acompressor=threshold=-18dB:ratio=3:attack=8:release=120:makeup=4,"
-        "asplit=2[v][vsc];"
-        "[1:a]volume=0.55[amb];"
+        f"{_DBL},asplit=2[v][vsc];"
+        f"[1:a]volume=0.55,{_DBL}[amb];"
         "[amb][vsc]sidechaincompress=threshold=0.02:ratio=8:attack=60:release=600[duck];"
-        "[v][duck]amix=inputs=2:duration=first:normalize=0,"
+        f"[v]{_FLTP}[vf];[duck]{_FLTP}[df];"
+        "[vf][df]amix=inputs=2:duration=first:normalize=0,"
         "loudnorm=I=-14:TP=-1.5:LRA=11[out]",
-        "[0:a][1:a]amix=inputs=2:duration=first:normalize=0:weights='1 0.35',"
+        f"[0:a]{_FLTP}[va];[1:a]{_FLTP}[aa];"
+        "[va][aa]amix=inputs=2:duration=first:normalize=0:weights='1 0.35',"
         "loudnorm=I=-14:TP=-1.5:LRA=11[out]",
-        "[0:a]volume=2.0[v];[1:a]volume=0.7[a];"
+        f"[0:a]volume=2.0,{_FLTP}[v];[1:a]volume=0.7,{_FLTP}[a];"
         "[v][a]amix=inputs=2:duration=first[out]",
     ]
     for i, flt in enumerate(tiers, 1):
@@ -1498,7 +1511,7 @@ def _mix_voice_ambient(voice_path: str, ambient_path: str, out_path: str) -> boo
                 elif i == 3:
                     print("      [INFO] Mix tier 3 (compatibility — no loudness master)")
                 return True
-            print(f"[WARN] Mix tier {i} failed: {r.stderr.decode()[-200:]}",
+            print(f"[WARN] Mix tier {i} failed: {r.stderr.decode()[-500:]}",
                   file=sys.stderr)
         except Exception as e:
             print(f"[WARN] Mix tier {i} exception: {e}", file=sys.stderr)

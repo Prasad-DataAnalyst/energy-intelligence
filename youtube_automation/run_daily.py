@@ -124,6 +124,14 @@ def run_captured(cmd: list, timeout: int = 120) -> tuple:
     except subprocess.TimeoutExpired:
         _kill_process_group(p)
         return False, f"TIMEOUT after {timeout}s (whole process group killed)"
+    except KeyboardInterrupt:
+        # start_new_session detaches the child from the terminal's process
+        # group, so Ctrl-C alone would NOT reach it — kill the group before
+        # propagating, or a manual abort would orphan the very ffmpeg the
+        # session isolation was added to contain.
+        if p is not None:
+            _kill_process_group(p)
+        raise
     except Exception as e:
         if p is not None:
             _kill_process_group(p)
@@ -209,6 +217,12 @@ def run_live(cmd: list, timeout: int = 1800) -> bool:
         _kill_process_group(p)
         print(f"  [TIMEOUT after {timeout}s — whole render process group killed]")
         return False
+    except KeyboardInterrupt:
+        # Ctrl-C doesn't reach the detached session — kill it before exiting
+        # (same orphan risk as a timeout, just triggered manually).
+        if p is not None:
+            _kill_process_group(p)
+        raise
     except Exception as e:
         if p is not None:
             _kill_process_group(p)
