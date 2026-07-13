@@ -401,10 +401,12 @@ class YouTubeUploader:
             category="News & Politics",
             privacy="private",
             publish_at=publish_at,
+            video_type="shorts",
         )
         result = upload_full(video_path, config, thumbnail_path, self._quota)
         if result.success:
             self._last_upload_at = time.time()
+            record_upload(result, config)   # manifest feeds the dead-man switch
         else:
             self._queue_failed(video_path, config, thumbnail_path)
         return result

@@ -90,5 +90,5 @@ class TestAudioGenerator:
         assert track.total_duration_seconds == 0.0
 
     def test_min_max_constants(self):
-        assert MIN_AUDIO_SECONDS == 120
-        assert MAX_AUDIO_SECONDS == 180
+        assert MIN_AUDIO_SECONDS == 180   # spec: long-form 3:15-3:50 target
+        assert MAX_AUDIO_SECONDS == 240   # spec: 4:00 hard cap

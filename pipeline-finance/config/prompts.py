@@ -71,7 +71,7 @@ Return ONLY valid JSON — no markdown, no commentary:
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. WEEKDAY_SCRIPT_TIER1_PROMPT — breakout story (≥5% move)
 # Input:  {topic}, {anchor_number}, {context}, {style}, {hook}
-# Output: 280-420 word script, urgent breaking-news tone
+# Output: 420-500 word script, urgent breaking-news tone
 # Structure: Hook(5s) → What Happened(40s) → Why It Matters(50s) →
 #            Numbers Deep Dive(40s) → What Happens Next(25s) → CTA(15s)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -85,7 +85,7 @@ CONTEXT / DATA: {context}
 OPENING HOOK: {hook}
 
 This is a MAJOR market move (≥5%). Energy: live breaking-news coverage, urgent, electric.
-Word count: 280-420 words. Every second earns its place.
+Word count: 420-500 words. Every second earns its place.
 
 Use these EXACT section headers:
 
@@ -128,7 +128,7 @@ Return plain script text only — section headers included, no other markdown.""
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. WEEKDAY_SCRIPT_TIER2_PROMPT — notable story (2%–4.99% move)
 # Input:  {topic}, {anchor_number}, {context}, {style}, {hook}
-# Output: 280-420 word script, confident anchor tone
+# Output: 420-500 word script, confident anchor tone
 # Structure: Hook(5s) → Story(60s) → Analysis(60s) → Context(25s) → CTA(15s)
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -142,7 +142,7 @@ OPENING HOOK: {hook}
 
 This is a meaningful but not explosive event (2–4.99% move).
 Tone: confident, informed market anchor — authoritative without being breathless.
-Word count: 280-420 words.
+Word count: 420-500 words.
 
 Use these EXACT section headers:
 
@@ -180,7 +180,7 @@ Return plain script text only."""
 # ─────────────────────────────────────────────────────────────────────────────
 # 4. WEEKDAY_SCRIPT_TIER3_PROMPT — routine / educational day
 # Input:  {topic}, {context}, {style}, {hook}
-# Output: 280-420 word script, educational tone
+# Output: 420-500 word script, educational tone
 # Structure: Hook(5s) → Context(50s) → Explanation(70s) → Takeaway(25s) → CTA(15s)
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -193,7 +193,7 @@ OPENING HOOK: {hook}
 
 Markets were quiet today — lean into education. Help viewers understand the underlying
 concept, trend, or data point. Tone: warm, knowledgeable friend who happens to follow
-the market closely. Word count: 280-420 words.
+the market closely. Word count: 420-500 words.
 
 Use these EXACT section headers:
 
@@ -267,7 +267,7 @@ Max 8 words. Drive the action.
 Example: "Follow @DriftWire326 for daily market moves 👇"
 
 Hard rules:
-- Total word count across all 5 cards: 45-70 words
+- Total word count across all 5 cards: 75-110 words (max 120)
 - No financial advice language whatsoever
 - End note appended below Card 5 (not read aloud): "Not financial advice. AI narration."
 
@@ -281,7 +281,7 @@ CARD 5: <text>"""
 # ─────────────────────────────────────────────────────────────────────────────
 # 6. SUNDAY_INVESTMENT_SCRIPT_PROMPT — Week 1: investment banking & markets
 # Input:  {topic}, {week_context}
-# Output: 280-350 word educational script, engaging teacher tone
+# Output: 420-500 word educational script, engaging teacher tone
 # ─────────────────────────────────────────────────────────────────────────────
 
 SUNDAY_INVESTMENT_SCRIPT_PROMPT = """\
@@ -291,7 +291,7 @@ TOPIC: {topic}
 THIS WEEK'S MARKET CONTEXT: {week_context}
 
 Tone: engaging teacher who genuinely loves finance and wants everyone to understand it.
-Real numbers and real examples only. Word count: 280-350 words.
+Real numbers and real examples only. Word count: 420-500 words.
 
 Structure (use these section headers):
 
@@ -327,7 +327,7 @@ Return plain script text only."""
 # ─────────────────────────────────────────────────────────────────────────────
 # 7. SUNDAY_INSURANCE_SCRIPT_PROMPT — Week 2: insurance & protection
 # Input:  {topic}, {week_context}
-# Output: 280-350 word educational script, insurance/protection tone
+# Output: 420-500 word educational script, insurance/protection tone
 # ─────────────────────────────────────────────────────────────────────────────
 
 SUNDAY_INSURANCE_SCRIPT_PROMPT = """\
@@ -337,7 +337,7 @@ TOPIC: {topic}
 THIS WEEK'S MARKET CONTEXT: {week_context}
 
 Tone: reassuring but energetic — the friend who explains why protection matters
-before you need it. Empowering, never fear-mongering. Word count: 280-350 words.
+before you need it. Empowering, never fear-mongering. Word count: 420-500 words.
 
 Structure:
 
@@ -376,7 +376,7 @@ Return plain script text only."""
 # ─────────────────────────────────────────────────────────────────────────────
 # 8. SUNDAY_SAVINGS_SCRIPT_PROMPT — Week 3: savings & wealth building
 # Input:  {topic}, {week_context}
-# Output: 280-350 word educational script, motivational wealth-building tone
+# Output: 420-500 word educational script, motivational wealth-building tone
 # ─────────────────────────────────────────────────────────────────────────────
 
 SUNDAY_SAVINGS_SCRIPT_PROMPT = """\
@@ -386,7 +386,7 @@ TOPIC: {topic}
 THIS WEEK'S MARKET CONTEXT: {week_context}
 
 Tone: motivational, data-grounded wealth coach — compound interest is your friend,
-but you have to start today. Inspiring without being preachy. Word count: 280-350 words.
+but you have to start today. Inspiring without being preachy. Word count: 420-500 words.
 
 Structure:
 
@@ -424,7 +424,7 @@ Return plain script text only."""
 # ─────────────────────────────────────────────────────────────────────────────
 # 9. SUNDAY_BONUS_SCRIPT_PROMPT — Week 4: rotating bonus theme
 # Input:  {topic}, {bonus_theme}, {week_context}
-# Output: 280-350 word script, tone adapts to bonus_theme
+# Output: 420-500 word script, tone adapts to bonus_theme
 # ─────────────────────────────────────────────────────────────────────────────
 
 SUNDAY_BONUS_SCRIPT_PROMPT = """\
@@ -442,7 +442,7 @@ Adapt tone to the theme:
 - side_income       → entrepreneurial, realistic, energetic, avoid get-rich-quick framing
 - macro_finance     → big-picture, analytical, connecting market dots for the everyday investor
 
-Word count: 280-350 words.
+Word count: 420-500 words.
 
 Structure:
 
@@ -717,7 +717,7 @@ Selection criteria:
 1. Market relevance — does this topic connect naturally to this week's events?
 2. Timeliness — is there a current news hook that makes it more compelling right now?
 3. Audience fit — will Gen Z / Millennial investors find this genuinely useful?
-4. Content richness — enough data, real examples, and angles for a 280-350 word script?
+4. Content richness — enough data, real examples, and angles for a 420-500 word script?
 
 Return ONLY valid JSON:
 {{
@@ -751,7 +751,7 @@ $economic_data
 TRENDING HEADLINES:
 $headlines
 
-Write a 280-420 word script using this EXACT structure:
+Write a 420-500 word script using this EXACT structure:
 
 [HOOK] — 5 seconds. One explosive opening stat. Start mid-action. No preamble.
 [WHAT HAPPENED] — 40 seconds. Who, what, when, and which catalyst. Two+ data points.
@@ -780,7 +780,7 @@ SUBTOPICS: $subtopics
 KEY CONCEPTS: $key_concepts
 CURRENT RELEVANCE: $current_relevance
 
-Write a 280-350 word educational script:
+Write a 420-500 word educational script:
 
 [HOOK] — 10 seconds. A surprising fact or counter-intuitive truth.
 [WHAT IS IT] — 60 seconds. Clear definition + one strong analogy.

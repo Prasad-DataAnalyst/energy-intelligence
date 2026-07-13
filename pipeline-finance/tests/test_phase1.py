@@ -1,0 +1,259 @@
+"""
+tests/test_phase1.py
+Phase 1 content-spec implementation tests:
+  - Video length retune (240s max, 420-500 word prompts)
+  - Day-themed Short rotation (scheduler/short_pipeline.py)
+  - New scheduler jobs (midday_short, saturday_short, 17:15 postmarket)
+  - Description metadata footer (data cutoff + sources)
+  - upload_short manifest recording + video_type
+"""
+import json
+from datetime import date
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+
+# ── Length retune ─────────────────────────────────────────────────────────────
+
+class TestLengthRetune:
+    def test_audio_limits_match_spec(self):
+        from generators.audio_gen import MIN_AUDIO_SECONDS, MAX_AUDIO_SECONDS
+        assert MIN_AUDIO_SECONDS == 180
+        assert MAX_AUDIO_SECONDS == 240   # spec: 4:00 hard cap
+
+    def test_prompts_use_new_word_range(self):
+        from pathlib import Path
+        text = (Path(__file__).parent.parent / "config" / "prompts.py").read_text()
+        assert "420-500 word" in text
+        assert "280-420" not in text     # old long-form range fully removed
+        assert "280-350" not in text     # old Sunday range fully removed
+
+    def test_shorts_card_word_range_updated(self):
+        from pathlib import Path
+        text = (Path(__file__).parent.parent / "config" / "prompts.py").read_text()
+        assert "75-110 words" in text
+
+    def test_500_words_fits_four_minutes(self):
+        # 500 words at 140 WPM narration = 3:34 — must fit inside the cap
+        from generators.audio_gen import MAX_AUDIO_SECONDS
+        assert (500 / 140) * 60 < MAX_AUDIO_SECONDS
+
+
+# ── Theme rotation ────────────────────────────────────────────────────────────
+
+class TestThemeRotation:
+    def test_all_six_days_have_themes(self):
+        from scheduler.short_pipeline import get_todays_theme
+        for wd in range(6):   # Mon..Sat
+            theme = get_todays_theme(wd)
+            assert theme is not None, f"weekday {wd} missing theme"
+            assert theme["name"]
+            assert theme["title"]
+            assert callable(theme["context"])
+            assert theme["brief"]
+
+    def test_sunday_has_no_theme(self):
+        from scheduler.short_pipeline import get_todays_theme
+        assert get_todays_theme(6) is None
+
+    def test_expected_theme_names(self):
+        from scheduler.short_pipeline import get_todays_theme
+        expected = {
+            0: "Three Stocks to Watch",
+            1: "Market News Explained",
+            2: "Economic Report Explained",
+            3: "Personal Finance Tip",
+            4: "Week in 60 Seconds",
+            5: "Finance Explained Simply",
+        }
+        for wd, name in expected.items():
+            assert get_todays_theme(wd)["name"] == name
+
+    def test_rotate_is_deterministic_daily(self):
+        from scheduler.short_pipeline import _rotate, _ECON_TOPICS
+        assert _rotate(_ECON_TOPICS) == _rotate(_ECON_TOPICS)
+        assert _rotate(_ECON_TOPICS) in _ECON_TOPICS
+
+    def test_topic_lists_nonempty(self):
+        from scheduler.short_pipeline import _ECON_TOPICS, _FINANCE_TIPS, _EVERGREEN_TOPICS
+        assert len(_ECON_TOPICS) >= 5
+        assert len(_FINANCE_TIPS) >= 5
+        assert len(_EVERGREEN_TOPICS) >= 5
+
+
+class TestRunThemedShort:
+    def test_skips_sunday(self):
+        from scheduler.short_pipeline import run_themed_short
+        assert run_themed_short(weekday=6) is None
+
+    def test_tuesday_skips_without_news(self):
+        from scheduler import short_pipeline as sp
+        theme = sp.get_todays_theme(1)
+        with patch.object(sp, "get_todays_theme", return_value={**theme, "context": lambda: None}):
+            assert sp.run_themed_short(weekday=1) is None
+
+    def test_script_failure_returns_none(self):
+        from scheduler import short_pipeline as sp
+        theme = {**sp.get_todays_theme(5), "context": lambda: "What is an ETF?"}
+        with patch.object(sp, "get_todays_theme", return_value=theme), \
+             patch.object(sp, "generate_short_script", return_value=None):
+            assert sp.run_themed_short(weekday=5) is None
+
+    def test_build_without_upload(self, tmp_path):
+        from scheduler import short_pipeline as sp
+        theme = {**sp.get_todays_theme(5), "context": lambda: "What is an ETF?"}
+        built = MagicMock()
+        built.path = tmp_path / "short.mp4"
+
+        mock_compliance = MagicMock(passed=True, risk_level="low")
+        with patch.object(sp, "get_todays_theme", return_value=theme), \
+             patch.object(sp, "generate_short_script",
+                          return_value="[CARD 1] x\n[CARD 2] y\n[CARD 3] z\n[CARD 4] a\n[CARD 5] b"), \
+             patch("generators.compliance_filter.check_compliance", return_value=mock_compliance), \
+             patch("builders.shorts_builder.ShortsBuilder") as MockSB:
+            MockSB.return_value.build_short_from_script.return_value = built
+            result = sp.run_themed_short(weekday=5, upload=False)
+        assert result == str(built.path)
+
+    def test_high_compliance_risk_blocks(self):
+        from scheduler import short_pipeline as sp
+        theme = {**sp.get_todays_theme(3), "context": lambda: "budgeting"}
+        bad = MagicMock(passed=False, risk_level="high", issues=["guaranteed returns"])
+        with patch.object(sp, "get_todays_theme", return_value=theme), \
+             patch.object(sp, "generate_short_script", return_value="[CARD 1] buy now guaranteed"), \
+             patch("generators.compliance_filter.check_compliance", return_value=bad), \
+             patch("generators.compliance_filter.auto_fix_script", return_value="fixed"):
+            assert sp.run_themed_short(weekday=3) is None
+
+    def test_upload_respects_quota(self, tmp_path):
+        from scheduler import short_pipeline as sp
+        theme = {**sp.get_todays_theme(5), "context": lambda: "What is an ETF?"}
+        built = MagicMock()
+        built.path = tmp_path / "short.mp4"
+        ok = MagicMock(passed=True, risk_level="low")
+        with patch.object(sp, "get_todays_theme", return_value=theme), \
+             patch.object(sp, "generate_short_script", return_value="[CARD 1] x"), \
+             patch("generators.compliance_filter.check_compliance", return_value=ok), \
+             patch("builders.shorts_builder.ShortsBuilder") as MockSB, \
+             patch("uploader.quota_tracker.QuotaTracker") as MockQT:
+            MockSB.return_value.build_short_from_script.return_value = built
+            MockQT.return_value.can_upload.return_value = False
+            assert sp.run_themed_short(weekday=5, upload=True) is None
+
+
+# ── Metadata footer ───────────────────────────────────────────────────────────
+
+class TestMetadataFooter:
+    def test_footer_contains_cutoff_and_sources(self):
+        from generators.title_gen import build_metadata_footer
+        footer = build_metadata_footer()
+        assert "Data as of:" in footer
+        assert "Sources:" in footer
+        assert "Yahoo Finance" in footer
+        assert "ET" in footer
+
+    def test_footer_custom_sources(self):
+        from generators.title_gen import build_metadata_footer
+        footer = build_metadata_footer(sources=["Test Source A", "Test Source B"])
+        assert "Test Source A, Test Source B" in footer
+        assert "Yahoo Finance" not in footer
+
+    def test_footer_includes_current_year(self):
+        from generators.title_gen import build_metadata_footer
+        from datetime import datetime
+        assert str(datetime.now().year) in build_metadata_footer()
+
+
+# ── upload_short manifest + video_type ────────────────────────────────────────
+
+class TestUploadShortManifest:
+    def test_upload_short_records_manifest(self, tmp_path):
+        from uploader import uploader as umod
+        original = umod._UPLOAD_MANIFEST_PATH
+        umod._UPLOAD_MANIFEST_PATH = tmp_path / "m.jsonl"
+        try:
+            video = tmp_path / "s.mp4"
+            video.write_bytes(b"\x00" * 5000)
+
+            good = umod.UploadResult(
+                success=True, video_id="short1", video_url="u",
+                title="t", upload_time_seconds=1.0, file_size_mb=0.1,
+            )
+            mock_qt = MagicMock()
+            mock_qt.can_upload.return_value = True
+            up = umod.YouTubeUploader(mock_qt)
+            with patch.object(umod, "upload_full", return_value=good), \
+                 patch.object(up, "_check_quota", return_value=True), \
+                 patch.object(up, "_enforce_upload_gap"):
+                result = up.upload_short(video, "Title", "desc", ["tag"])
+
+            assert result.success
+            record = json.loads(umod._UPLOAD_MANIFEST_PATH.read_text().strip())
+            assert record["video_id"] == "short1"
+            assert record["video_type"] == "shorts"
+        finally:
+            umod._UPLOAD_MANIFEST_PATH = original
+
+
+# ── Scheduler job registration (Phase 1 additions) ────────────────────────────
+
+class TestPhase1SchedulerJobs:
+    def test_new_jobs_registered_and_postmarket_moved(self):
+        from scheduler import master_scheduler as ms
+
+        registered: dict[str, object] = {}
+
+        class FakeScheduler:
+            def __init__(self, timezone=None):
+                pass
+            def add_job(self, fn, trigger, id=None, name=None, **kw):
+                registered[id] = trigger
+            def get_jobs(self):
+                return []
+            def start(self):
+                raise KeyboardInterrupt
+            def shutdown(self):
+                pass
+
+        import sys
+        import types
+        captured_crons: list[dict] = []
+
+        def fake_cron(**kwargs):
+            captured_crons.append(kwargs)
+            return kwargs
+
+        fake_blocking = types.ModuleType("apscheduler.schedulers.blocking")
+        fake_blocking.BlockingScheduler = FakeScheduler
+        fake_cron_mod = types.ModuleType("apscheduler.triggers.cron")
+        fake_cron_mod.CronTrigger = fake_cron
+        modules = {
+            "apscheduler": types.ModuleType("apscheduler"),
+            "apscheduler.schedulers": types.ModuleType("apscheduler.schedulers"),
+            "apscheduler.schedulers.blocking": fake_blocking,
+            "apscheduler.triggers": types.ModuleType("apscheduler.triggers"),
+            "apscheduler.triggers.cron": fake_cron_mod,
+        }
+        with patch.dict(sys.modules, modules), patch.object(ms, "_setup_logging"):
+            ms.start_scheduler()
+
+        assert "midday_short" in registered
+        assert "saturday_short" in registered
+        # Post-market moved to 17:15 per spec
+        postmarket = registered["weekday_postmarket"]
+        assert postmarket["hour"] == 17 and postmarket["minute"] == 15
+        # Midday short is 12:30 Mon-Fri
+        midday = registered["midday_short"]
+        assert midday["hour"] == 12 and midday["minute"] == 30
+        assert midday["day_of_week"] == "mon-fri"
+        # Saturday short is 11:00 Sat
+        sat = registered["saturday_short"]
+        assert sat["hour"] == 11 and sat["day_of_week"] == "sat"
+
+    def test_themed_short_job_wrapper_handles_failure(self):
+        from scheduler import master_scheduler as ms
+        with patch("scheduler.short_pipeline.run_themed_short",
+                   side_effect=Exception("boom")):
+            ms.run_themed_short_job()   # must not raise

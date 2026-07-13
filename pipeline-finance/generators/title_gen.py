@@ -384,6 +384,30 @@ class TitleGenerator:
         return title
 
 
+# ── Description Metadata Footer ───────────────────────────────────────────────
+
+_DEFAULT_SOURCES = [
+    "Yahoo Finance market data",
+    "SEC EDGAR filings",
+    "Finnhub earnings calendar",
+    "FRED economic data",
+]
+
+
+def build_metadata_footer(sources: Optional[list[str]] = None) -> str:
+    """
+    Data-cutoff timestamp + sources block appended to every video description.
+    Content-spec requirement: every video states when its data was pulled
+    and where it came from.
+    """
+    cutoff = datetime.now().strftime("%B %d, %Y %I:%M %p ET")
+    source_list = sources or _DEFAULT_SOURCES
+    return (
+        f"\n\n📅 Data as of: {cutoff}"
+        f"\n📊 Sources: {', '.join(source_list)}"
+    )
+
+
 # ── Chapter Marker Generation ─────────────────────────────────────────────────
 
 _SECTION_HEADERS = re.compile(

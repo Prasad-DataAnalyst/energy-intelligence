@@ -378,12 +378,15 @@ class WeekdayScheduler:
                     description = title_set.description or _fallback_description(market, earnings)
                     tags = _build_tags(market)
                     try:
-                        from generators.title_gen import generate_chapter_markers, extract_script_tags
+                        from generators.title_gen import (
+                            generate_chapter_markers, extract_script_tags, build_metadata_footer,
+                        )
                         chapters = generate_chapter_markers(
                             script.script, audio.total_duration_seconds
                         )
                         if chapters:
                             description += f"\n\n⏱️ Chapters:\n{chapters}"
+                        description += build_metadata_footer()
                         tags = (tags + extract_script_tags(script.script))[:30]
                     except Exception as exc:
                         logger.warning("Chapter/tag enrichment skipped: %s", exc)

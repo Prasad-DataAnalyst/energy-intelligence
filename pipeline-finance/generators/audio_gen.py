@@ -291,8 +291,8 @@ _WEEKDAY_VOICES = {
     6: "en-US-GuyNeural",       # Sunday
 }
 
-MIN_AUDIO_SECONDS = 120
-MAX_AUDIO_SECONDS = 180
+MIN_AUDIO_SECONDS = 180   # spec: long-form target 3:15-3:50
+MAX_AUDIO_SECONDS = 240   # spec: hard cap 4:00
 
 
 class AudioGenerator:

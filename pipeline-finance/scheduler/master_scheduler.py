@@ -129,6 +129,19 @@ def run_monitor_check() -> None:
         logger.warning("Monitor check failed: %s", exc)
 
 
+def run_themed_short_job() -> None:
+    """Day-themed Short: generate → build → upload (Mon-Fri 12:30, Sat 11:00)."""
+    try:
+        from scheduler.short_pipeline import run_themed_short
+        video_id = run_themed_short()
+        if video_id:
+            logger.info("Themed Short published: %s", video_id)
+        else:
+            logger.info("Themed Short skipped or failed today (see logs)")
+    except Exception as exc:
+        logger.error("Themed Short job failed: %s", exc)
+
+
 def run_pipeline_retry() -> None:
     """30 min after the main slots: resume today's pipeline if it didn't finish."""
     try:
@@ -145,7 +158,8 @@ def run_deadman_check() -> None:
         from scheduler.deadman import check_todays_upload
         from scheduler.weekday_scheduler import WeekdayScheduler
         weekday = datetime.now().weekday()
-        is_content_day = weekday == 6 or WeekdayScheduler().is_market_day()
+        # Sat (Short), Sun (deep-dive), and market weekdays all publish content
+        is_content_day = weekday in (5, 6) or WeekdayScheduler().is_market_day()
         check_todays_upload(is_content_day=is_content_day)
     except Exception as exc:
         logger.error("Dead-man check failed: %s", exc)
@@ -213,15 +227,37 @@ def start_scheduler() -> None:
         misfire_grace_time=1800,    # 30 min grace
     )
 
-    # Post-market recap (5 PM ET, Mon–Fri)
+    # Post-market recap (5:15 PM ET, Mon–Fri — spec: markets settle by 5:15)
     scheduler.add_job(
         run_weekday_pipeline,
-        CronTrigger(day_of_week="mon-fri", hour=17, minute=0, timezone=tz),
+        CronTrigger(day_of_week="mon-fri", hour=17, minute=15, timezone=tz),
         id="weekday_postmarket",
         name="Weekday Post-Market Pipeline",
         max_instances=1,
         coalesce=True,
         misfire_grace_time=1800,
+    )
+
+    # Midday themed Short (12:30 PM ET, Mon–Fri)
+    scheduler.add_job(
+        run_themed_short_job,
+        CronTrigger(day_of_week="mon-fri", hour=12, minute=30, timezone=tz),
+        id="midday_short",
+        name="Midday Themed Short",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=1800,
+    )
+
+    # Saturday evergreen Short (11:00 AM ET)
+    scheduler.add_job(
+        run_themed_short_job,
+        CronTrigger(day_of_week="sat", hour=11, minute=0, timezone=tz),
+        id="saturday_short",
+        name="Saturday Evergreen Short",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
     )
 
     # ── Sunday educational ────────────────────────────────────────────────

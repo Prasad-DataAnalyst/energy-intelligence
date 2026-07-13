@@ -188,12 +188,14 @@ pytest tests/ -v
 
 | Day       | Time (ET)  | Action                                            |
 |-----------|------------|---------------------------------------------------|
-| Mon–Fri   | 8:00 AM    | Pre-market pipeline (scrape → script → build → upload) |
+| Mon–Fri   | 8:00 AM    | Pre-market long video (scrape → script → build → upload) |
 | Mon–Fri   | 8:45 AM    | Pipeline retry (resumes from checkpoint if incomplete) |
-| Mon–Fri   | 5:00 PM    | Post-market pipeline                              |
+| Mon–Fri   | 12:30 PM   | **Day-themed Short** (see rotation below)         |
+| Mon–Fri   | 5:15 PM    | Post-market long video                            |
 | Mon–Fri   | 5:45 PM    | Pipeline retry (checkpoint resume)                |
+| Saturday  | 11:00 AM   | Evergreen educational Short                       |
 | Sunday    | 9:00 AM    | Weekly community post (watchlist)                 |
-| Sunday    | 11:00 AM   | Sunday educational pipeline                       |
+| Sunday    | 11:00 AM   | Educational deep-dive long video (4-theme cycle)  |
 | Sunday    | 11:45 AM   | Pipeline retry (checkpoint resume)                |
 | Monday    | 7:30 AM    | Channel description refresh                       |
 | Daily     | 6:00 PM    | **Dead-man switch** — email alert if no upload today |
@@ -201,6 +203,21 @@ pytest tests/ -v
 | Daily     | 9:30 PM    | Analytics pull (views, CTR, watch time)           |
 | Every 2h  | —          | Channel performance monitor                       |
 | Every 30m | —          | Heartbeat log                                     |
+
+**Weekly output: 11 long-form videos (max 4:00, 420–500 word scripts) + 6 Shorts.**
+
+### Short theme rotation (12:30 PM Mon–Fri, 11:00 AM Sat)
+
+| Day | Format |
+|-----|--------|
+| Monday | Three Stocks to Watch (live top movers) |
+| Tuesday | Market News Explained (top RSS story — skipped if no meaningful story) |
+| Wednesday | Economic Report Explained (rotating: CPI, GDP, payrolls, yields…) |
+| Thursday | Personal Finance Tip (rotating: emergency funds, credit, DCA…) |
+| Friday | Week in 60 Seconds (weekly index performance) |
+| Saturday | Finance Explained Simply (evergreen educational) |
+
+Every description carries a data-cutoff timestamp and sources list.
 
 Market-day check respects NYSE observed holidays (New Year's Day, MLK Day, Presidents Day, Good Friday, Memorial Day, Juneteenth, Independence Day, Labor Day, Thanksgiving, Christmas).
 

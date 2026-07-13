@@ -334,12 +334,13 @@ class SundayScheduler:
                         " ".join(f"#{t.replace(' ', '')}" for t in tags[:10])
                     )
                     try:
-                        from generators.title_gen import generate_chapter_markers
+                        from generators.title_gen import generate_chapter_markers, build_metadata_footer
                         chapters = generate_chapter_markers(
                             script.script, audio.total_duration_seconds
                         )
                         if chapters:
                             description += f"\n\n⏱️ Chapters:\n{chapters}"
+                        description += build_metadata_footer()
                     except Exception as exc:
                         logger.warning("Chapter enrichment skipped: %s", exc)
 
