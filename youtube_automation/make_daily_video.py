@@ -1126,13 +1126,16 @@ VOICES = [
     "en-US-AriaNeural",   "en-GB-SoniaNeural",  "en-US-JennyNeural",
     "en-IE-EmilyNeural",  "en-AU-NatashaNeural", "en-US-MichelleNeural",
     "en-GB-LibbyNeural",  "en-CA-ClaraNeural",  "en-US-AvaNeural",
-    # en-US-SaraNeural WAS the 11th slot: Microsoft retired it from the free
-    # edge-tts endpoint (confirmed dead 2026-07-14 — NoAudioReceived on every
-    # call while Emily/Emma worked; it killed all three of that day's videos).
-    # Microsoft retires voices without notice, so any pool member can die:
-    # _tts_synth below survives that with a fallback cascade. Emma (proven
-    # alive 2026-07-13) fills the slot — a duplicate pool entry is harmless.
-    "en-US-EmmaNeural",   "en-US-EmmaNeural",   "en-AU-CarlyNeural",
+    # Slots 11+12 originally held en-US-SaraNeural and en-AU-CarlyNeural —
+    # both retired by Microsoft from the free edge-tts endpoint without
+    # notice (NoAudioReceived on every call; Sara confirmed dead 2026-07-14
+    # after killing all three of that day's videos, Carly confirmed dead by
+    # the full pool audit on 2026-07-15, which verified every other voice
+    # here ALIVE). Any pool member can die the same way: _tts_synth below
+    # survives it with a fallback cascade, and doctor tests the day's voice
+    # each 5:00. Emma and Natasha fill the retired slots — duplicate pool
+    # entries are harmless, they just repeat a narrator 6 days apart.
+    "en-US-EmmaNeural",   "en-US-EmmaNeural",   "en-AU-NatashaNeural",
 ]
 DEFAULT_VOICE = "en-IE-EmilyNeural"
 
