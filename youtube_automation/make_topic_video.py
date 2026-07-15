@@ -90,13 +90,10 @@ def _narrate(text: str, out_wav: str, voice: str, tmp: Path) -> tuple:
     (0 = this card's audio start). Card dwells exactly as long as the audio,
     so video and narration always stay in sync."""
     raw = str(tmp / (Path(out_wav).stem + "_raw.mp3"))
-    words = []
-    try:
-        words = asyncio.run(mdv._tts_stream_with_words(text, raw, voice))
-        ok = Path(raw).exists() and Path(raw).stat().st_size > 512
-    except Exception as e:
-        print(f"[WARN] edge-tts stream ({voice}): {e}", file=sys.stderr)
-        ok = False
+    # _tts_synth = shared voice-fallback synth (a retired voice fails on EVERY
+    # call, so recovery is a different voice, remembered for the whole run —
+    # see make_daily_video). Never raises.
+    ok, words, _used = mdv._tts_synth(text, raw, voice)
     if not ok:
         mdv._generate_silence(3.0, out_wav)
         return 3.0, []
@@ -539,6 +536,16 @@ def process(json_path: str) -> str:
         srt_path, has_captions = mdv._write_captions(caption_cues, str(tmp / "captions"))
         print(f"      Captions: {len(caption_cues)} cues" if has_captions
               else "      [WARN] No word-timing captured — captions skipped")
+
+        # Zero cues means EVERY narration failed (all TTS voices dead) and each
+        # card fell back to its 3s-silence dwell — the result is a ~20s mute
+        # stub. 2026-07-14 rendered exactly that; QC caught it, but the render
+        # was wasted. Abort loudly instead.
+        if not caption_cues:
+            print("[ERROR] TTS produced no narration for ANY card (all voices "
+                  "failed) — aborting instead of rendering a silent stub.",
+                  file=sys.stderr)
+            sys.exit(1)
 
         # 2) Concatenate voice, generate ambient, mix
         print("\n[2/4] Building audio track...")

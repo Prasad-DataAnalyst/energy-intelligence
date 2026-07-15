@@ -1126,7 +1126,13 @@ VOICES = [
     "en-US-AriaNeural",   "en-GB-SoniaNeural",  "en-US-JennyNeural",
     "en-IE-EmilyNeural",  "en-AU-NatashaNeural", "en-US-MichelleNeural",
     "en-GB-LibbyNeural",  "en-CA-ClaraNeural",  "en-US-AvaNeural",
-    "en-US-EmmaNeural",   "en-US-SaraNeural",   "en-AU-CarlyNeural",
+    # en-US-SaraNeural WAS the 11th slot: Microsoft retired it from the free
+    # edge-tts endpoint (confirmed dead 2026-07-14 — NoAudioReceived on every
+    # call while Emily/Emma worked; it killed all three of that day's videos).
+    # Microsoft retires voices without notice, so any pool member can die:
+    # _tts_synth below survives that with a fallback cascade. Emma (proven
+    # alive 2026-07-13) fills the slot — a duplicate pool entry is harmless.
+    "en-US-EmmaNeural",   "en-US-EmmaNeural",   "en-AU-CarlyNeural",
 ]
 DEFAULT_VOICE = "en-IE-EmilyNeural"
 
@@ -1137,6 +1143,39 @@ def _day_voice(date_tag: str) -> str:
         return VOICES[int(date_tag) % len(VOICES)]
     except Exception:
         return DEFAULT_VOICE
+
+
+# ── TTS with voice fallback ────────────────────────────────────────────────────
+# A retired/dead voice raises NoAudioReceived on EVERY call, so retrying the
+# same voice is useless — the recovery is a DIFFERENT voice. The override is
+# sticky for the process lifetime: once the day's voice proves dead, every
+# later segment goes straight to the working voice (consistent narrator for
+# the whole video, no doomed re-attempts on all 13 segments).
+_TTS_FALLBACKS = [DEFAULT_VOICE, "en-US-AriaNeural", "en-US-JennyNeural",
+                  "en-US-EmmaNeural"]
+_VOICE_OVERRIDE = None
+
+
+def _tts_synth(text: str, out_mp3: str, voice: str, rate: str = "+0%") -> tuple:
+    """Synthesize text with automatic voice fallback.
+    Returns (ok, word_cues, used_voice). Never raises."""
+    global _VOICE_OVERRIDE
+    first = _VOICE_OVERRIDE or voice
+    candidates = [first] + [v for v in _TTS_FALLBACKS if v != first]
+    for cand in candidates:
+        try:
+            words = asyncio.run(_tts_stream_with_words(text, out_mp3, cand, rate=rate))
+            ok = Path(out_mp3).exists() and Path(out_mp3).stat().st_size > 512
+        except Exception as e:
+            print(f"[WARN] edge-tts stream ({cand}): {e}", file=sys.stderr)
+            ok = False
+        if ok:
+            if cand != first:
+                _VOICE_OVERRIDE = cand
+                print(f"[WARN] Voice {first} is unavailable — switched to {cand} "
+                      f"for the rest of this run", file=sys.stderr)
+            return True, words, cand
+    return False, [], first
 
 
 async def _tts_stream_with_words(text: str, out_mp3: str, voice: str,
@@ -1373,20 +1412,7 @@ def _generate_sign_voice(text: str, out_path: str, target_secs: float,
     script is sized to fit at normal speed; a big overrun means the script is
     too long and should be shortened, not chipmunked."""
     raw = out_path.rsplit(".", 1)[0] + "_raw.mp3"
-    words = []
-    try:
-        words = asyncio.run(_tts_stream_with_words(text, raw, voice))
-        ok = Path(raw).exists() and Path(raw).stat().st_size > 512
-    except Exception as e:
-        print(f"[WARN] edge-tts stream ({voice}): {e}", file=sys.stderr)
-        ok = False
-    if not ok and voice != DEFAULT_VOICE:
-        # Retry once with the default voice in case a rotation voice is unavailable.
-        try:
-            words = asyncio.run(_tts_stream_with_words(text, raw, DEFAULT_VOICE))
-            ok = Path(raw).exists() and Path(raw).stat().st_size > 512
-        except Exception:
-            ok = False
+    ok, words, used_voice = _tts_synth(text, raw, voice)
     if not ok:
         Path(raw).unlink(missing_ok=True)
         return _generate_silence(target_secs, out_path), []
@@ -1394,7 +1420,21 @@ def _generate_sign_voice(text: str, out_path: str, target_secs: float,
     dur = _audio_dur(raw)
     if dur > target_secs + 0.3:
         rate_pct = min(20, int((dur / target_secs - 1) * 100) + 3)
-        words = asyncio.run(_tts_stream_with_words(text, raw, voice, rate=f"+{rate_pct}%"))
+        # Speed-up re-synthesis: MUST use the voice that actually produced the
+        # audio, go to a SEPARATE file, and never raise. The old code re-used
+        # the original day voice unguarded and overwrote `raw` in place — with
+        # the day voice dead (en-US-SaraNeural, 2026-07-14) and the fallback's
+        # audio already in hand, this exact line crashed all of that day's
+        # daily renders.
+        fast = raw + ".fast.mp3"
+        ok2, words2, _ = _tts_synth(text, fast, used_voice, rate=f"+{rate_pct}%")
+        if ok2:
+            words = words2
+            os.replace(fast, raw)
+        else:
+            Path(fast).unlink(missing_ok=True)
+            # keep the normal-rate audio — apad/atrim below clamps it to the
+            # card dwell, which beats no video at all
 
     cmd = [
         "ffmpeg", "-y", "-loglevel", "error",
@@ -1907,6 +1947,16 @@ def process(json_path: str) -> str:
               f" ({'karaoke' if str(srt_path).endswith('.ass') else 'plain'})"
               if has_captions
               else "      [WARN] No word-timing captured — captions skipped")
+
+        # Zero cues across ALL segments means every TTS attempt (day voice +
+        # every fallback) failed — the narration IS the product, so abort NOW
+        # rather than spend 20+ min assembling a silent video that QC would
+        # reject anyway (exit 1 → run_daily retries once, then emails FAIL).
+        if not caption_cues:
+            print("[ERROR] TTS produced no narration for ANY segment "
+                  "(all voices failed) — aborting before assembly.",
+                  file=sys.stderr)
+            sys.exit(1)
 
         voice_concat_path = str(tmp / "voice_all.wav")
         valid_clips = [c for c in voice_clips if c and Path(c).exists()]

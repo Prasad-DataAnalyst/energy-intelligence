@@ -154,24 +154,48 @@ def _check_fonts() -> tuple:
 
 
 def _check_edge_tts() -> tuple:
-    """Confirm edge-tts can actually reach the service (network dependency).
-    Hard 30s cap — a network black hole must not stall the 5:00/5:30 runs —
-    and the temp dir is cleaned up (mkdtemp leaked one per invocation)."""
+    """Synthesize a sample with TODAY'S rotation voice, not a fixed one.
+    Microsoft retires edge-tts voices without notice: on 2026-07-14
+    en-US-SaraNeural died (NoAudioReceived on every call) and this check
+    still said 'reachable' because it tested EmilyNeural — the 5:00 doctor
+    email stayed green while all three of the day's renders failed. Testing
+    the exact voice the day's videos will use turns a dead voice into a
+    5:00 warning. A second probe with the fallback voice distinguishes
+    'this voice is dead (pipeline will auto-switch)' from 'edge-tts is
+    down entirely'. Hard 30s caps — a network black hole must not stall
+    the 5:00/5:30 runs — and the temp dirs are cleaned up."""
     try:
         import asyncio, tempfile, edge_tts
-        with tempfile.TemporaryDirectory() as td:
-            out = Path(td) / "t.mp3"
+        from datetime import date as _date
+        try:
+            import make_daily_video as _mdv
+            day_voice = _mdv._day_voice(_date.today().strftime("%Y%m%d"))
+            fb_voice  = _mdv.DEFAULT_VOICE
+        except Exception:
+            day_voice, fb_voice = "en-IE-EmilyNeural", "en-US-AriaNeural"
 
-            async def _go():
-                await asyncio.wait_for(
-                    edge_tts.Communicate("test", voice="en-IE-EmilyNeural").save(str(out)),
-                    timeout=30,
-                )
+        def _synth_ok(voice: str) -> bool:
+            with tempfile.TemporaryDirectory() as td:
+                out = Path(td) / "t.mp3"
 
-            asyncio.run(_go())
-            if out.exists() and out.stat().st_size > 256:
-                return True, "ok", "edge-tts reachable"
-        return True, "warn", "edge-tts produced no audio (video will use ambient only)"
+                async def _go():
+                    await asyncio.wait_for(
+                        edge_tts.Communicate("test", voice=voice).save(str(out)),
+                        timeout=30,
+                    )
+
+                try:
+                    asyncio.run(_go())
+                    return out.exists() and out.stat().st_size > 256
+                except Exception:
+                    return False
+
+        if _synth_ok(day_voice):
+            return True, "ok", f"edge-tts ok (today's voice: {day_voice})"
+        if day_voice != fb_voice and _synth_ok(fb_voice):
+            return True, "warn", (f"today's voice {day_voice} is DEAD — renders "
+                                  f"will auto-switch to a fallback voice")
+        return True, "warn", "edge-tts produced no audio on any voice — TTS may be down"
     except Exception as e:
         return True, "warn", f"edge-tts unreachable ({str(e)[:60]}) — ambient-only fallback"
 

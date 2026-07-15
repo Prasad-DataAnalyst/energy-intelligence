@@ -583,6 +583,15 @@ def process(json_path: str) -> str:
         print(f"      Captions: {len(caption_cues)} cues" if has_captions
               else "      [WARN] No word timing — captions skipped")
 
+        # Zero cues = every TTS voice failed and all beats fell back to 3s of
+        # silence (a ~20s mute stub, seen 2026-07-14). Abort loudly instead of
+        # wasting the render on something QC must reject.
+        if not caption_cues:
+            print("[ERROR] TTS produced no narration for ANY beat (all voices "
+                  "failed) — aborting instead of rendering a silent stub.",
+                  file=sys.stderr)
+            sys.exit(1)
+
         print("\n[2/4] Building audio track...")
         voice_all = str(tmp / "voice_all.wav")
         voice_ok = mdv._concat_audio(clips, voice_all)
