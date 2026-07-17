@@ -643,10 +643,8 @@ def process(json_path: str) -> str:
     # generate_prediction_assets); the channel-wide compliance footer adds
     # the entertainment-only wording + copyright line on top.
     desc = data.get("description", "")
-    if "entertainment purposes only" not in desc:
+    if "general informational purposes" not in desc:
         desc = f"{desc}\n\n{mdv.disclaimer_block()}"
-    elif "All rights reserved" not in desc:
-        desc = f"{desc}\n{mdv._copyright_line()}"
     meta = {
         "title":       data.get("title", data.get("title_en", "Astrology Prediction"))[:100],
         "description": desc,

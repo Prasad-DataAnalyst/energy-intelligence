@@ -367,13 +367,10 @@ def process(json_path: str) -> str:
     desc = data.get("description", "")
     if "0:00" not in desc:
         desc = f"{desc}\n\n⏱ Find your sign:\n{chapters_block}"
-    # Channel-wide compliance footer. The tarot generator already appends its
-    # own "entertainment purposes only" disclaimer — then only the copyright
-    # line is still missing.
-    if "entertainment purposes only" not in desc:
+    # Channel-wide compliance footer — the exact owner-approved disclaimer +
+    # copyright notice (the tarot generator's short one-liner stays too).
+    if "general informational purposes" not in desc:
         desc = f"{desc}\n\n{mdv.disclaimer_block()}"
-    elif "All rights reserved" not in desc:
-        desc = f"{desc}\n{mdv._copyright_line()}"
     meta = {
         "title":       data.get("title", f"Weekly Tarot Reading — {data.get('date','')}")[:100],
         "description": desc,

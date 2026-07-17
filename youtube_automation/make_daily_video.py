@@ -1804,20 +1804,32 @@ def assemble_video(png_files: list, durations: list,
 # exactly like the per-category prediction/tarot disclaimers.
 DISCLAIMER_SECS = 2
 DISCLAIMER_TITLE = "DISCLAIMER"
-DISCLAIMER_BODY = ("All astrology, horoscope, tarot & prediction content on "
-                   "this channel is for entertainment purposes only. It is "
-                   "not medical, legal, financial, or professional advice.")
+# Owner-approved US-law wording (2026-07-15) — reproduce VERBATIM on the end
+# card and in every description. Only the © year is dynamic.
+DISCLAIMER_BODY = (
+    "All content on this channel is created for entertainment, educational, "
+    "and general informational purposes only. Astrology, tarot, and psychic "
+    "readings should never be used as a substitute for professional advice, "
+    "including but not limited to medical, legal, financial, or "
+    "psychological counsel. The viewer is solely responsible for any "
+    "decisions made or actions taken based on the content of these videos. "
+    "We do not guarantee any specific outcomes or accuracy.")
+COPYRIGHT_TITLE = "© COPYRIGHT NOTICE"
 
 
 def _copyright_line() -> str:
     from datetime import date as _d
-    return f"© {_d.today().year} {CHANNEL_TAG}. All rights reserved."
+    return (f"© {_d.today().year} {CHANNEL_TAG.upper()}. All rights reserved. "
+            f"No part of this video, audio, or script may be reproduced, "
+            f"re-uploaded, or distributed without prior written permission "
+            f"from the creator.")
 
 
 def disclaimer_block() -> str:
-    """Description-footer version: disclaimer + copyright, appended to every
-    video's YouTube description by every pipeline."""
-    return f"⚠️ Disclaimer: {DISCLAIMER_BODY}\n{_copyright_line()}"
+    """Description-footer version: disclaimer + copyright notice, appended to
+    every video's YouTube description by every pipeline."""
+    return (f"Disclaimer: {DISCLAIMER_BODY}\n\n"
+            f"{COPYRIGHT_TITLE}\n{_copyright_line()}")
 
 
 def render_disclaimer_card(w: int = None, h: int = None):
@@ -1834,26 +1846,36 @@ def render_disclaimer_card(w: int = None, h: int = None):
 
     pad = max(64, w // 16)
     cw = w - 2 * pad
-    tf = _display_font(52, weight=700)
-    bf = _ui_font(40, 500)
-    cf = _ui_font(32, 500)
+    tf = _display_font(48, weight=700)
+    bf = _ui_font(34, 500)
+    ct = _display_font(40, weight=700)
+    cf = _ui_font(30, 500)
 
     body_lines = _wrap(DISCLAIMER_BODY, bf, cw)
-    block_h = (_th(tf) + 40 + len(body_lines) * (_th(bf) + 12) + 36 + _th(cf))
-    y = (h - block_h) // 2
+    copy_lines = _wrap(_copyright_line(), cf, cw)
+    block_h = (_th(tf) + 32
+               + len(body_lines) * (_th(bf) + 10) + 44
+               + _th(ct) + 24
+               + len(copy_lines) * (_th(cf) + 8))
+    y = max(pad, (h - block_h) // 2)
 
     tw_ = _tw(DISCLAIMER_TITLE, tf)
     d.text(((w - tw_) // 2 + 2, y + 2), DISCLAIMER_TITLE, font=tf, fill=(0, 0, 0, 170))
     d.text(((w - tw_) // 2, y), DISCLAIMER_TITLE, font=tf, fill=GOLD)
-    y += _th(tf) + 40
+    y += _th(tf) + 32
     for ln in body_lines:
         lw = _tw(ln, bf)
         d.text(((w - lw) // 2, y), ln, font=bf, fill=WHITE)
-        y += _th(bf) + 12
-    y += 36
-    cline = _copyright_line()
-    lw = _tw(cline, cf)
-    d.text(((w - lw) // 2, y), cline, font=cf, fill=SILVER)
+        y += _th(bf) + 10
+    y += 44
+    tw2 = _tw(COPYRIGHT_TITLE, ct)
+    d.text(((w - tw2) // 2 + 2, y + 2), COPYRIGHT_TITLE, font=ct, fill=(0, 0, 0, 170))
+    d.text(((w - tw2) // 2, y), COPYRIGHT_TITLE, font=ct, fill=GOLD)
+    y += _th(ct) + 24
+    for ln in copy_lines:
+        lw = _tw(ln, cf)
+        d.text(((w - lw) // 2, y), ln, font=cf, fill=SILVER)
+        y += _th(cf) + 8
     return img.convert("RGB")
 
 
@@ -2124,12 +2146,10 @@ def process(json_path: str) -> str:
     description = data.get("description", "")
     if "0:00" not in description:
         description = f"{description}\n\n⏱ Find your sign:\n{chapters_block}"
-    # Compliance footer on EVERY description (channel policy — see
-    # disclaimer_block): entertainment-only disclaimer + copyright line.
-    if "entertainment purposes only" not in description:
+    # Compliance footer on EVERY description (channel policy — the exact
+    # owner-approved disclaimer + copyright notice; see disclaimer_block).
+    if "general informational purposes" not in description:
         description = f"{description}\n\n{disclaimer_block()}"
-    elif "All rights reserved" not in description:
-        description = f"{description}\n{_copyright_line()}"
 
     # Save metadata for uploader
     cadence_label = {"daily": "daily", "weekly": "weekly", "monthly": "monthly",
