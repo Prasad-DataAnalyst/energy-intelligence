@@ -571,6 +571,16 @@ def process(json_path: str) -> str:
             f"{v.get('headline','')}. {v.get('detail','')}", "Verdict")
         add(render_outro(data), data.get("outro", "Subscribe for more."), "Outro")
 
+        # Compliance disclaimer end-card (channel policy — 2s, silent, on
+        # EVERY published video; shared renderer in make_daily_video).
+        disc_png = str(tmp / "card_disclaimer.png")
+        mdv.render_disclaimer_card(PW, PH).save(disc_png, "PNG")
+        disc_wav = str(tmp / "clip_disclaimer.wav")
+        mdv._generate_silence(mdv.DISCLAIMER_SECS, disc_wav)
+        pngs.append(disc_png); durs.append(mdv.DISCLAIMER_SECS); clips.append(disc_wav)
+        t_cursor += mdv.DISCLAIMER_SECS
+        print(f"      [{'Disclaimer':<34}] {mdv.DISCLAIMER_SECS:.1f}s")
+
         total = sum(durs)
         if total > MAX_SECS:
             print(f"      [WARN] Total {total:.0f}s exceeds {MAX_SECS}s target — "
@@ -629,9 +639,17 @@ def process(json_path: str) -> str:
 
     print("\n[4/4] Thumbnail + metadata...")
     render_thumbnail(data, thumb_path)
+    # The category disclaimer is already in the description (hardcoded by
+    # generate_prediction_assets); the channel-wide compliance footer adds
+    # the entertainment-only wording + copyright line on top.
+    desc = data.get("description", "")
+    if "entertainment purposes only" not in desc:
+        desc = f"{desc}\n\n{mdv.disclaimer_block()}"
+    elif "All rights reserved" not in desc:
+        desc = f"{desc}\n{mdv._copyright_line()}"
     meta = {
         "title":       data.get("title", data.get("title_en", "Astrology Prediction"))[:100],
-        "description": data.get("description", ""),
+        "description": desc,
         "tags":        data.get("tags", []),
         "hashtags":    data.get("hashtags", []),
         "date":        date_tag,

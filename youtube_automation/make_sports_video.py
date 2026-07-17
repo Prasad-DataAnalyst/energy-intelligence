@@ -440,6 +440,10 @@ def process(json_path: str) -> str:
     desc = data.get("description", "")
     if "0:00" not in desc:
         desc = f"{desc}\n\n⏱ Chapters:\n{chapters_block}"
+    if "entertainment purposes only" not in desc:
+        desc = f"{desc}\n\n{mdv.disclaimer_block()}"
+    elif "All rights reserved" not in desc:
+        desc = f"{desc}\n{mdv._copyright_line()}"
     meta = {
         "title":       data.get("title", f"Sports Astrology — {when}")[:100],
         "description": desc,

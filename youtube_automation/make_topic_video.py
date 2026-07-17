@@ -524,6 +524,16 @@ def process(json_path: str) -> str:
                 is_section=True, sec_idx=i)
         add(render_outro_card(data), data.get("outro", "Subscribe for more."), "Outro")
 
+        # Compliance disclaimer end-card (channel policy — 2s, silent, on
+        # EVERY published video; shared renderer in make_daily_video).
+        disc_png = str(tmp / "card_disclaimer.png")
+        mdv.render_disclaimer_card(W, H).save(disc_png, "PNG")
+        disc_wav = str(tmp / "clip_disclaimer.wav")
+        mdv._generate_silence(mdv.DISCLAIMER_SECS, disc_wav)
+        pngs.append(disc_png); durs.append(mdv.DISCLAIMER_SECS); clips.append(disc_wav)
+        t_cursor += mdv.DISCLAIMER_SECS
+        print(f"      [{'Disclaimer':<34}] {mdv.DISCLAIMER_SECS:.1f}s")
+
         total = sum(durs)
         mdv.VIDEO_FPS = mdv.safe_static_fps(total)
         print(f"      Total: {total:.0f}s ({int(total//60)}m {int(total%60)}s)  |  {mdv.VIDEO_FPS}fps")
@@ -593,6 +603,10 @@ def process(json_path: str) -> str:
     desc = data.get("description", "")
     if "0:00" not in desc:
         desc = f"{desc}\n\n⏱ Chapters:\n{chapters_block}"
+    if "entertainment purposes only" not in desc:
+        desc = f"{desc}\n\n{mdv.disclaimer_block()}"
+    elif "All rights reserved" not in desc:
+        desc = f"{desc}\n{mdv._copyright_line()}"
     meta = {
         "title":       data.get("title", data.get("topic_title", "Astrology"))[:100],
         "description": desc,

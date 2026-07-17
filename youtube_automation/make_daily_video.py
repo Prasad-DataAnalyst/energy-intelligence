@@ -1796,6 +1796,67 @@ def assemble_video(png_files: list, durations: list,
             Path(p).unlink(missing_ok=True)
 
 
+# ── Channel disclaimer (visual end-card + description block) ──────────────────
+# CHANNEL POLICY (YouTube compliance for astrology content): every published
+# video — the vertical daily Short AND every landscape video — ends with a
+# 2-second disclaimer card, and every description carries the same text plus
+# a copyright line. The wording is HARDCODED here (never left to the LLM),
+# exactly like the per-category prediction/tarot disclaimers.
+DISCLAIMER_SECS = 2
+DISCLAIMER_TITLE = "DISCLAIMER"
+DISCLAIMER_BODY = ("All astrology, horoscope, tarot & prediction content on "
+                   "this channel is for entertainment purposes only. It is "
+                   "not medical, legal, financial, or professional advice.")
+
+
+def _copyright_line() -> str:
+    from datetime import date as _d
+    return f"© {_d.today().year} {CHANNEL_TAG}. All rights reserved."
+
+
+def disclaimer_block() -> str:
+    """Description-footer version: disclaimer + copyright, appended to every
+    video's YouTube description by every pipeline."""
+    return f"⚠️ Disclaimer: {DISCLAIMER_BODY}\n{_copyright_line()}"
+
+
+def render_disclaimer_card(w: int = None, h: int = None):
+    """2-second end card, parametric so ONE renderer serves both the vertical
+    daily Short (1080x1920) and every landscape type (1920x1080) — text sizes
+    key off min(w,h), which is 1080 in both orientations, so the card reads
+    identically everywhere."""
+    w = w or WIDTH
+    h = h or HEIGHT
+    img = _cosmic_bg(w, h, (6, 3, 22), (14, 6, 40), (170, 120, 255), seed=2026)
+    d = ImageDraw.Draw(img)
+    d.rectangle([0, 0, w, 6], fill=GOLD)
+    d.rectangle([0, h - 6, w, h], fill=GOLD)
+
+    pad = max(64, w // 16)
+    cw = w - 2 * pad
+    tf = _display_font(52, weight=700)
+    bf = _ui_font(40, 500)
+    cf = _ui_font(32, 500)
+
+    body_lines = _wrap(DISCLAIMER_BODY, bf, cw)
+    block_h = (_th(tf) + 40 + len(body_lines) * (_th(bf) + 12) + 36 + _th(cf))
+    y = (h - block_h) // 2
+
+    tw_ = _tw(DISCLAIMER_TITLE, tf)
+    d.text(((w - tw_) // 2 + 2, y + 2), DISCLAIMER_TITLE, font=tf, fill=(0, 0, 0, 170))
+    d.text(((w - tw_) // 2, y), DISCLAIMER_TITLE, font=tf, fill=GOLD)
+    y += _th(tf) + 40
+    for ln in body_lines:
+        lw = _tw(ln, bf)
+        d.text(((w - lw) // 2, y), ln, font=bf, fill=WHITE)
+        y += _th(bf) + 12
+    y += 36
+    cline = _copyright_line()
+    lw = _tw(cline, cf)
+    d.text(((w - lw) // 2, y), cline, font=cf, fill=SILVER)
+    return img.convert("RGB")
+
+
 # ── Main pipeline ──────────────────────────────────────────────────────────────
 def process(json_path: str) -> str:
     path = Path(json_path)
@@ -1829,7 +1890,10 @@ def process(json_path: str) -> str:
     video_path  = str(out_dir / f"{base}.mp4")
     thumb_path  = str(out_dir / f"{base}_thumbnail.jpg")
     has_outro   = CONTENT_TYPE in _OUTRO_TYPES
-    total_dur   = INTRO_SECS + len(SIGNS) * sign_secs + (OUTRO_SECS if has_outro else 0)
+    # +DISCLAIMER_SECS: every video ends with the 2s compliance card (channel
+    # policy) — counted here so ambient length and fps math stay exact.
+    total_dur   = (INTRO_SECS + len(SIGNS) * sign_secs
+                   + (OUTRO_SECS if has_outro else 0) + DISCLAIMER_SECS)
 
     # Duration-aware fps — a fixed fps is only safe at the duration it was
     # tuned for; deep/weeklyfull run ~490s and would time out at the daily
@@ -1876,6 +1940,15 @@ def process(json_path: str) -> str:
             png_files.append(outro_png)
             durations.append(OUTRO_SECS)
             print(f"      [outro]  {OUTRO_SECS}s  (luckiest: {luckiest_sign or '—'})")
+
+        # Compliance disclaimer card — ALWAYS the final frame, both
+        # orientations (channel policy; see render_disclaimer_card).
+        disc_png = str(tmp / "zz_disclaimer.png")
+        out_w_d, out_h_d = frame or (WIDTH, HEIGHT)
+        render_disclaimer_card(out_w_d, out_h_d).save(disc_png, "PNG")
+        png_files.append(disc_png)
+        durations.append(DISCLAIMER_SECS)
+        print(f"      [disclaimer]  {DISCLAIMER_SECS}s")
 
         # 2. Voice narration (edge-tts, free) — one narrator per day
         day_voice = _day_voice(date_tag)
@@ -1939,6 +2012,14 @@ def process(json_path: str) -> str:
                 voice_clips.append(sil3)
                 print(f"      [outro]  (TTS failed, silence)")
             t_cursor += OUTRO_SECS
+
+        # Disclaimer card is silent by design (2s is too short to narrate);
+        # the ambient bed keeps playing under it. The silence clip keeps the
+        # audio track spanning the video (QC checks A/V duration drift).
+        sil_disc = str(tmp / "sil_disclaimer.wav")
+        _generate_silence(DISCLAIMER_SECS, sil_disc)
+        voice_clips.append(sil_disc)
+        t_cursor += DISCLAIMER_SECS
 
         # Write the caption file spanning the whole assembled timeline (global
         # offsets already baked into each segment's cues above): karaoke .ass
@@ -2043,6 +2124,12 @@ def process(json_path: str) -> str:
     description = data.get("description", "")
     if "0:00" not in description:
         description = f"{description}\n\n⏱ Find your sign:\n{chapters_block}"
+    # Compliance footer on EVERY description (channel policy — see
+    # disclaimer_block): entertainment-only disclaimer + copyright line.
+    if "entertainment purposes only" not in description:
+        description = f"{description}\n\n{disclaimer_block()}"
+    elif "All rights reserved" not in description:
+        description = f"{description}\n{_copyright_line()}"
 
     # Save metadata for uploader
     cadence_label = {"daily": "daily", "weekly": "weekly", "monthly": "monthly",
