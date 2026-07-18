@@ -88,6 +88,12 @@ pipeline-finance/
 
 ## Setup
 
+> **Deploying to Google Cloud?** Follow **`deploy/GCP_SETUP.md`** — a
+> zero-GCP-cost walkthrough (always-free e2-micro VM) covering the Cloud
+> project, OAuth credentials (`deploy/oauth_bootstrap.py`), VM bootstrap
+> (`deploy/vm_setup.sh`), verification runs, and go-live. The steps below
+> are the generic local-machine setup.
+
 ### 1. Prerequisites
 
 ```bash

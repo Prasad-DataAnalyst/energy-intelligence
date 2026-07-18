@@ -43,17 +43,26 @@ TIMEZONE            = "America/New_York"
 # 4. VIDEO SPECS
 # ─────────────────────────────────────────────────────────────────────────────
 
-VIDEO_DURATION_MIN    = 120   # seconds
-VIDEO_DURATION_MAX    = 180   # seconds
-VIDEO_DURATION_TARGET = 150   # seconds
+VIDEO_DURATION_MIN    = 180   # seconds — spec: long-form 3:00 floor
+VIDEO_DURATION_MAX    = 240   # seconds — spec: 4:00 hard cap
+VIDEO_DURATION_TARGET = 215   # seconds — spec target 3:15-3:50
 
 SHORTS_DURATION_MAX    = 60   # seconds
 SHORTS_DURATION_TARGET = 50   # seconds
 
-VIDEO_RESOLUTION  = (1920, 1080)
-SHORTS_RESOLUTION = (1080, 1920)
+# Env-overridable so low-memory hosts (GCP free-tier e2-micro) can render 720p:
+#   VIDEO_RESOLUTION=1280x720 in .env
+def _parse_resolution(raw: str, fallback: tuple) -> tuple:
+    try:
+        w, h = raw.lower().split("x")
+        return (int(w), int(h))
+    except Exception:
+        return fallback
 
-VIDEO_FPS    = 30
+VIDEO_RESOLUTION  = _parse_resolution(os.getenv("VIDEO_RESOLUTION", ""), (1920, 1080))
+SHORTS_RESOLUTION = _parse_resolution(os.getenv("SHORTS_RESOLUTION", ""), (1080, 1920))
+
+VIDEO_FPS    = int(os.getenv("VIDEO_FPS", "30"))
 VIDEO_CODEC  = "libx264"
 AUDIO_CODEC  = "aac"
 
