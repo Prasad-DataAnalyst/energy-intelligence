@@ -60,10 +60,9 @@ if [ ! -d "$APP_DIR" ]; then
         echo "   Re-run: sudo bash vm_setup.sh <repo-url> <branch>"
         exit 1
     fi
-    git clone --branch "$BRANCH" --depth 1 "$REPO_URL" "$INSTALL_DIR-src"
-    mkdir -p "$INSTALL_DIR"
-    cp -r "$INSTALL_DIR-src/pipeline-finance" "$APP_DIR"
-    rm -rf "$INSTALL_DIR-src"
+    # Clone the whole repo as INSTALL_DIR so .git is retained —
+    # future updates are just: git -C $INSTALL_DIR pull
+    git clone --branch "$BRANCH" --depth 1 "$REPO_URL" "$INSTALL_DIR"
 fi
 chown -R $SERVICE_USER:$SERVICE_USER "$INSTALL_DIR"
 
@@ -95,8 +94,9 @@ echo "   sudo chmod 600 $APP_DIR/.env $APP_DIR/config/*token*.json"
 echo ""
 echo "Recommended in .env for this 1 GB VM:  VIDEO_RESOLUTION=1280x720"
 echo ""
-echo "Smoke test (as the service user):"
-echo "   sudo -u $SERVICE_USER $INSTALL_DIR/venv/bin/python3 -m pytest $APP_DIR/tests -q"
+echo "Smoke test (as the service user — the cd matters, the service user"
+echo "cannot read your home directory):"
+echo "   sudo -u $SERVICE_USER bash -c 'cd $APP_DIR && $INSTALL_DIR/venv/bin/python3 -m pytest tests -q'"
 echo "   sudo -u $SERVICE_USER bash -c 'cd $APP_DIR && $INSTALL_DIR/venv/bin/python3 main.py --quota'"
 echo ""
 echo "Start for real:"

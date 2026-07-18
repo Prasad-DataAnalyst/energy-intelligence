@@ -135,7 +135,7 @@ APP=/opt/driftwire326/pipeline-finance
 PY=/opt/driftwire326/venv/bin/python3
 
 # 1. Test suite (no API calls)
-sudo -u driftwire $PY -m pytest $APP/tests -q
+sudo -u driftwire bash -c "cd $APP && $PY -m pytest tests -q"
 
 # 2. Quota + API status (proves .env and tokens load)
 sudo -u driftwire bash -c "cd $APP && $PY main.py --quota"

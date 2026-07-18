@@ -543,12 +543,15 @@ class TestPreflightChecker:
 
         checker = PreflightChecker(quota_tracker=mock_qt)
         desc = f"{settings.disclaimer_text} Narration is AI-generated. More details here."
-        result = checker.run(
-            video_path=video,
-            title="S&P 500 Recap Today",
-            description=desc,
-            check_quota=True,
-        )
+        # The fake video bytes are not a real mp4 — on hosts where ffprobe is
+        # installed the stream check would (correctly) reject them, so stub it.
+        with patch.object(PreflightChecker, "_check_video_streams"):
+            result = checker.run(
+                video_path=video,
+                title="S&P 500 Recap Today",
+                description=desc,
+                check_quota=True,
+            )
         assert result.passed is True
         assert not result.errors
 
