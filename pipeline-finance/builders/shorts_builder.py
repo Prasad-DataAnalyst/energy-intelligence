@@ -130,6 +130,20 @@ def _build_shorts_with_moviepy(assets: ShortsAssets, output_path: Path) -> Optio
         )
         overlays.append(channel_clip)
 
+        # Round channel-logo badge, top-right (channel branding)
+        try:
+            from builders.logo_overlay import get_round_logo
+            logo_size = max(90, SW // 9)
+            logo_png = get_round_logo(logo_size)
+            if logo_png:
+                overlays.append(
+                    ImageClip(str(logo_png), transparent=True)
+                    .set_position((SW - logo_size - 30, 40))
+                    .set_duration(total_dur)
+                )
+        except Exception as exc:
+            logger.warning("Shorts logo badge failed (non-fatal): %s", exc)
+
         # Embed chart(s) if available
         if assets.chart_paths:
             chart_path = assets.chart_paths[0]
@@ -455,6 +469,22 @@ class ShortsBuilder:
             final_video = concatenate_videoclips(clips, method="compose")
             if handle_wm_clip:
                 final_video = CompositeVideoClip([final_video, handle_wm_clip])
+
+            # Round channel-logo badge, top-right (channel branding)
+            try:
+                from moviepy.editor import ImageClip as _ImageClip
+                from builders.logo_overlay import get_round_logo
+                logo_size = max(90, SW // 9)
+                logo_png = get_round_logo(logo_size)
+                if logo_png:
+                    logo_clip = (
+                        _ImageClip(str(logo_png), transparent=True)
+                        .set_position((SW - logo_size - 30, 40))
+                        .set_duration(final_video.duration)
+                    )
+                    final_video = CompositeVideoClip([final_video, logo_clip])
+            except Exception as exc:
+                logger.warning("Shorts logo badge failed (non-fatal): %s", exc)
 
             dur = final_video.duration
             if dur > SHORTS_HARD_LIMIT:

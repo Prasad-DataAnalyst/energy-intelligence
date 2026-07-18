@@ -185,6 +185,21 @@ def _build_with_moviepy(assets: VideoAssets, output_path: Path) -> Optional[floa
         video = video.set_audio(audio)
         video = video.subclip(0, audio_duration)
 
+        # Round channel-logo badge, top-right corner (channel branding)
+        try:
+            from builders.logo_overlay import get_round_logo
+            logo_size = max(80, W // 14)
+            logo_png = get_round_logo(logo_size)
+            if logo_png:
+                logo_clip = (
+                    ImageClip(str(logo_png), transparent=True)
+                    .set_duration(video.duration)
+                    .set_position((W - logo_size - 24, 24))
+                )
+                video = CompositeVideoClip([video, logo_clip], size=(W, H))
+        except Exception as exc:
+            logger.warning("Logo badge overlay failed (non-fatal): %s", exc)
+
         # 2-second disclaimer/copyright end-card (channel policy)
         card_path = _render_disclaimer_card(W, H)
         if card_path:

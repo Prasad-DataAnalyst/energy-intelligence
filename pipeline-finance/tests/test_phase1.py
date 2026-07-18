@@ -316,3 +316,80 @@ class TestLegalFooter:
         assert "Fair Use" in joined
         assert "Drift Wire326" in joined
         assert "2026" in joined
+
+
+# ── Round channel-logo badge ──────────────────────────────────────────────────
+
+class TestLogoOverlay:
+    def _with_tmp_branding(self, tmp_path):
+        from builders import logo_overlay as lo
+        originals = (lo.BRANDING_DIR, lo.LOGO_PATH)
+        lo.BRANDING_DIR = tmp_path
+        lo.LOGO_PATH = tmp_path / "channel_logo.png"
+        return lo, originals
+
+    def _restore(self, lo, originals):
+        lo.BRANDING_DIR, lo.LOGO_PATH = originals
+
+    def _make_square_logo(self, path, size=160):
+        from PIL import Image
+        Image.new("RGB", (size, size), color=(90, 40, 200)).save(path)
+
+    def test_round_logo_from_existing_file(self, tmp_path):
+        lo, originals = self._with_tmp_branding(tmp_path)
+        try:
+            self._make_square_logo(lo.LOGO_PATH)
+            with patch.object(lo, "ensure_channel_logo", return_value=lo.LOGO_PATH):
+                round_png = lo.get_round_logo(120)
+            assert round_png is not None and round_png.exists()
+
+            from PIL import Image
+            img = Image.open(round_png).convert("RGBA")
+            assert img.size == (120, 120)
+            # Corners must be transparent (circular crop)
+            assert img.getpixel((2, 2))[3] == 0
+            assert img.getpixel((117, 2))[3] == 0
+            # Center must be opaque
+            assert img.getpixel((60, 60))[3] > 200
+        finally:
+            self._restore(lo, originals)
+
+    def test_round_logo_cached_per_size(self, tmp_path):
+        lo, originals = self._with_tmp_branding(tmp_path)
+        try:
+            self._make_square_logo(lo.LOGO_PATH)
+            with patch.object(lo, "ensure_channel_logo", return_value=lo.LOGO_PATH):
+                first = lo.get_round_logo(100)
+                second = lo.get_round_logo(100)
+            assert first == second
+            assert (tmp_path / "channel_logo_round_100.png").exists()
+        finally:
+            self._restore(lo, originals)
+
+    def test_missing_logo_returns_none_gracefully(self, tmp_path):
+        lo, originals = self._with_tmp_branding(tmp_path)
+        try:
+            with patch.object(lo, "ensure_channel_logo", return_value=None):
+                assert lo.get_round_logo(100) is None
+        finally:
+            self._restore(lo, originals)
+
+    def test_ensure_logo_uses_existing_file_without_api(self, tmp_path):
+        lo, originals = self._with_tmp_branding(tmp_path)
+        try:
+            self._make_square_logo(lo.LOGO_PATH, size=400)   # >1KB
+            with patch("uploader.uploader._get_authenticated_service") as mock_svc:
+                result = lo.ensure_channel_logo()
+            assert result == lo.LOGO_PATH
+            mock_svc.assert_not_called()
+        finally:
+            self._restore(lo, originals)
+
+    def test_ensure_logo_api_failure_is_non_fatal(self, tmp_path):
+        lo, originals = self._with_tmp_branding(tmp_path)
+        try:
+            with patch("uploader.uploader._get_authenticated_service",
+                       side_effect=Exception("no auth")):
+                assert lo.ensure_channel_logo() is None
+        finally:
+            self._restore(lo, originals)
