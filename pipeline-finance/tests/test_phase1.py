@@ -257,3 +257,62 @@ class TestPhase1SchedulerJobs:
         with patch("scheduler.short_pipeline.run_themed_short",
                    side_effect=Exception("boom")):
             ms.run_themed_short_job()   # must not raise
+
+
+# ── Legal footer + disclaimer card (channel legal policy) ─────────────────────
+
+class TestLegalFooter:
+    def test_every_description_gets_legal_block(self):
+        from uploader.uploader import UploadConfig
+        cfg = UploadConfig(title="T", description="Today's market recap.", tags=[])
+        desc = cfg._compliance_description()
+        assert "FINANCIAL DISCLAIMER" in desc
+        assert "COPYRIGHT & FAIR USE NOTICE" in desc
+        assert "© 2026 Drift Wire326" in desc
+        assert "AI-assisted narration" in desc
+        assert "Narration is AI-generated." in desc
+
+    def test_shorts_description_gets_legal_block(self):
+        from uploader.uploader import UploadConfig
+        cfg = UploadConfig(title="S", description="Quick update.", tags=[],
+                           video_type="shorts")
+        desc = cfg._compliance_description()
+        assert "COPYRIGHT & FAIR USE NOTICE" in desc
+
+    def test_legal_block_not_duplicated(self):
+        from uploader.uploader import UploadConfig
+        from config.settings import settings
+        cfg = UploadConfig(
+            title="T",
+            description="Recap. " + settings.legal_footer,
+            tags=[],
+        )
+        desc = cfg._compliance_description()
+        assert desc.count("COPYRIGHT & FAIR USE NOTICE") == 1
+
+    def test_description_stays_within_youtube_limit(self):
+        from uploader.uploader import UploadConfig
+        cfg = UploadConfig(title="T", description="x" * 6000, tags=[])
+        desc = cfg._compliance_description()
+        assert len(desc) <= 5000
+        assert "COPYRIGHT & FAIR USE NOTICE" in desc   # footer survives truncation
+
+    def test_disclaimer_card_renders(self, tmp_path):
+        from builders import video_builder as vb
+        from config.settings import settings
+        original = settings.output_dir
+        settings.output_dir = tmp_path
+        try:
+            card = vb._render_disclaimer_card(1280, 720)
+            assert card is not None and card.exists()
+            assert card.stat().st_size > 5000
+        finally:
+            settings.output_dir = original
+
+    def test_card_lines_have_required_elements(self):
+        from config.settings import DISCLAIMER_CARD_LINES
+        joined = " ".join(DISCLAIMER_CARD_LINES)
+        assert "NOT FINANCIAL ADVICE" in joined
+        assert "Fair Use" in joined
+        assert "Drift Wire326" in joined
+        assert "2026" in joined

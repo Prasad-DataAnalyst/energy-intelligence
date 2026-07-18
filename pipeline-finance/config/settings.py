@@ -218,6 +218,34 @@ DISCLAIMER = (
 
 AI_DISCLOSURE = "Narration is AI-generated."
 
+# Full legal block appended to EVERY upload description (long-form + Shorts).
+# Enforced at the upload choke-point (UploadConfig._compliance_description).
+LEGAL_FOOTER = """
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🤖 AI-Generated Content: This video uses AI-assisted narration and data synthesis tools to deliver rapid market updates.
+
+⚠️ FINANCIAL DISCLAIMER
+Drift Wire326 provides daily market recaps for informational, educational, and entertainment purposes only. Past performance is no guarantee of future results. Financial markets involve substantial risk of loss. Nothing contained in this video or description constitutes investment, legal, or tax advice. No buy/sell recommendations are being made. Always conduct your own due diligence or consult a licensed financial advisor before investing.
+
+⚖️ COPYRIGHT & FAIR USE NOTICE
+This video may contain copyrighted market charts, stock tickers, news headlines, or brand logos. Such material is utilized under Section 107 of the US Copyright Act 1976, which allows "Fair Use" for purposes such as criticism, comment, news reporting, teaching, and research.
+
+© 2026 Drift Wire326. All rights reserved. Unauthorized reproduction or redistribution of this original commentary is prohibited."""
+
+# Presence marker — if this string is already in a description, the footer
+# is not appended twice.
+LEGAL_FOOTER_MARKER = "COPYRIGHT & FAIR USE NOTICE"
+
+# Short version rendered as a 2-second card at the end of every long-form
+# video (plain ASCII-safe text — rendered with PIL/DejaVu).
+DISCLAIMER_CARD_LINES = [
+    "NOT FINANCIAL ADVICE",
+    "For informational, educational & entertainment purposes only.",
+    "AI-assisted narration. Charts & logos used under Fair Use",
+    "(Section 107, US Copyright Act 1976).",
+    "(c) 2026 Drift Wire326. All rights reserved.",
+]
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 11. FILE PATHS
 # ─────────────────────────────────────────────────────────────────────────────
@@ -335,6 +363,9 @@ settings = SimpleNamespace(
     compliance_block_phrases = BLOCKED_PHRASES,
     disclaimer_text        = DISCLAIMER,
     ai_disclosure          = AI_DISCLOSURE,
+    legal_footer           = LEGAL_FOOTER,
+    legal_footer_marker    = LEGAL_FOOTER_MARKER,
+    disclaimer_card_lines  = DISCLAIMER_CARD_LINES,
     timezone               = TIMEZONE,
     root_dir               = BASE_DIR,
     assets_dir             = ASSETS_DIR,

@@ -53,10 +53,68 @@ class BuiltVideo:
         return self.path.exists() and self.file_size_mb > 0.1
 
 
+DISCLAIMER_CARD_SECONDS = 2.0
+
+
+def _render_disclaimer_card(width: int, height: int) -> Optional[Path]:
+    """
+    Render the 2-second end-card with the short disclaimer + copyright
+    notice (channel policy: shown in every long-form video).
+    Returns the PNG path, or None if PIL is unavailable.
+    """
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+
+        img = Image.new("RGB", (width, height), color=(10, 10, 15))
+        draw = ImageDraw.Draw(img)
+
+        def _font(size: int, bold: bool = False):
+            names = (
+                ["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"]
+                if bold else
+                ["/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"]
+            )
+            for name in names:
+                try:
+                    return ImageFont.truetype(name, size)
+                except Exception:
+                    continue
+            return ImageFont.load_default()
+
+        lines = list(settings.disclaimer_card_lines)
+        # First line is the headline; the rest are body text
+        headline, body = lines[0], lines[1:]
+        scale = height / 1080
+        y = int(height * 0.30)
+
+        draw.text(
+            (width // 2, y), headline,
+            font=_font(int(64 * scale), bold=True),
+            fill=(255, 196, 0), anchor="mm",
+        )
+        y += int(110 * scale)
+        for line in body:
+            draw.text(
+                (width // 2, y), line,
+                font=_font(int(34 * scale)),
+                fill=(225, 228, 235), anchor="mm",
+            )
+            y += int(62 * scale)
+
+        out = settings.output_dir / "videos" / "_disclaimer_card.png"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        img.save(out)
+        return out
+    except Exception as exc:
+        logger.warning("Disclaimer card render failed (non-fatal): %s", exc)
+        return None
+
+
 def _build_with_moviepy(assets: VideoAssets, output_path: Path) -> Optional[float]:
     """
     Primary builder using MoviePy.
-    Layers: branded BG → chart slides → text overlays → audio.
+    Layers: branded BG → chart slides → text overlays → audio →
+    2-second disclaimer/copyright end-card.
     """
     try:
         from moviepy.editor import (
@@ -126,6 +184,20 @@ def _build_with_moviepy(assets: VideoAssets, output_path: Path) -> Optional[floa
         audio = audio.subclip(0, audio_duration)
         video = video.set_audio(audio)
         video = video.subclip(0, audio_duration)
+
+        # 2-second disclaimer/copyright end-card (channel policy)
+        card_path = _render_disclaimer_card(W, H)
+        if card_path:
+            try:
+                card_clip = (
+                    ImageClip(str(card_path))
+                    .set_duration(DISCLAIMER_CARD_SECONDS)
+                    .set_fps(FPS)
+                )
+                card_clip = fadein(card_clip, 0.3)
+                video = concatenate_videoclips([video, card_clip], method="compose")
+            except Exception as exc:
+                logger.warning("Disclaimer card append failed (non-fatal): %s", exc)
 
         video.write_videofile(
             str(output_path),

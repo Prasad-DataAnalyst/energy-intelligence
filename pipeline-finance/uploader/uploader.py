@@ -48,15 +48,18 @@ class UploadConfig:
 
     def _compliance_description(self) -> str:
         """
-        Ensure the financial disclaimer and AI disclosure appear in every
-        upload description (channel policy — must never be skipped), while
-        respecting YouTube's 5000-character description limit.
+        Ensure the financial disclaimer, AI disclosure, and full legal/
+        copyright block appear in every upload description — long-form AND
+        Shorts (channel policy — must never be skipped) — while respecting
+        YouTube's 5000-character description limit.
         """
         description = self.description
         footer_parts = [
             p for p in (settings.disclaimer_text, settings.ai_disclosure)
             if p not in description
         ]
+        if settings.legal_footer_marker not in description:
+            footer_parts.append(settings.legal_footer.strip())
         if not footer_parts:
             return description[:5000]
         footer = "\n\n" + "\n\n".join(footer_parts)
