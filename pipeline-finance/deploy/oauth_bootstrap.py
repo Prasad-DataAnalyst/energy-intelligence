@@ -42,23 +42,63 @@ ANALYTICS_SCOPES = [
 ]
 
 
-def _mint(scopes: list[str], out_path: Path, label: str) -> bool:
+_HEADLESS_PROMPT = """
+════════════════════════════════════════════════════════════════════════
+👉 STEP 1: Open this URL in ANY browser (your phone works too):
+
+{url}
+
+👉 STEP 2: Sign in as driftwire326@gmail.com and approve ALL permissions.
+   (Click "Advanced → Continue" past the unverified-app warning.)
+
+👉 STEP 3: After approving, the browser will FAIL to load a page at
+   "localhost:8080" — THIS IS EXPECTED AND CORRECT.
+   Copy the ENTIRE address from the browser's address bar
+   (it starts with http://localhost:8080/?state=...).
+
+👉 STEP 4: Open a SECOND SSH tab to this VM and run (paste inside quotes):
+
+   curl "PASTE_THE_FULL_ADDRESS_HERE"
+
+This window will then finish automatically. Waiting for the callback...
+════════════════════════════════════════════════════════════════════════
+"""
+
+
+def _mint(scopes: list[str], out_path: Path, label: str, headless: bool = False) -> bool:
     from google_auth_oauthlib.flow import InstalledAppFlow
 
     print(f"\n=== {label} ===")
     print(f"Scopes: {', '.join(s.rsplit('/', 1)[-1] for s in scopes)}")
-    print("A browser window will open — sign in with the Google account that")
-    print("owns the DriftWire326 YouTube channel, and approve all permissions.")
-    input("Press Enter to continue...")
+    if not headless:
+        print("A browser window will open — sign in with the Google account that")
+        print("owns the DriftWire326 YouTube channel, and approve all permissions.")
+        input("Press Enter to continue...")
 
     flow = InstalledAppFlow.from_client_secrets_file(str(CLIENT_SECRETS), scopes)
-    creds = flow.run_local_server(port=0)
+    if headless:
+        # No browser on this machine (cloud VM). Print the auth URL for the
+        # user to open on any device; they complete the loopback redirect by
+        # curl-ing the localhost callback URL from a second SSH session.
+        creds = flow.run_local_server(
+            host="localhost",
+            port=8080,
+            open_browser=False,
+            authorization_prompt_message=_HEADLESS_PROMPT,
+        )
+    else:
+        creds = flow.run_local_server(port=0)
     out_path.write_text(creds.to_json())
     print(f"✅ Saved: {out_path}")
     return True
 
 
 def main() -> int:
+    headless = "--headless" in sys.argv
+    if headless:
+        print("Headless mode: no browser on this machine — you'll open the")
+        print("sign-in URL on your phone/laptop and curl the callback here.")
+
     if not CLIENT_SECRETS.exists():
         print(f"❌ Client secrets not found: {CLIENT_SECRETS}")
         print("   Download the OAuth 'Desktop app' JSON from Google Cloud Console")
@@ -76,12 +116,18 @@ def main() -> int:
         print(f"❌ Could not parse client secrets: {exc}")
         return 1
 
-    _mint(UPLOAD_SCOPES, CONFIG_DIR / "youtube_token.json", "Token 1/2 — YouTube upload")
-    _mint(ANALYTICS_SCOPES, CONFIG_DIR / "analytics_token.json", "Token 2/2 — Analytics (read-only)")
+    _mint(UPLOAD_SCOPES, CONFIG_DIR / "youtube_token.json",
+          "Token 1/2 — YouTube upload", headless=headless)
+    _mint(ANALYTICS_SCOPES, CONFIG_DIR / "analytics_token.json",
+          "Token 2/2 — Analytics (read-only)", headless=headless)
 
-    print("\n🎉 Both tokens minted. Copy them to the VM:")
-    print("   scp config/youtube_token.json config/analytics_token.json \\")
-    print("       <vm-user>@<vm-ip>:/opt/driftwire326/pipeline-finance/config/")
+    print("\n🎉 Both tokens minted.")
+    if headless:
+        print("Tokens are already in place on this machine — nothing to copy.")
+    else:
+        print("Copy them to the VM:")
+        print("   scp config/youtube_token.json config/analytics_token.json \\")
+        print("       <vm-user>@<vm-ip>:/opt/driftwire326/pipeline-finance/config/")
     return 0
 
 
