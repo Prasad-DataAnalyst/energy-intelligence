@@ -68,6 +68,11 @@ This window will then finish automatically. Waiting for the callback...
 def _mint(scopes: list[str], out_path: Path, label: str, headless: bool = False) -> bool:
     from google_auth_oauthlib.flow import InstalledAppFlow
 
+    if out_path.exists():
+        print(f"\n=== {label} ===")
+        print(f"⏭️  {out_path.name} already exists — skipping. (Delete the file to re-mint.)")
+        return True
+
     print(f"\n=== {label} ===")
     print(f"Scopes: {', '.join(s.rsplit('/', 1)[-1] for s in scopes)}")
     if not headless:
