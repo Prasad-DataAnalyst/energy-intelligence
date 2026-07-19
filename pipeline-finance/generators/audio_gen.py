@@ -264,7 +264,8 @@ def _merge_audio_files(segment_paths: list[Path], output_path: Path) -> Optional
         combined.export(str(output_path), format="mp3", bitrate=settings.audio_bitrate)
         return len(combined) / 1000.0
     except ImportError:
-        # Fallback: ffmpeg concat
+        # Fallback: ffmpeg concat (pydub unavailable — e.g. Python 3.13
+        # without the audioop-lts backport)
         import subprocess
         list_file = output_path.parent / "concat_list.txt"
         list_file.write_text("\n".join(f"file '{p.resolve()}'" for p in valid))
@@ -275,7 +276,25 @@ def _merge_audio_files(segment_paths: list[Path], output_path: Path) -> Optional
                 capture_output=True, timeout=120,
             )
             if result.returncode == 0:
-                return sum((p.stat().st_size / 32000) for p in valid)
+                # Measure the REAL duration — a size-based guess here once
+                # truncated an entire video build to 45s.
+                try:
+                    from mutagen.mp3 import MP3
+                    return float(MP3(str(output_path)).info.length)
+                except Exception:
+                    pass
+                try:
+                    probe = subprocess.run(
+                        ["ffprobe", "-v", "quiet", "-show_entries",
+                         "format=duration", "-of", "csv=p=0", str(output_path)],
+                        capture_output=True, text=True, timeout=60,
+                    )
+                    return float(probe.stdout.strip())
+                except Exception:
+                    logger.error(
+                        "Cannot measure merged audio duration — refusing to guess"
+                    )
+                    return None
         except Exception as exc:
             logger.error("ffmpeg merge failed: %s", exc)
         finally:

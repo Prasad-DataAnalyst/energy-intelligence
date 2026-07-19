@@ -18,6 +18,7 @@ numpy>=1.26.0
 
 # ── Audio ─────────────────────────────────────────────────────────────────
 pydub>=0.25.1
+audioop-lts>=0.2.1; python_version >= "3.13"   # stdlib audioop removed in 3.13 — pydub needs it
 edge-tts>=6.1.0            # primary TTS engine (free, no API key)
 gTTS>=2.5.0                # gTTS fallback engine
 mutagen>=1.47.0            # MP3 duration probing

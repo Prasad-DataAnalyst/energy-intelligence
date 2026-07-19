@@ -211,7 +211,7 @@ def _build_shorts_with_ffmpeg(assets: ShortsAssets, output_path: Path) -> Option
                 "ffmpeg", "-y",
                 "-loop", "1", "-i", bg_src,
                 "-i", str(assets.audio_path),
-                "-c:v", "libx264", "-preset", "fast",
+                "-c:v", "libx264", "-preset", "veryfast",
                 "-c:a", "aac", "-b:a", settings.audio_bitrate,
                 "-shortest", "-t", str(target_dur),
                 "-s", f"{SW}x{SH}",
@@ -230,7 +230,7 @@ def _build_shorts_with_ffmpeg(assets: ShortsAssets, output_path: Path) -> Option
                 str(output_path),
             ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
         if result.returncode == 0:
             return target_dur
         logger.error("ffmpeg Shorts build failed: %s", result.stderr[-500:])
@@ -394,7 +394,7 @@ class ShortsBuilder:
             "-c:v", "copy", "-c:a", "aac",
             "-shortest", str(out),
         ]
-        result = subprocess.run(cmd, capture_output=True, timeout=180)
+        result = subprocess.run(cmd, capture_output=True, timeout=900)
         if result.returncode != 0:
             logger.error("Music mix failed: %s", result.stderr.decode()[-200:])
             return video_path
@@ -417,7 +417,7 @@ class ShortsBuilder:
         )
         cmd = ["ffmpeg", "-y", "-i", str(video_path), "-vf", vf,
                "-c:v", "libx264", "-c:a", "copy", str(out)]
-        result = subprocess.run(cmd, capture_output=True, timeout=180)
+        result = subprocess.run(cmd, capture_output=True, timeout=900)
         if result.returncode != 0:
             logger.error("Handle watermark failed: %s", result.stderr.decode()[-200:])
             return video_path
