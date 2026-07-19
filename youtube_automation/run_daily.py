@@ -803,14 +803,21 @@ def run_all_signs_pipeline(args) -> int:
         # ── 2. Render slideshow video (retry once — transient ffmpeg/OOM/network
         #       hiccups shouldn't kill the whole day) ─────────────────────────────
         print(f"\n[2/4] Video    — rendering slideshow...")
-        # 45 min per attempt: the e2-micro's sustained CPU is a fraction of a
-        # core, and the higher-quality encoder needs headroom. Even worst case
-        # (2 x 45 min) finishes well before the 10:00 UTC publish.
-        ok = run_live([PYTHON, "make_daily_video.py", json_file], timeout=2700)
+        # Per-attempt timeout is TYPE-AWARE: 45 min was tuned on the <=3-min
+        # daily and silently under-provisioned the long weekend types — the
+        # 2026-07-19 Sunday weekly (294s) timed out twice at exactly 45 min.
+        # Weekly gets 90 min, weekly-full 2h; publishes are hours later, the
+        # pipeline lock serializes any overlap, and the process-group kill
+        # cleans up a genuine hang, so generous headroom here costs nothing.
+        render_timeout = {"weekly": 5400, "weeklyfull": 7200,
+                          "deep": 7200}.get(ctype, 2700)
+        ok = run_live([PYTHON, "make_daily_video.py", json_file],
+                      timeout=render_timeout)
         if not ok:
             print("      FAILED — retrying once in 60s...", file=sys.stderr)
             time.sleep(60)
-            ok = run_live([PYTHON, "make_daily_video.py", json_file], timeout=2700)
+            ok = run_live([PYTHON, "make_daily_video.py", json_file],
+                          timeout=render_timeout)
         if not ok:
             print("      FAILED (after retry)", file=sys.stderr)
             send_summary_email(args.date, {"all_signs": {

@@ -79,6 +79,23 @@ def safe_static_fps(total_secs: float, frame_budget: int = _SAFE_FRAME_BUDGET,
 # render-time cost the low background fps was chosen to avoid.
 CAPTION_FPS = 15
 
+
+def caption_fps_for(total_secs: float) -> int:
+    """Duration-aware caption sampling rate. The caption upsample sets the
+    OUTPUT frame count (duration x caption fps) regardless of the low base
+    fps — that product, not the base-fps frame budget, is what the encoder
+    actually chews through. The 2026-07-19 Sunday weekly (296s x 15fps =
+    4440 frames vs the daily's proven 2610) blew the 45-min render window
+    TWICE on the e2-micro exactly this way. Longer videos therefore sample
+    captions at a lower rate: still comfortably above the shortest caption
+    cue (~0.6s — even 8fps puts a frame every 125ms), but with an output
+    frame count back in the proven range."""
+    if total_secs <= 210:
+        return CAPTION_FPS          # daily/monthly/topic/prediction/tarot
+    if total_secs <= 340:
+        return 10                   # weekly: 296s x 10 = 2960 frames
+    return 8                        # weeklyfull/deep: 498s x 8 = 3984 frames
+
 SIGNS = [
     "aries","taurus","gemini","cancer","leo","virgo",
     "libra","scorpio","sagittarius","capricorn","aquarius","pisces",
@@ -1743,16 +1760,19 @@ def assemble_video(png_files: list, durations: list,
     # dither in _vgrad (banding was the real artifact, and it's fixed at the
     # source). Set ENCODER_PRESET in .env only on a bigger machine.
     static_fps = min(FPS, VIDEO_FPS)
+    total_secs = sum(durations)
+    cap_fps = caption_fps_for(total_secs)
     preset = os.getenv("ENCODER_PRESET", "ultrafast")
     vf = f"fps={static_fps},scale={fw}:{fh}:force_original_aspect_ratio=disable"
     if CINEMATIC_GRADE:
         vf += "," + grade_filter()     # at low fps, before captions — cheap + crisp text
     if srt_path and Path(srt_path).exists():
-        # Upsample to CAPTION_FPS (cheap: duplicated frames, not re-rendered)
-        # BEFORE burning subtitles, so short caption cues can't fall in the
-        # gap between two sparsely-sampled low-fps frames. See CAPTION_FPS.
-        if static_fps < CAPTION_FPS:
-            vf += f",fps={CAPTION_FPS}"
+        # Upsample for caption sampling (cheap: duplicated frames, not
+        # re-rendered) BEFORE burning subtitles, so short caption cues can't
+        # fall in the gap between two sparsely-sampled low-fps frames. The
+        # rate is DURATION-AWARE — see caption_fps_for.
+        if static_fps < cap_fps:
+            vf += f",fps={cap_fps}"
         vf += "," + _subtitle_filter(srt_path)
     cmd1 = [
         "ffmpeg", "-y", "-loglevel", "error",
@@ -1766,7 +1786,12 @@ def assemble_video(png_files: list, durations: list,
     ]
 
     try:
-        r1 = _sp.run(cmd1, capture_output=True, timeout=2400)
+        # Encode timeout scales with content length: the fixed 2400s cap was
+        # tuned on <=3-min videos and silently under-provisioned the Sunday
+        # weekly / Monday weekly-full (12 wall-seconds per content-second
+        # covers the e2-micro's measured ~6.3 s/s with ~2x headroom).
+        enc_timeout = max(2400, int(total_secs * 12))
+        r1 = _sp.run(cmd1, capture_output=True, timeout=enc_timeout)
         if r1.returncode != 0:
             print(f"[ERROR] Video assembly: {r1.stderr.decode()[-300:]}", file=sys.stderr)
             return False
