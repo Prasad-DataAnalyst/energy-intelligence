@@ -206,26 +206,43 @@ def _build_shorts_with_ffmpeg(assets: ShortsAssets, output_path: Path) -> Option
 
         target_dur = settings.shorts_duration_target
 
+        # Round channel-logo badge — burned in on EVERY build path
+        logo_png = None
+        try:
+            from builders.logo_overlay import get_round_logo
+            logo_png = get_round_logo(max(90, SW // 9))
+        except Exception as exc:
+            logger.error("Logo unavailable for Shorts ffmpeg build: %s", exc)
+        if logo_png is None:
+            logger.error("Building Short WITHOUT logo badge — check channel avatar/auth")
+        logo_overlay = "[base][2:v]overlay=main_w-overlay_w-30:40"
+
         if bg_src:
-            cmd = [
-                "ffmpeg", "-y",
-                "-loop", "1", "-i", bg_src,
-                "-i", str(assets.audio_path),
+            cmd = ["ffmpeg", "-y", "-loop", "1", "-i", bg_src,
+                   "-i", str(assets.audio_path)]
+            if logo_png:
+                cmd += ["-i", str(logo_png),
+                        "-filter_complex",
+                        f"[0:v]scale={SW}:{SH},fps={settings.video_fps}[base];{logo_overlay}"]
+            else:
+                cmd += ["-s", f"{SW}x{SH}", "-r", str(settings.video_fps)]
+            cmd += [
                 "-c:v", "libx264", "-preset", "veryfast",
                 "-c:a", "aac", "-b:a", settings.audio_bitrate,
                 "-shortest", "-t", str(target_dur),
-                "-s", f"{SW}x{SH}",
-                "-r", str(settings.video_fps),
                 str(output_path),
             ]
         else:
             # Pure audio → dark background video
-            cmd = [
-                "ffmpeg", "-y",
-                "-f", "lavfi", "-i", f"color=c=0A0A0F:s={SW}x{SH}:r={settings.video_fps}",
-                "-i", str(assets.audio_path),
-                "-c:v", "libx264", "-c:a", "aac",
-                "-b:a", settings.audio_bitrate,
+            cmd = ["ffmpeg", "-y",
+                   "-f", "lavfi", "-i", f"color=c=0A0A0F:s={SW}x{SH}:r={settings.video_fps}",
+                   "-i", str(assets.audio_path)]
+            if logo_png:
+                cmd += ["-i", str(logo_png),
+                        "-filter_complex", f"[0:v]null[base];{logo_overlay}"]
+            cmd += [
+                "-c:v", "libx264", "-preset", "veryfast",
+                "-c:a", "aac", "-b:a", settings.audio_bitrate,
                 "-shortest", "-t", str(target_dur),
                 str(output_path),
             ]

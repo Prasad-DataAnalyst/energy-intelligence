@@ -212,12 +212,23 @@ def build_fallback_video() -> Optional[Path]:
         return None
 
     video_path = FALLBACK_DIR / f"fallback_{stamp}.mp4"
+    # Channel logo badge (best-effort even on disaster days)
+    logo_args: list[str] = []
+    try:
+        from builders.logo_overlay import get_round_logo
+        logo_png = get_round_logo(140)
+        if logo_png:
+            logo_args = ["-i", str(logo_png), "-filter_complex",
+                         "[0:v][2:v]overlay=main_w-overlay_w-30:30"]
+    except Exception:
+        pass
     try:
         proc = subprocess.run(
             [
                 "ffmpeg", "-y",
                 "-loop", "1", "-i", str(frame_path),
                 "-i", str(audio_path),
+                *logo_args,
                 "-c:v", "libx264", "-tune", "stillimage", "-pix_fmt", "yuv420p",
                 "-c:a", "aac", "-b:a", "192k",
                 "-shortest",

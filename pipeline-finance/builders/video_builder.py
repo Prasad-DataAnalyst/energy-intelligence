@@ -259,18 +259,46 @@ def _build_with_ffmpeg(assets: VideoAssets, output_path: Path) -> Optional[float
         for p in valid_charts:
             lines.append(f"file '{p.resolve()}'")
             lines.append(f"duration {dur_per_img:.2f}")
-        # Add last frame again (ffmpeg quirk)
-        lines.append(f"file '{valid_charts[-1].resolve()}'")
+
+        # 2-second disclaimer/copyright end-card (channel policy — this
+        # path must match the MoviePy build)
+        card_path = _render_disclaimer_card(settings.video_width, settings.video_height)
+        if card_path:
+            lines.append(f"file '{card_path.resolve()}'")
+            lines.append(f"duration {DISCLAIMER_CARD_SECONDS:.2f}")
+            lines.append(f"file '{card_path.resolve()}'")   # last-frame quirk
+        else:
+            lines.append(f"file '{valid_charts[-1].resolve()}'")
         concat_file.write_text("\n".join(lines))
+
+        # Round channel-logo badge — burned in on EVERY build path
+        logo_png = None
+        try:
+            from builders.logo_overlay import get_round_logo
+            logo_png = get_round_logo(max(80, settings.video_width // 14))
+        except Exception as exc:
+            logger.error("Logo unavailable for ffmpeg build: %s", exc)
+        if logo_png is None:
+            logger.error("Building WITHOUT logo badge — check channel avatar/auth")
+
+        base_filter = (
+            f"scale={settings.video_width}:{settings.video_height}:force_original_aspect_ratio=decrease,"
+            f"pad={settings.video_width}:{settings.video_height}:(ow-iw)/2:(oh-ih)/2:color=0A0A0F,"
+            f"fps={settings.video_fps}"
+        )
 
         # Build video from images
         raw_video = tmp / "raw_video.mp4"
-        cmd_video = [
-            "ffmpeg", "-y", "-f", "concat", "-safe", "0",
-            "-i", str(concat_file),
-            "-vf", f"scale={settings.video_width}:{settings.video_height}:force_original_aspect_ratio=decrease,"
-                   f"pad={settings.video_width}:{settings.video_height}:(ow-iw)/2:(oh-ih)/2:color=0A0A0F,"
-                   f"fps={settings.video_fps}",
+        cmd_video = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat_file)]
+        if logo_png:
+            cmd_video += [
+                "-i", str(logo_png),
+                "-filter_complex",
+                f"[0:v]{base_filter}[bg];[bg][1:v]overlay=main_w-overlay_w-24:24",
+            ]
+        else:
+            cmd_video += ["-vf", base_filter]
+        cmd_video += [
             # veryfast + modest bitrate: a shared-core free-tier VM cannot
             # sustain "-preset medium -b:v 8000k" — it times out.
             "-c:v", "libx264", "-preset", "veryfast", "-b:v", "3500k",
@@ -282,14 +310,14 @@ def _build_with_ffmpeg(assets: VideoAssets, output_path: Path) -> Optional[float
             logger.error("ffmpeg image concat failed: %s", result.stderr[-500:])
             return None
 
-        # Mux audio + video
+        # Mux audio + video (no -shortest: keep the 2s end-card after
+        # narration ends)
         cmd_mux = [
             "ffmpeg", "-y",
             "-i", str(raw_video),
             "-i", str(assets.audio_path),
             "-c:v", "copy", "-c:a", "aac",
             "-b:a", settings.audio_bitrate,
-            "-shortest",
             str(output_path),
         ]
         result = subprocess.run(cmd_mux, capture_output=True, text=True, timeout=600)
