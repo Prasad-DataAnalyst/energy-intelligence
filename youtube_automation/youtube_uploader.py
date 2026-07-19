@@ -31,6 +31,15 @@ _QUOTA_FILE = Path(config.LOGS_DIR) / "quota_usage.json"
 # YouTube Data API daily quota accounting (default project quota = 10,000 units/day,
 # reset at midnight Pacific). Costs are fixed per operation.
 DAILY_QUOTA_LIMIT  = 10000
+
+# CHANNEL PRIORITY: the weekly (Sun) / weekly-full (Mon) / monthly (1st)
+# horoscopes are the astrology channel's anchor content. On their scheduled
+# days, reserved_units_today() holds their upload budget back from every
+# lower-priority upload so the anchors can NEVER be starved by earlier
+# same-day videos or a flushed retry backlog (that starvation shipped the
+# 2026-07-15 topic/prediction ahead of nothing and queued nothing critical,
+# but the same mechanics would have queued a weekly).
+PRIORITY_TYPES = {"weekly", "weeklyfull", "monthly"}
 QUOTA_SAFE_CEILING = 9000     # leave headroom for reads/branding/retries
 COST_UPLOAD    = 1600
 COST_THUMBNAIL = 50
@@ -97,11 +106,20 @@ def upload_video(video_path: str, content: dict, seo_package: dict = None,
         raise FileNotFoundError(f"Video file not found: {video_path}")
 
     # Quota guard: never blow the daily limit. Queue for tomorrow instead.
-    if _would_exceed_quota(COST_UPLOAD + COST_THUMBNAIL + COST_COMMENT):
+    # CHANNEL PRIORITY (owner requirement 2026-07-19): the weekly / weekly-full
+    # / monthly horoscopes are the channel's anchor content — on their days
+    # their quota is RESERVED all day. A non-priority upload (daily, topic,
+    # prediction, tarot) must fit in what's left AFTER that reservation, or
+    # it queues for tomorrow; a priority upload checks only its own cost.
+    ctype = str(content.get("content_type", "")).lower()
+    reserve = 0 if ctype in PRIORITY_TYPES else reserved_units_today()
+    if _would_exceed_quota(COST_UPLOAD + COST_THUMBNAIL + COST_COMMENT + reserve):
         _queue_for_retry(video_path, content, seo_package, publish_at)
+        held = (f" ({reserve} units held for today's weekly/monthly horoscope)"
+                if reserve else "")
         raise RuntimeError(
             f"Daily YouTube quota ceiling reached "
-            f"({quota_spent_today()}/{DAILY_QUOTA_LIMIT} units used) — "
+            f"({quota_spent_today()}/{DAILY_QUOTA_LIMIT} units used{held}) — "
             f"video queued for retry at next reset."
         )
 
@@ -490,6 +508,16 @@ def process_retry_queue() -> int:
     remaining = []
     succeeded = 0
 
+    # Priority-first flush: when quota frees at midnight, any queued
+    # weekly/weekly-full/monthly uploads land BEFORE the backlog of
+    # lower-priority videos (channel policy — anchors first). Ties keep
+    # queue age order.
+    queue.sort(key=lambda it: (
+        str(it.get("content", {}).get("content_type", "")).lower()
+        not in PRIORITY_TYPES,
+        it.get("queued_at", ""),
+    ))
+
     for item in queue:
         if item.get("retry_after", "9999") > now:
             remaining.append(item)
@@ -529,6 +557,25 @@ def process_retry_queue() -> int:
 def _quota_day_key() -> str:
     # PT is UTC-8 (standard) / UTC-7 (DST); use -8 as a safe conservative bucket.
     return (_utcnow() - datetime.timedelta(hours=8)).strftime("%Y%m%d")
+
+
+def reserved_units_today(now=None) -> int:
+    """Units held back for TODAY'S still-pending priority uploads
+    (weekly on Sundays, weekly-full on Mondays, monthly on the 1st).
+    A priority video that has ALREADY uploaded today releases its
+    reservation immediately (checked via the uploads log run-key)."""
+    from datetime import datetime, timezone
+    now = now or datetime.now(timezone.utc)
+    tag = now.strftime("%Y%m%d")
+    pending = []
+    if now.weekday() == 6:                    # Sunday
+        pending.append(f"weekly_{tag}")
+    if now.weekday() == 0:                    # Monday
+        pending.append(f"weeklyfull_{tag}")
+    if now.day == 1:                          # 1st of the month
+        pending.append(f"monthly_{tag}")
+    per = COST_UPLOAD + COST_THUMBNAIL + COST_COMMENT
+    return per * sum(1 for key in pending if not find_uploaded(key))
 
 
 def quota_spent_today() -> int:

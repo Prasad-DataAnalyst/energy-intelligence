@@ -325,6 +325,11 @@ def _upload_flow(video_path: str, assets_json: str, thumb_path: str,
             "tags":           assets.get("tags", []),
             "date":           run_key,
             "privacy_status": "public",
+            # Drives the uploader's quota-priority logic: weekly/weeklyfull/
+            # monthly are the channel's anchors and get reserved quota on
+            # their days; everything else uploads only if quota remains.
+            "content_type":   assets.get("content_type",
+                                         getattr(args, "type", "") or "daily"),
         }
         # Publish at this type's staggered US-morning slot (DST-aware, see
         # _PUBLISH_ET_HOURS); if that moment already passed, schedule ASAP.
