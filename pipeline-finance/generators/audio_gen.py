@@ -163,17 +163,23 @@ async def _edge_tts_async(text: str, voice: str, output_path: Path, use_ssml: bo
     await communicate.save(str(output_path))
 
 
+# SSML is OFF by default: the edge-tts service mishandles raw SSML documents
+# (observed: a 505-word script produced only 66s of audio). Re-enable for
+# experimentation with ENABLE_SSML=true in .env.
+import os as _os
+_SSML_ENABLED = _os.getenv("ENABLE_SSML", "").lower() == "true"
+
+
 def _edge_tts(text: str, output_path: Path) -> Optional[float]:
-    """Primary TTS engine — edge-tts with SSML markup for natural delivery."""
+    """Primary TTS engine — edge-tts (plain text; SSML opt-in via ENABLE_SSML)."""
     try:
-        asyncio.run(_edge_tts_async(text, EDGE_TTS_VOICE, output_path, use_ssml=True))
+        asyncio.run(_edge_tts_async(text, EDGE_TTS_VOICE, output_path, use_ssml=_SSML_ENABLED))
         word_count = len(text.split())
         duration = (word_count / 155) * 60
         logger.debug("edge-tts → %s (%.1fs)", output_path.name, duration)
         return duration
     except Exception as exc:
-        logger.warning("edge-tts SSML failed, retrying plain text: %s", exc)
-        # Retry without SSML (in case of malformed markup)
+        logger.warning("edge-tts failed, retrying plain text: %s", exc)
         try:
             asyncio.run(_edge_tts_async(text, EDGE_TTS_VOICE, output_path, use_ssml=False))
             word_count = len(text.split())
@@ -518,6 +524,17 @@ def generate_audio(script_segments: dict[str, str], video_type: str) -> AudioTra
     merge_duration = _merge_audio_files(valid_paths, merged_path)
     if merge_duration:
         total_duration = merge_duration
+
+    # Sanity: actual merged audio must be near the word-count estimate.
+    # A large shortfall means the TTS engine swallowed part of the script.
+    total_words = sum(len(s.text.split()) for s in audio_segments)
+    expected_seconds = (total_words / 155) * 60
+    if expected_seconds > 30 and total_duration < expected_seconds * 0.6:
+        logger.error(
+            "Audio much shorter than script implies: %.0fs actual vs ~%.0fs expected "
+            "(%d words) — TTS likely truncated the narration!",
+            total_duration, expected_seconds, total_words,
+        )
 
     track = AudioTrack(
         video_type=video_type,

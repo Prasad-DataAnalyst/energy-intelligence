@@ -271,11 +271,13 @@ def _build_with_ffmpeg(assets: VideoAssets, output_path: Path) -> Optional[float
             "-vf", f"scale={settings.video_width}:{settings.video_height}:force_original_aspect_ratio=decrease,"
                    f"pad={settings.video_width}:{settings.video_height}:(ow-iw)/2:(oh-ih)/2:color=0A0A0F,"
                    f"fps={settings.video_fps}",
-            "-c:v", "libx264", "-preset", "medium", "-b:v", settings.video_bitrate,
+            # veryfast + modest bitrate: a shared-core free-tier VM cannot
+            # sustain "-preset medium -b:v 8000k" — it times out.
+            "-c:v", "libx264", "-preset", "veryfast", "-b:v", "3500k",
             str(raw_video),
         ]
 
-        result = subprocess.run(cmd_video, capture_output=True, text=True, timeout=300)
+        result = subprocess.run(cmd_video, capture_output=True, text=True, timeout=1800)
         if result.returncode != 0:
             logger.error("ffmpeg image concat failed: %s", result.stderr[-500:])
             return None
@@ -290,7 +292,7 @@ def _build_with_ffmpeg(assets: VideoAssets, output_path: Path) -> Optional[float
             "-shortest",
             str(output_path),
         ]
-        result = subprocess.run(cmd_mux, capture_output=True, text=True, timeout=120)
+        result = subprocess.run(cmd_mux, capture_output=True, text=True, timeout=600)
         if result.returncode != 0:
             logger.error("ffmpeg mux failed: %s", result.stderr[-500:])
             return None

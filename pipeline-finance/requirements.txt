@@ -28,7 +28,7 @@ pyttsx3>=2.90              # offline TTS fallback
 Pillow>=10.4.0
 
 # ── Video ─────────────────────────────────────────────────────────────────
-moviepy>=1.0.3
+moviepy>=1.0.3,<2.0        # 2.x removed moviepy.editor (API break)
 # ffmpeg must be installed separately:
 # Ubuntu: sudo apt install ffmpeg
 # Mac:    brew install ffmpeg
