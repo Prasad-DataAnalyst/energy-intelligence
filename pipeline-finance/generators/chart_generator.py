@@ -248,13 +248,13 @@ def generate_gainers_losers_chart(
     l_values = [l[1] for l in losers[:5]]
 
     ax1.barh(g_symbols, g_values, color=BRAND["green"], height=0.6, zorder=3)
-    ax1.set_title("Top Gainers 🟢", color=BRAND["green"], fontsize=12, fontweight="bold")
+    ax1.set_title("Top Gainers ▲", color=BRAND["green"], fontsize=12, fontweight="bold")
     ax1.grid(axis="x", zorder=0)
     for i, val in enumerate(g_values):
         ax1.text(val + 0.1, i, f"+{val:.2f}%", va="center", color=BRAND["green"], fontweight="bold")
 
     ax2.barh(l_symbols, l_values, color=BRAND["primary"], height=0.6, zorder=3)
-    ax2.set_title("Top Losers 🔴", color=BRAND["primary"], fontsize=12, fontweight="bold")
+    ax2.set_title("Top Losers ▼", color=BRAND["primary"], fontsize=12, fontweight="bold")
     ax2.grid(axis="x", zorder=0)
     for i, val in enumerate(l_values):
         ax2.text(val - 0.1, i, f"{val:.2f}%", va="center", ha="right", color=BRAND["primary"], fontweight="bold")

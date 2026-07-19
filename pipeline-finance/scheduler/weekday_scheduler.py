@@ -329,6 +329,17 @@ class WeekdayScheduler:
             # ── Step 7: Build video ────────────────────────────────────────
             self._log_step("7a/7", "Building main video")
             state.mark_started("build_video")
+
+            # Visual design v2: branded slides + Pexels B-roll + best charts,
+            # sequenced to follow the narration. Falls back to raw charts.
+            try:
+                from builders.slide_renderer import build_visual_sequence
+                chart_paths = build_visual_sequence(
+                    market, economic, chart_paths, title,
+                )
+            except Exception as exc:
+                logger.warning("Visual sequence failed — using raw charts: %s", exc)
+
             from builders.video_builder import build_video, VideoAssets
             if audio.merged_path:
                 video_assets = VideoAssets(

@@ -393,3 +393,120 @@ class TestLogoOverlay:
                 assert lo.ensure_channel_logo() is None
         finally:
             self._restore(lo, originals)
+
+
+# ── Visual design v2: slides + B-roll ─────────────────────────────────────────
+
+def _fake_market():
+    from types import SimpleNamespace
+    def snap(sym, price, pct):
+        return SimpleNamespace(symbol=sym, name=sym, price=price, change_pct=pct)
+    return SimpleNamespace(
+        sp500=snap("SPY", 743.29, -0.99),
+        nasdaq=snap("QQQ", 695.33, -1.50),
+        dow=snap("DIA", 520.81, -0.74),
+        vix=snap("^VIX", 18.77, 2.10),
+        top_gainers=[snap("CVX", 187.38, 1.91), snap("XOM", 147.36, 0.97)],
+        top_losers=[snap("META", 646.01, -2.79), snap("GS", 1065.22, -2.76)],
+    )
+
+
+class TestSlideRenderer:
+    def _tmp_slides(self, tmp_path):
+        from builders import slide_renderer as sr
+        original = sr.SLIDES_DIR
+        sr.SLIDES_DIR = tmp_path
+        return sr, original
+
+    def test_intro_slide_renders(self, tmp_path):
+        sr, original = self._tmp_slides(tmp_path)
+        try:
+            out = sr.render_intro_slide("S&P -0.99%: Why Tech Sold Off Hard Today")
+            assert out is not None and out.exists() and out.stat().st_size > 10000
+        finally:
+            sr.SLIDES_DIR = original
+
+    def test_market_slide_renders(self, tmp_path):
+        sr, original = self._tmp_slides(tmp_path)
+        try:
+            out = sr.render_market_slide(_fake_market())
+            assert out is not None and out.exists()
+        finally:
+            sr.SLIDES_DIR = original
+
+    def test_movers_slide_renders(self, tmp_path):
+        sr, original = self._tmp_slides(tmp_path)
+        try:
+            out = sr.render_movers_slide(_fake_market())
+            assert out is not None and out.exists()
+        finally:
+            sr.SLIDES_DIR = original
+
+    def test_outro_slide_renders(self, tmp_path):
+        sr, original = self._tmp_slides(tmp_path)
+        try:
+            out = sr.render_outro_slide()
+            assert out is not None and out.exists()
+        finally:
+            sr.SLIDES_DIR = original
+
+    def test_econ_slide_none_without_indicators(self, tmp_path):
+        from types import SimpleNamespace
+        sr, original = self._tmp_slides(tmp_path)
+        try:
+            assert sr.render_econ_slide(SimpleNamespace(indicators={})) is None
+        finally:
+            sr.SLIDES_DIR = original
+
+    def test_visual_sequence_assembles(self, tmp_path):
+        sr, original = self._tmp_slides(tmp_path)
+        try:
+            with patch("builders.broll_fetcher.get_broll_slides", return_value=[]):
+                visuals = sr.build_visual_sequence(
+                    _fake_market(), None, [], "Test Title"
+                )
+            # intro + market + movers + outro at minimum
+            assert len(visuals) >= 4
+            assert all(Path(v).exists() for v in visuals)
+        finally:
+            sr.SLIDES_DIR = original
+
+    def test_sequence_falls_back_to_charts_when_slides_fail(self, tmp_path):
+        sr, original = self._tmp_slides(tmp_path)
+        try:
+            chart = tmp_path / "index_chart.png"
+            chart.write_bytes(b"\x89PNG" + b"\x00" * 500)
+            with patch.object(sr, "render_intro_slide", return_value=None), \
+                 patch.object(sr, "render_market_slide", return_value=None), \
+                 patch.object(sr, "render_movers_slide", return_value=None), \
+                 patch.object(sr, "render_econ_slide", return_value=None), \
+                 patch.object(sr, "render_outro_slide", return_value=None), \
+                 patch("builders.broll_fetcher.get_broll_slides", return_value=[]):
+                visuals = sr.build_visual_sequence(_fake_market(), None, [chart], "T")
+            assert visuals == [chart]
+        finally:
+            sr.SLIDES_DIR = original
+
+
+class TestBrollFetcher:
+    def test_no_key_returns_empty(self):
+        from builders import broll_fetcher as bf
+        with patch.object(bf.settings, "pexels_api_key", "", create=True):
+            assert bf.get_broll_slides(["stock market"]) == []
+
+    def test_fetch_failure_is_non_fatal(self):
+        from builders import broll_fetcher as bf
+        with patch.object(bf.settings, "pexels_api_key", "fake-key", create=True), \
+             patch.object(bf, "fetch_photo", return_value=None):
+            assert bf.get_broll_slides(["stock market"], count=2) == []
+
+    def test_stylize_produces_branded_slide(self, tmp_path):
+        from builders import broll_fetcher as bf
+        from PIL import Image
+        photo = tmp_path / "photo.jpg"
+        Image.new("RGB", (1600, 900), color=(60, 90, 140)).save(photo)
+        out = bf.stylize_broll(photo, caption="META stock")
+        assert out is not None and out.exists()
+        img = Image.open(out)
+        from config.settings import settings
+        assert img.size == (settings.video_width, settings.video_height)
