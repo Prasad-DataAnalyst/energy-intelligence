@@ -19,6 +19,7 @@ YOUTUBE_CLIENT_SECRET = os.getenv("YOUTUBE_CLIENT_SECRET", "")
 FRED_API_KEY          = os.getenv("FRED_API_KEY", "")
 FINNHUB_API_KEY       = os.getenv("FINNHUB_API_KEY", "")
 PEXELS_API_KEY        = os.getenv("PEXELS_API_KEY", "")   # free stock photos for B-roll
+MARKETSTACK_API_KEY   = os.getenv("MARKETSTACK_API_KEY", "")   # backup EOD prices (100 req/mo — fallback only)
 ELEVENLABS_API_KEY    = os.getenv("ELEVENLABS_API_KEY", "")
 ELEVENLABS_VOICE_ID   = os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
 
@@ -342,6 +343,7 @@ settings = SimpleNamespace(
     fred_api_key           = FRED_API_KEY,
     finnhub_api_key        = FINNHUB_API_KEY,
     pexels_api_key         = PEXELS_API_KEY,
+    marketstack_api_key    = MARKETSTACK_API_KEY,
     youtube_client_secrets = OAUTH_FILE,
     channel_name           = CHANNEL_NAME,
     channel_handle         = CHANNEL_HANDLE,

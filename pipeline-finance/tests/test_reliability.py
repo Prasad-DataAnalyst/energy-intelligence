@@ -539,3 +539,37 @@ class TestMasterSchedulerJobs:
             "community_post", "description_refresh",
         }
         assert expected.issubset(set(registered)), f"Missing: {expected - set(registered)}"
+
+
+class TestMarketstackBackup:
+    def test_skipped_without_key(self):
+        from builders import fallback_builder as fb
+        with patch.object(fb.settings, "marketstack_api_key", "", create=True):
+            assert fb._marketstack_snapshot() is None
+
+    def test_snapshot_shape(self):
+        from builders import fallback_builder as fb
+        fake = MagicMock()
+        fake.raise_for_status.return_value = None
+        fake.json.return_value = {"data": [{"close": 743.5, "open": 750.0}]}
+        with patch.object(fb.settings, "marketstack_api_key", "k", create=True), \
+             patch("requests.get", return_value=fake):
+            snap = fb._marketstack_snapshot()
+        assert snap and "sp500" in snap
+        assert snap["sp500"]["price"] == 743.5
+
+    def test_api_error_is_non_fatal(self):
+        from builders import fallback_builder as fb
+        with patch.object(fb.settings, "marketstack_api_key", "k", create=True), \
+             patch("requests.get", side_effect=Exception("down")):
+            assert fb._marketstack_snapshot() is None
+
+    def test_fallback_script_uses_backup_when_no_cache(self):
+        from builders import fallback_builder as fb
+        backup = {"sp500": {"price": 743.5, "change_pct": -0.87},
+                  "nasdaq": {"change_pct": -1.2}, "vix": {"price": 19.0}}
+        with patch.object(fb, "_latest_market_json", return_value=None), \
+             patch.object(fb, "_marketstack_snapshot", return_value=backup):
+            script = fb.build_fallback_script()
+        assert "743.5" in script
+        assert "Narration is AI-generated" in script

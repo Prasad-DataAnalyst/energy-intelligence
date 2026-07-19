@@ -69,9 +69,41 @@ def _latest_market_json() -> Optional[dict]:
     return None
 
 
+def _marketstack_snapshot() -> Optional[dict]:
+    """
+    Disaster-day backup: fresh EOD closes from Marketstack (free tier,
+    100 requests/month — used ONLY when no cached market data exists,
+    i.e. when yfinance itself is the thing that broke). 3 requests/incident.
+    """
+    key = getattr(settings, "marketstack_api_key", "")
+    if not key:
+        return None
+    try:
+        import requests as _requests
+        out: dict = {}
+        for symbol, slot in (("SPY", "sp500"), ("QQQ", "nasdaq"), ("VIXY", "vix")):
+            resp = _requests.get(
+                "https://api.marketstack.com/v1/eod/latest",
+                params={"access_key": key, "symbols": symbol},
+                timeout=20,
+            )
+            resp.raise_for_status()
+            data = (resp.json().get("data") or [{}])[0]
+            close, open_ = data.get("close"), data.get("open")
+            if close:
+                pct = ((close - open_) / open_ * 100) if open_ else 0.0
+                out[slot] = {"price": round(close, 2), "change_pct": round(pct, 2)}
+        if "sp500" in out:
+            logger.info("Marketstack backup snapshot used (3 of 100 monthly requests)")
+            return out
+    except Exception as exc:
+        logger.warning("Marketstack backup failed: %s", exc)
+    return None
+
+
 def build_fallback_script() -> str:
     """Fill the cached-data template if market data exists, else evergreen."""
-    data = _latest_market_json()
+    data = _latest_market_json() or _marketstack_snapshot()
     if data:
         try:
             def _num(d: dict, *keys, default="unchanged"):
