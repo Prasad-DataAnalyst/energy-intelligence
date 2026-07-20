@@ -568,8 +568,18 @@ def build_video(assets: VideoAssets) -> BuiltVideo:
     safe_title = "".join(c for c in assets.title[:40] if c.isalnum() or c in " -_").strip().replace(" ", "_")
     output_path = OUTPUT_DIR / f"{assets.video_type}_{safe_title}_{timestamp}.mp4"
 
-    # Try MoviePy first
-    duration = _build_with_moviepy(assets, output_path)
+    # Builder selection: MoviePy renders frame-by-frame in Python — hours
+    # for a 4-minute video on a shared-core VM (and past the 2h production
+    # timeout). The ffmpeg path renders the same still-image timeline in
+    # ~20 min with the logo + end-card burned in. Low-power hosts set
+    # VIDEO_BUILDER=ffmpeg in .env to skip MoviePy entirely.
+    import os as _os
+    prefer_ffmpeg = _os.getenv("VIDEO_BUILDER", "").lower() == "ffmpeg"
+    if prefer_ffmpeg:
+        logger.info("VIDEO_BUILDER=ffmpeg — using direct ffmpeg build")
+        duration = None
+    else:
+        duration = _build_with_moviepy(assets, output_path)
 
     # Fallback to ffmpeg
     if duration is None or not output_path.exists():
