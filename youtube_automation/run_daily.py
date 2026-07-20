@@ -808,14 +808,19 @@ def run_all_signs_pipeline(args) -> int:
         # ── 2. Render slideshow video (retry once — transient ffmpeg/OOM/network
         #       hiccups shouldn't kill the whole day) ─────────────────────────────
         print(f"\n[2/4] Video    — rendering slideshow...")
-        # Per-attempt timeout is TYPE-AWARE: 45 min was tuned on the <=3-min
-        # daily and silently under-provisioned the long weekend types — the
-        # 2026-07-19 Sunday weekly (294s) timed out twice at exactly 45 min.
-        # Weekly gets 90 min, weekly-full 2h; publishes are hours later, the
-        # pipeline lock serializes any overlap, and the process-group kill
-        # cleans up a genuine hang, so generous headroom here costs nothing.
-        render_timeout = {"weekly": 5400, "weeklyfull": 7200,
-                          "deep": 7200}.get(ctype, 2700)
+        # Per-attempt timeout is TYPE-AWARE and sized for the WORST case on a
+        # burstable vCPU with spent credits (~25% baseline = ~4x wall clock,
+        # observed live 2026-07-19): one throttled captioned attempt PLUS the
+        # captionless last-resort tier must both fit inside a single attempt.
+        # Daily/monthly keep 45 min; weekly 2.5h; weekly-full 3.5h. Publishes
+        # are hours later, the pipeline lock serializes any overlap, and the
+        # process-group kill cleans up a genuine hang — headroom is free.
+        # Default 90 min (was 45): even the daily's captioned attempt can run
+        # to its inner cap AND still leave room for the captionless fallback
+        # inside ONE outer attempt. The 6:00/6:30 jobs tolerate this via the
+        # 90-min lock wait.
+        render_timeout = {"weekly": 9000, "weeklyfull": 12600,
+                          "deep": 12600}.get(ctype, 5400)
         ok = run_live([PYTHON, "make_daily_video.py", json_file],
                       timeout=render_timeout)
         if not ok:

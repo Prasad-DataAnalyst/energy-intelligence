@@ -92,9 +92,15 @@ def caption_fps_for(total_secs: float) -> int:
     frame count back in the proven range."""
     if total_secs <= 210:
         return CAPTION_FPS          # daily/monthly/topic/prediction/tarot
+    # Long types run late in the render day on a BURSTABLE vCPU: 2026-07-19
+    # the same weekly that rendered in 25 min at full burst timed out at 59
+    # min once the e2-micro's CPU credits were spent (~25% baseline ~= 4x
+    # wall clock). Frame counts are sized so even the throttled case fits
+    # the encode window. 6fps still samples a frame every 167ms — several
+    # frames inside even the shortest ~0.6s caption cue.
     if total_secs <= 340:
-        return 10                   # weekly: 296s x 10 = 2960 frames
-    return 8                        # weeklyfull/deep: 498s x 8 = 3984 frames
+        return 8                    # weekly: 296s x 8 = 2368 frames
+    return 6                        # weeklyfull/deep: 498s x 6 = 2988 frames
 
 SIGNS = [
     "aries","taurus","gemini","cancer","leo","virgo",
@@ -1786,11 +1792,12 @@ def assemble_video(png_files: list, durations: list,
     ]
 
     try:
-        # Encode timeout scales with content length: the fixed 2400s cap was
-        # tuned on <=3-min videos and silently under-provisioned the Sunday
-        # weekly / Monday weekly-full (12 wall-seconds per content-second
-        # covers the e2-micro's measured ~6.3 s/s with ~2x headroom).
-        enc_timeout = max(2400, int(total_secs * 12))
+        # Encode timeout scales with content length. 18 wall-seconds per
+        # content-second: the e2-micro is a BURSTABLE instance and, with CPU
+        # credits spent, runs at ~25% baseline — 2026-07-19 the weekly that
+        # took 25 min at full burst blew a 12x cap (59 min) when throttled.
+        # 18x plus the reduced caption fps covers the throttled case.
+        enc_timeout = max(2400, int(total_secs * 18))
         r1 = _sp.run(cmd1, capture_output=True, timeout=enc_timeout)
         if r1.returncode != 0:
             print(f"[ERROR] Video assembly: {r1.stderr.decode()[-300:]}", file=sys.stderr)
@@ -2145,6 +2152,18 @@ def process(json_path: str) -> str:
         if not ok:
             ok = assemble_video(png_files, durations, audio_path, video_path,
                                 srt_path=cap_srt, frame=frame)
+        if not ok and cap_srt:
+            # LAST-RESORT TIER — captionless static. The caption burn is what
+            # makes the encode expensive (the upsample multiplies output
+            # frames); without it the render is a fraction of the work and
+            # fits even a credit-throttled vCPU. An anchor video shipping
+            # without burned captions beats not shipping at all (2026-07-19:
+            # two identical captioned renders timed out back-to-back once
+            # the e2-micro's burst credits ran out).
+            print("      [WARN] Captioned assembly failed — retrying WITHOUT "
+                  "burned captions so the video still ships")
+            ok = assemble_video(png_files, durations, audio_path, video_path,
+                                srt_path=None, frame=frame)
         if not ok:
             print("[ERROR] Assembly failed", file=sys.stderr)
             sys.exit(1)
