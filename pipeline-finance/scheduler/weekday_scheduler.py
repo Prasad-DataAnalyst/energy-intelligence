@@ -334,8 +334,12 @@ class WeekdayScheduler:
             # sequenced to follow the narration. Falls back to raw charts.
             try:
                 from builders.slide_renderer import build_visual_sequence
+                # The script's closing question becomes the outro slide text
+                import re as _re
+                questions = _re.findall(r"([A-Z][^.!?]{10,90}\?)", script.script)
+                closing_q = questions[-1].strip() if questions else None
                 chart_paths = build_visual_sequence(
-                    market, economic, chart_paths, title,
+                    market, economic, chart_paths, title, question=closing_q,
                 )
             except Exception as exc:
                 logger.warning("Visual sequence failed — using raw charts: %s", exc)

@@ -105,13 +105,15 @@ Every claim grounded in data or a named source.
 Go granular: percentage moves, trading volume, comparisons to 52-week range or peer group,
 one historical parallel. Minimum three distinct numbers.
 
-[WHAT HAPPENS NEXT] — 25 seconds
+[TOMORROW] — 25 seconds
 Forward-looking but never predictive. Frame as: "Traders are watching…" / "Key level to monitor…"
-No price targets. No guarantees.
+Include the next catalyst (data release or earnings), one risk that could extend the move,
+and one development that could reverse it. No price targets. No guarantees.
 
 [CTA] — 15 seconds
-"If this caught you off guard, subscribe so the next move doesn't. Drop a comment — \
-did you see this coming?"
+One specific either/or question tied to today's move, then one short subscribe line.
+Example shape: "Overreaction or the start of a bigger move? Tell me below — and subscribe
+so tomorrow's brief finds you."
 
 Compliance rules (non-negotiable):
 - Must include at least one of: "according to", "data shows", "reported", "as of today",
@@ -144,25 +146,48 @@ This is a meaningful but not explosive event (2–4.99% move).
 Tone: confident, informed market anchor — authoritative without being breathless.
 Word count: 420-500 words.
 
+Voice: a sharp market analyst explaining the day to a friend — think premium
+documentary narration, not a system reading a spreadsheet. Vary sentence
+length and openings; never reuse yesterday's phrasing patterns.
+
 Use these EXACT section headers:
 
-[HOOK] — 5 seconds
-Crisp data-driven opener. Intrigue over alarm. Use: "{hook}"
+[HOOK] — 8 seconds
+FIRST SENTENCE must deliver the day's core result: the index and its exact
+percentage move. SECOND sentence promises the payoff: "Here are the three
+reasons behind the move — and the one level to watch tomorrow." Adapt the
+wording to today's story; keep the promise structure. No greetings, no
+channel intro. You may adapt: "{hook}"
 
-[STORY] — 60 seconds
-Full narrative: what moved, by how much, when, and triggered by which catalyst.
-Two or more specific data points. Cause and effect clearly connected.
+[MARKET] — 15 seconds
+The close in four beats: S&P 500, Nasdaq, Dow, and one standout (VIX, yields,
+or Russell). Exact numbers, brisk delivery.
 
-[ANALYSIS] — 60 seconds
-Deeper read: what does this move reveal about the sector, macro environment, or investor sentiment?
-Connect to at least one broader theme. Source every assertion.
+[WHY] — 60 seconds
+THE HEART OF THE VIDEO. Exactly three numbered reasons for today's move
+("First... Second... Third..."). Each reason: what happened + one supporting
+statistic + one plain-English sentence on why it matters. Never just say
+prices fell — explain the cause chain.
 
-[CONTEXT] — 25 seconds
-Upcoming catalysts to monitor: earnings dates, Fed meetings, data releases.
-Frame as "watch for" — never as a price prediction.
+[MOVERS] — 40 seconds
+The 2-3 most significant single stocks. For each: name (say the company name,
+not just the ticker), the move, and WHY it moved. Skip a laundry list of
+tickers — depth on three beats breadth on ten.
 
-[CTA] — 15 seconds
-Invite engagement: a specific question for the comments + subscribe reminder.
+[SECTORS] — 20 seconds
+Only the strongest sector and the weakest sector, with one line each on why.
+
+[TOMORROW] — 30 seconds
+The most valuable section — never omit. Cover: the next economic release or
+earnings report that matters, the key S&P level traders are watching (use
+today's actual high/low/close from the data), one risk that could extend the
+move, and one development that could reverse it. Frame everything as "watch
+for" — never predictions or price targets.
+
+[CTA] — 12 seconds
+End with ONE specific either/or question tied to today's story (e.g. "Normal
+pullback, or the start of something bigger? Tell me below."). Then a single
+short subscribe line. No generic "like and subscribe" filler.
 
 Compliance rules (non-negotiable):
 - Must include at least one credibility anchor: "according to", "data shows", "reported",
@@ -494,6 +519,17 @@ Title rules — every option must:
 - Lead with a target keyword in the first 5 words (stock, market, S&P, Fed, earnings, etc.)
 - Trigger curiosity or urgency — factual, never misleading
 - Avoid starting with "How to" (this is news, not a tutorial)
+- MATCH INTENSITY TO MAGNITUDE: moves under 3% must use factual verbs
+  (falls, drops, slides, hits) — NEVER "wrecks", "crashes", "destroys",
+  "meltdown", "carnage". A -0.99% day titled "wrecks the market" breaks
+  viewer trust and YouTube's misleading-metadata policy. Reserve dramatic
+  language for genuinely dramatic (≥3-5%) moves.
+
+Proven patterns to draw from (searchable + factual + curiosity):
+- "Why Tech Stocks Fell Today | S&P 500 Down 0.99%"
+- "S&P 500 Drops 0.99%: What Caused the Tech Sell-Off?"
+- "Tech Sell-Off Hits the Market | S&P 500 Falls 0.99%"
+- "Tech Stocks Turn Lower — What Investors Should Watch Next"
 
 Score each option 0-100:
   - keyword_placement (target word in first 5 words): 0-35
@@ -606,8 +642,11 @@ TAGS / KEYWORDS: {tags}
 Write all sections in order:
 
 HOOK PARAGRAPH (first 150 chars are critical — shown before "show more"):
-2-3 punchy sentences that mirror the title's promise and include the key stat.
-This is the most important section for SEO and click-through.
+2-3 factual sentences that summarize the day's result and its cause, mirroring
+the title's promise and including the key stat. Model: "US stocks closed lower
+as technology shares led the decline, with the S&P 500 falling 0.99%. This
+recap explains the index moves, the biggest movers, sector performance, and
+what to watch in the next session." Adapt to today's actual story.
 
 WHAT YOU WILL LEARN (bullet points):
 • 3-5 bullet points covering the main takeaways of this video.

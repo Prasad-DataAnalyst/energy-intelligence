@@ -231,6 +231,10 @@ def generate_title_set(
         ]
         logger.warning("Using fallback titles — Claude generation failed")
 
+    # Tone guard: no "wrecks/crash" language on sub-3% days
+    move_pct = _move_pct_from_stat(effective_anchor)
+    raw_titles = [sanitize_title_tone(t, move_pct) for t in raw_titles]
+
     scored = sorted([_score_title(t) for t in raw_titles], key=lambda s: s.total_score, reverse=True)
     winner = scored[0]
     ab_pair = (scored[0], scored[1]) if len(scored) >= 2 else (scored[0], scored[0])
@@ -382,6 +386,55 @@ class TitleGenerator:
 
         logger.error("Promise check failed after %d attempts — using original title", max_attempts)
         return title
+
+
+# ── Title Tone Guard ──────────────────────────────────────────────────────────
+# Dramatic verbs are reserved for genuinely dramatic moves. A -0.99% day
+# titled "...Wrecks the Market" erodes trust (and YouTube policy prohibits
+# titles that overpromise). Below the threshold, hype verbs are swapped for
+# factual equivalents.
+
+_HYPE_THRESHOLD_PCT = 3.0
+
+_HYPE_REPLACEMENTS = {
+    "wrecks": "hits", "wrecked": "hit", "wrecking": "hitting",
+    "crashes": "drops", "crash": "drop", "crashing": "falling",
+    "destroys": "drags down", "destroyed": "dragged down",
+    "collapses": "declines", "collapse": "decline",
+    "implodes": "slides", "implosion": "slide",
+    "meltdown": "sell-off", "carnage": "sell-off", "bloodbath": "sell-off",
+    "obliterates": "pressures", "annihilates": "pressures",
+    "panic": "pressure", "chaos": "volatility",
+}
+
+
+def sanitize_title_tone(title: str, move_pct: Optional[float]) -> str:
+    """
+    Replace hyperbolic verbs with factual ones when the day's index move
+    is below _HYPE_THRESHOLD_PCT. Case-preserving on first letter.
+    """
+    if move_pct is not None and abs(move_pct) >= _HYPE_THRESHOLD_PCT:
+        return title
+    result = title
+    for hype, calm in _HYPE_REPLACEMENTS.items():
+        pattern = re.compile(rf"\b{hype}\b", re.IGNORECASE)
+
+        def _swap(m: "re.Match") -> str:
+            word = m.group(0)
+            return calm.capitalize() if word[0].isupper() else calm
+
+        new_result = pattern.sub(_swap, result)
+        if new_result != result:
+            logger.info("Title tone guard: '%s' → '%s' (move %.2f%%)",
+                        hype, calm, move_pct if move_pct is not None else 0.0)
+            result = new_result
+    return result
+
+
+def _move_pct_from_stat(key_stat: str) -> Optional[float]:
+    """Extract a percentage magnitude from a key_stat like 'S&P -0.99%'."""
+    m = re.search(r"([+-]?\d+(?:\.\d+)?)\s*%", key_stat or "")
+    return float(m.group(1)) if m else None
 
 
 # ── Description Metadata Footer ───────────────────────────────────────────────

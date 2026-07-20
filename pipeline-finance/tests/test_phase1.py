@@ -510,3 +510,101 @@ class TestBrollFetcher:
         img = Image.open(out)
         from config.settings import settings
         assert img.size == (settings.video_width, settings.video_height)
+
+
+# ── Editorial quality upgrades (video review feedback) ────────────────────────
+
+class TestTitleToneGuard:
+    def test_hype_softened_on_small_move(self):
+        from generators.title_gen import sanitize_title_tone
+        out = sanitize_title_tone("S&P -0.99%: Tech Sell-Off Wrecks the Market", -0.99)
+        assert "Wrecks" not in out and "wrecks" not in out
+        assert "hits" in out.lower()
+
+    def test_hype_kept_on_big_move(self):
+        from generators.title_gen import sanitize_title_tone
+        out = sanitize_title_tone("Market Crash: S&P Plunges 6%", -6.0)
+        assert "Crash" in out
+
+    def test_case_preserved(self):
+        from generators.title_gen import sanitize_title_tone
+        out = sanitize_title_tone("Carnage on Wall Street", -1.2)
+        assert out.startswith("Sell-off")
+
+    def test_move_pct_parse(self):
+        from generators.title_gen import _move_pct_from_stat
+        assert _move_pct_from_stat("S&P -0.99%") == -0.99
+        assert _move_pct_from_stat("S&P +5.2%") == 5.2
+        assert _move_pct_from_stat("no numbers") is None
+
+    def test_clean_title_untouched(self):
+        from generators.title_gen import sanitize_title_tone
+        t = "Why Tech Stocks Fell Today | S&P 500 Down 0.99%"
+        assert sanitize_title_tone(t, -0.99) == t
+
+
+class TestScriptStructureV2:
+    def test_tier2_has_new_sections(self):
+        from config.prompts import WEEKDAY_SCRIPT_TIER2_PROMPT as p
+        for section in ("[HOOK]", "[MARKET]", "[WHY]", "[MOVERS]",
+                        "[SECTORS]", "[TOMORROW]", "[CTA]"):
+            assert section in p, f"missing {section}"
+
+    def test_tier2_demands_three_reasons_and_question(self):
+        from config.prompts import WEEKDAY_SCRIPT_TIER2_PROMPT as p
+        assert "three numbered reasons" in p.lower() or "exactly three" in p.lower()
+        assert "either/or question" in p.lower()
+
+    def test_tier1_has_tomorrow(self):
+        from config.prompts import WEEKDAY_SCRIPT_TIER1_PROMPT as p
+        assert "[TOMORROW]" in p
+
+    def test_title_prompt_has_intensity_rule(self):
+        from config.prompts import TITLE_MAIN_PROMPT as p
+        assert "MATCH INTENSITY TO MAGNITUDE" in p
+
+
+class TestTomorrowSlide:
+    def test_renders_with_lines(self, tmp_path):
+        from builders import slide_renderer as sr
+        original = sr.SLIDES_DIR
+        sr.SLIDES_DIR = tmp_path
+        try:
+            out = sr.render_tomorrow_slide(["Next Fed meeting: Sept 17",
+                                            "CPI release Thursday"])
+            assert out is not None and out.exists()
+        finally:
+            sr.SLIDES_DIR = original
+
+    def test_none_with_empty_lines(self, tmp_path):
+        from builders import slide_renderer as sr
+        original = sr.SLIDES_DIR
+        sr.SLIDES_DIR = tmp_path
+        try:
+            assert sr.render_tomorrow_slide([]) is None
+        finally:
+            sr.SLIDES_DIR = original
+
+    def test_outro_wraps_question(self, tmp_path):
+        from builders import slide_renderer as sr
+        original = sr.SLIDES_DIR
+        sr.SLIDES_DIR = tmp_path
+        try:
+            out = sr.render_outro_slide(
+                "Do you think this is a normal pullback or a bigger correction?"
+            )
+            assert out is not None and out.exists()
+        finally:
+            sr.SLIDES_DIR = original
+
+
+class TestAnalystPacing:
+    def test_comma_after_percent(self):
+        from generators.audio_gen import _clean_for_tts
+        out = _clean_for_tts("The index fell 0.99% today after yields rose.")
+        assert "percent, today" in out
+
+    def test_no_double_comma(self):
+        from generators.audio_gen import _clean_for_tts
+        out = _clean_for_tts("It dropped 2%, then recovered.")
+        assert ",," not in out

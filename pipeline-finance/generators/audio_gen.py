@@ -85,6 +85,15 @@ def _clean_for_tts(text: str) -> str:
     text = re.sub(r"\*{1,2}(.+?)\*{1,2}", r"\1", text)
     text = re.sub(r"#{1,4}\s", "", text)
     text = re.sub(r"\s{2,}", " ", text)
+
+    # Analyst pacing: a brief pause after key figures, achieved through
+    # punctuation (SSML is unreliable on edge-tts). "fell 0.99 percent
+    # today" → "fell 0.99 percent, today" — the comma yields a natural beat.
+    text = re.sub(r"(percent)(\s+)(?=[a-z])", r"\1,\2", text)
+    text = re.sub(r"(percentage points?)(\s+)(?=[a-z])", r"\1,\2", text)
+    text = re.sub(
+        r"(dollars\s+(?:billion|million|trillion))(\s+)(?=[a-z])", r"\1,\2", text
+    )
     return text.strip()
 
 

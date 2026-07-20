@@ -142,7 +142,8 @@ def render_market_slide(market) -> Optional[Path]:
     """Dashboard: S&P / Nasdaq / Dow / VIX as four big-number panels."""
     try:
         img, draw, w, h = _canvas()
-        draw.text((w // 2, int(h * 0.10)), "WHERE THE MARKET CLOSED",
+        draw.text((w // 2, int(h * 0.10)),
+                  f"MARKET CLOSE — {datetime.now().strftime('%b %d').upper()}",
                   font=_font(int(h * 0.042)), fill=TEXT, anchor="mm")
         _paste_logo(img, w, h)
 
@@ -250,18 +251,68 @@ def render_econ_slide(economic) -> Optional[Path]:
         return None
 
 
-def render_outro_slide() -> Optional[Path]:
-    """Closing card: what to watch + subscribe prompt."""
+def render_tomorrow_slide(lines: list[str]) -> Optional[Path]:
+    """'What could move the market tomorrow?' — the highest-value section."""
+    try:
+        rows = [l for l in lines if l][:4]
+        if not rows:
+            return None
+        img, draw, w, h = _canvas()
+        draw.text((w // 2, int(h * 0.10)), "WHAT COULD MOVE THE MARKET TOMORROW?",
+                  font=_font(int(h * 0.038)), fill=GOLD, anchor="mm")
+        _paste_logo(img, w, h)
+
+        margin_x, top = int(w * 0.08), int(h * 0.20)
+        row_h = int(h * 0.15)
+        for i, line in enumerate(rows):
+            y0 = top + i * (row_h + int(h * 0.02))
+            _panel(draw, (margin_x, y0, w - margin_x, y0 + row_h),
+                   fill=SURFACE if i % 2 == 0 else SURFACE2, radius=14)
+            draw.text((margin_x + int(w * 0.025), y0 + row_h // 2), "▸",
+                      font=_font(int(h * 0.040)), fill=ACCENT, anchor="lm")
+            draw.text((margin_x + int(w * 0.07), y0 + row_h // 2), line[:60],
+                      font=_font(int(h * 0.030), bold=False), fill=TEXT, anchor="lm")
+
+        _brand_footer(draw, w, h)
+        return _save(img, "tomorrow")
+    except Exception as exc:
+        logger.warning("Tomorrow slide failed: %s", exc)
+        return None
+
+
+_DEFAULT_QUESTION = "Pullback — or the start of something bigger?"
+
+
+def render_outro_slide(question: Optional[str] = None) -> Optional[Path]:
+    """Closing card: FINAL TAKEAWAY question + subscribe prompt."""
     try:
         img, draw, w, h = _canvas()
-        _paste_logo(img, w, h, size_ratio=0.15, pos="center-top")
-        draw.text((w // 2, int(h * 0.44)), "NEW BRIEFINGS EVERY MARKET DAY",
-                  font=_font(int(h * 0.046)), fill=TEXT, anchor="mm")
-        draw.text((w // 2, int(h * 0.56)), "8 AM pre-market  •  5 PM close  •  Sunday deep-dives",
-                  font=_font(int(h * 0.030), bold=False), fill=MUTED, anchor="mm")
-        _panel(draw, (w // 2 - int(w * 0.14), int(h * 0.66), w // 2 + int(w * 0.14), int(h * 0.76)),
+        _paste_logo(img, w, h, size_ratio=0.13, pos="center-top")
+        draw.text((w // 2, int(h * 0.36)), "FINAL TAKEAWAY",
+                  font=_font(int(h * 0.032)), fill=ACCENT, anchor="mm")
+
+        q = (question or _DEFAULT_QUESTION).strip()
+        # Wrap to two lines
+        words, lines_out, line = q.split(), [], ""
+        for word in words:
+            trial = f"{line} {word}".strip()
+            if len(trial) > 38 and line:
+                lines_out.append(line)
+                line = word
+            else:
+                line = trial
+        lines_out.append(line)
+        y = int(h * 0.47)
+        for text_line in lines_out[:2]:
+            draw.text((w // 2, y), text_line,
+                      font=_font(int(h * 0.048)), fill=TEXT, anchor="mm")
+            y += int(h * 0.075)
+
+        draw.text((w // 2, y + int(h * 0.02)), "Share your view in the comments",
+                  font=_font(int(h * 0.028), bold=False), fill=MUTED, anchor="mm")
+        _panel(draw, (w // 2 - int(w * 0.14), int(h * 0.74), w // 2 + int(w * 0.14), int(h * 0.84)),
                fill=(190, 30, 45), radius=16)
-        draw.text((w // 2, int(h * 0.71)), "SUBSCRIBE",
+        draw.text((w // 2, int(h * 0.79)), "SUBSCRIBE",
                   font=_font(int(h * 0.038)), fill=TEXT, anchor="mm")
         _brand_footer(draw, w, h)
         return _save(img, "outro")
@@ -270,7 +321,29 @@ def render_outro_slide() -> Optional[Path]:
         return None
 
 
-def build_visual_sequence(market, economic, chart_paths: list, title: str) -> list:
+def _tomorrow_lines(economic) -> list[str]:
+    """Extract catalyst lines for the Tomorrow slide from economic data."""
+    lines: list[str] = []
+    try:
+        if economic is not None:
+            fed = getattr(economic, "fed_next_meeting", None)
+            if fed:
+                lines.append(f"Next Fed meeting: {fed}")
+            for event in list(getattr(economic, "surprise_events", []))[:2]:
+                lines.append(str(event)[:60])
+    except Exception:
+        pass
+    if not lines:
+        lines = [
+            "Next major economic data release",
+            "Key S&P 500 levels from today's range",
+            "Treasury yield direction",
+        ]
+    return lines
+
+
+def build_visual_sequence(market, economic, chart_paths: list, title: str,
+                          question: Optional[str] = None) -> list:
     """
     Assemble the ordered visual timeline for a weekday video: branded
     slides + topical Pexels B-roll photos + the most video-friendly charts.
@@ -308,8 +381,9 @@ def build_visual_sequence(market, economic, chart_paths: list, title: str) -> li
         charts.get("gainers"),
         render_econ_slide(economic) if economic is not None else None,
         charts.get("candlestick"),
+        render_tomorrow_slide(_tomorrow_lines(economic)),
         _pick(2),
-        render_outro_slide(),
+        render_outro_slide(question),
     ]
     visuals = [p for p in sequence if p is not None]
     if len(visuals) < 3:

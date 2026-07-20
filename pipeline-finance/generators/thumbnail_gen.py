@@ -242,7 +242,14 @@ TITLE: {title}
 KEY STAT: {key_stat}
 SENTIMENT: {sentiment}
 
-Rules: headline max 3 words ALL CAPS, subtext max 4 words, emoji relevant to market sentiment.
+Rules — three visual elements ONLY (headline, the big stat, ticker):
+- headline: max 3 words ALL CAPS, factual — match intensity to magnitude.
+  Moves under 3% must NOT say CRASH / WRECKED / MELTDOWN / CARNAGE —
+  use SELL-OFF / SLIDE / TECH DROPS instead. YouTube penalizes
+  thumbnails that overpromise vs. the actual content.
+- subtext: max 4 words, must include the key stat number itself.
+- No paragraph text, no more than one number besides the key stat.
+- emoji relevant to market sentiment.
 
 Return ONLY valid JSON:
 {{"headline": "<3-word ALL CAPS>", "subtext": "<max 4 words>", "ticker": "<symbol or null>", "emoji": "<single emoji>"}}"""
