@@ -30,8 +30,24 @@ def _send_email(subject: str, body: str) -> bool:
     smtp_pass = os.environ.get("SMTP_PASS", "")
     alert_email = os.environ.get("ALERT_EMAIL", smtp_user)
 
+    # Always leave a visible artifact on disk, even when email works — so a
+    # human inspecting the VM sees outages without reading the full log.
+    try:
+        alert_file = settings.logs_dir / "ALERT_LATEST.txt"
+        settings.logs_dir.mkdir(parents=True, exist_ok=True)
+        alert_file.write_text(
+            f"{datetime.now().isoformat()}\n{subject}\n\n{body}\n", encoding="utf-8"
+        )
+    except Exception as exc:
+        logger.error("Could not write alert file: %s", exc)
+
     if not all([smtp_host, smtp_user, smtp_pass, alert_email]):
-        logger.warning("SMTP not configured — dead-man alert logged only: %s", subject)
+        # Loud: unconfigured alerting is why an outage can run for days unnoticed.
+        logger.error(
+            "ALERT NOT DELIVERED — SMTP is not configured in .env, so this "
+            "outage would go unnoticed. Set SMTP_HOST/SMTP_USER/SMTP_PASS/"
+            "ALERT_EMAIL. Alert written to logs/ALERT_LATEST.txt: %s", subject,
+        )
         return False
 
     try:

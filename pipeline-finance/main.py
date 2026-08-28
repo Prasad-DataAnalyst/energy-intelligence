@@ -208,6 +208,11 @@ def cmd_quota() -> int:
     return 0
 
 
+def cmd_health() -> int:
+    from monitor.health_report import run_health_report
+    return run_health_report()
+
+
 def cmd_test() -> int:
     import subprocess
     result = subprocess.run(
@@ -246,6 +251,8 @@ def main() -> int:
     parser.add_argument("--run", choices=["weekday", "sunday", "monitor"],
                         help="(Legacy) Run a specific pipeline once")
     parser.add_argument("--quota", action="store_true", help="Show API quota status")
+    parser.add_argument("--health", action="store_true",
+                        help="Full diagnosis: why is nothing publishing?")
     parser.add_argument("--test", action="store_true", help="Run test suite")
     parser.add_argument("--log-level", default="INFO",
                         choices=["DEBUG", "INFO", "WARNING", "ERROR"])
@@ -270,6 +277,8 @@ def main() -> int:
         return cmd_run_sunday(dry_run=args.dry_run)
 
     # ── Legacy --run/--quota/--test routing ───────────────────────────────
+    if args.health:
+        return cmd_health()
     if args.quota:
         return cmd_quota()
     if args.test:
