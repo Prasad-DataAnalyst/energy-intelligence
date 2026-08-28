@@ -573,3 +573,116 @@ class TestMarketstackBackup:
             script = fb.build_fallback_script()
         assert "743.5" in script
         assert "Narration is AI-generated" in script
+
+
+# ── Health report (outage diagnosis) ──────────────────────────────────────────
+
+class TestHealthReport:
+    def test_disk_check_flags_full_disk(self):
+        from monitor import health_report as hr
+        from collections import namedtuple
+        Usage = namedtuple("Usage", "total used free")
+        with patch("shutil.disk_usage", return_value=Usage(100e9, 99.5e9, 0.5e9)):
+            status, label, detail = hr._check_disk()
+        assert status == hr._FAIL
+        assert "WILL fail" in detail
+
+    def test_disk_check_ok(self):
+        from monitor import health_report as hr
+        from collections import namedtuple
+        Usage = namedtuple("Usage", "total used free")
+        with patch("shutil.disk_usage", return_value=Usage(100e9, 40e9, 60e9)):
+            status, _, _ = hr._check_disk()
+        assert status == hr._OK
+
+    def test_daemon_crash_loop_detected(self):
+        from monitor import health_report as hr
+        proc = MagicMock(stdout="activating\n", stderr="")
+        with patch("subprocess.run", return_value=proc):
+            status, _, detail = hr._check_daemon()
+        assert status == hr._FAIL
+        assert "activating" in detail
+
+    def test_daemon_active_ok(self):
+        from monitor import health_report as hr
+        proc = MagicMock(stdout="active\n", stderr="")
+        with patch("subprocess.run", return_value=proc):
+            status, _, _ = hr._check_daemon()
+        assert status == hr._OK
+
+    def test_missing_heartbeat_is_failure(self, tmp_path):
+        from monitor import health_report as hr
+        with patch.object(hr.settings, "logs_dir", tmp_path):
+            status, _, detail = hr._check_heartbeat()
+        assert status == hr._FAIL
+        assert "never written" in detail
+
+    def test_stale_heartbeat_is_failure(self, tmp_path):
+        import os, time
+        from monitor import health_report as hr
+        hb = tmp_path / "heartbeat.log"
+        hb.write_text("beat")
+        old = time.time() - 6 * 3600
+        os.utime(hb, (old, old))
+        with patch.object(hr.settings, "logs_dir", tmp_path):
+            status, _, detail = hr._check_heartbeat()
+        assert status == hr._FAIL
+        assert "stale" in detail
+
+    def test_fresh_heartbeat_ok(self, tmp_path):
+        from monitor import health_report as hr
+        (tmp_path / "heartbeat.log").write_text("beat")
+        with patch.object(hr.settings, "logs_dir", tmp_path):
+            status, _, _ = hr._check_heartbeat()
+        assert status == hr._OK
+
+    def test_alerting_unconfigured_is_failure(self):
+        from monitor import health_report as hr
+        with patch.dict(os.environ, {"SMTP_HOST": "", "SMTP_USER": "", "SMTP_PASS": ""}):
+            status, _, detail = hr._check_alerting()
+        assert status == hr._FAIL
+        assert "silent" in detail
+
+    def test_alerting_configured_ok(self):
+        from monitor import health_report as hr
+        env = {"SMTP_HOST": "smtp.gmail.com", "SMTP_USER": "a@b.com",
+               "SMTP_PASS": "x", "ALERT_EMAIL": "me@b.com"}
+        with patch.dict(os.environ, env):
+            status, _, _ = hr._check_alerting()
+        assert status == hr._OK
+
+    def test_stale_uploads_flagged(self):
+        from monitor import health_report as hr
+        old = (date.today() - timedelta(days=39)).isoformat() + "T02:35:00"
+        records = [{"uploaded_at": old, "video_type": "weekday", "title": "Old"}]
+        with patch("uploader.uploader.load_upload_manifest", return_value=records):
+            status, _, detail, lines = hr._check_uploads()
+        assert status == hr._FAIL
+        assert "39 days ago" in detail
+        assert len(lines) == 1
+
+    def test_no_pipeline_runs_flagged(self, tmp_path):
+        from monitor import health_report as hr
+        import scheduler.pipeline_state as ps
+        original = ps.STATE_DIR
+        ps.STATE_DIR = tmp_path
+        try:
+            status, _, detail, _ = hr._check_pipeline_states()
+            assert status == hr._FAIL
+            assert "NO runs attempted" in detail
+        finally:
+            ps.STATE_DIR = original
+
+    def test_failed_run_surfaces_its_error(self, tmp_path):
+        from monitor import health_report as hr
+        import scheduler.pipeline_state as ps
+        original = ps.STATE_DIR
+        ps.STATE_DIR = tmp_path
+        try:
+            state = ps.PipelineState("weekday")
+            state.mark_started("build_video")
+            state.mark_failed("build_video", "ffmpeg timed out")
+            _, _, _, lines = hr._check_pipeline_states()
+            assert any("ffmpeg timed out" in l for l in lines)
+        finally:
+            ps.STATE_DIR = original

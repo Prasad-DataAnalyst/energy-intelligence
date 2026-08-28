@@ -15,6 +15,11 @@
 Description=DriftWire326 YouTube automation scheduler
 After=network-online.target
 Wants=network-online.target
+# A genuine startup bug restarts forever and sits in "activating", which looks
+# almost like "running". Give transient faults room to recover, then stop and
+# show "failed" so the problem is visible.
+StartLimitIntervalSec=600
+StartLimitBurst=5
 
 [Service]
 Type=simple

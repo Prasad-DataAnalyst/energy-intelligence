@@ -203,15 +203,31 @@ def run_description_refresh() -> None:
 
 def start_scheduler() -> None:
     """Start APScheduler with all jobs configured."""
+    # Logging first: a startup crash must land in the log, not vanish into
+    # a systemd restart loop.
+    _setup_logging()
+
     try:
         from apscheduler.schedulers.blocking import BlockingScheduler
         from apscheduler.triggers.cron import CronTrigger
-    except ImportError:
-        logger.error("APScheduler not installed. Run: pip install apscheduler")
+    except ImportError as exc:
+        logger.error(
+            "Cannot import APScheduler 3.x (%s). Version 4.x removed "
+            "apscheduler.schedulers.blocking — install the supported line: "
+            "pip install 'APScheduler>=3.10.4,<4.0'", exc,
+        )
         sys.exit(1)
 
-    _setup_logging()
     tz = settings.timezone
+
+    # Prove liveness immediately — the heartbeat file is how an operator (and
+    # `main.py --health`) distinguishes "daemon running its jobs" from
+    # "daemon crash-looping". Waiting for the first :00/:30 tick hid a
+    # start-up crash loop for weeks.
+    try:
+        run_heartbeat()
+    except Exception as exc:
+        logger.warning("Startup heartbeat failed: %s", exc)
 
     scheduler = BlockingScheduler(timezone=tz)
 

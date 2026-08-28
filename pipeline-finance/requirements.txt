@@ -44,7 +44,7 @@ google-auth-httplib2>=0.2.0
 # Auth token saved separately as config/analytics_token.json
 
 # ── Scheduling ────────────────────────────────────────────────────────────
-APScheduler>=3.10.4
+APScheduler>=3.10.4,<4.0    # 4.x removed apscheduler.schedulers.blocking (API break)
 pytz>=2024.1                # required by APScheduler 3.x for timezone handling
 tzdata>=2024.1              # timezone database
 
