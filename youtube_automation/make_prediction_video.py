@@ -44,8 +44,17 @@ CAT = {
 }
 DEFAULT = ((255, 215, 0), (16, 12, 2), (40, 30, 6))
 
-_MOTION_FRAME_BUDGET = 1400
-_MOTION_TIMEOUT = 1200
+# MODERN-SMOOTH MOTION. These videos are SHORT (~75-90s), so a high frame
+# rate is affordable here in a way it never is for the 5-8 minute horoscopes:
+# 90s x 24fps = 2160 frames, still under the daily Short's proven 2610.
+# 12fps Ken Burns is the single biggest "dated slideshow" tell — a slow zoom
+# sampled 12 times a second visibly stutters, while 24fps reads as film.
+# (Budget/timeout raised together: the timeout must cover a CPU-credit
+# throttled encode of the larger frame count — see make_daily_video's
+# caption_fps_for note on the 2026-07-19 burst-credit incident.)
+_MOTION_FRAME_BUDGET = 2300
+_MOTION_MAX_FPS = 24
+_MOTION_TIMEOUT = 2400
 
 
 def _accent(cat):
@@ -174,14 +183,23 @@ def render_beat(beat, idx, total, cat, photo_path=None,
                         radius=14, fill=(*accent, 70), outline=(*accent, 230), width=2)
     d.text((PW - PAD - tw - 22, 101), tag, font=nf, fill=WHITE)
 
-    # heading, top-left (stays up the whole beat)
-    hf = mdv._display_font(84, weight=700)
-    y = 96
+    # heading, top-left (stays up the whole beat). 84 -> 108: at 1920 wide,
+    # 84px reads small on a phone (where most of this is watched) and is the
+    # other half of the "dated slideshow" look. Modern short-form runs its
+    # on-screen heading 5-6% of frame height; the drop shadow is deepened to
+    # match, so big type stays legible over a busy photo background.
+    hf = mdv._display_font(108, weight=700)
+    y = 88
     for ln in mdv._wrap(beat.get("heading", ""), hf, PW - 2 * PAD - 220)[:2]:
-        d.text((PAD + 3, y + 3), ln, font=hf, fill=(0, 0, 0, 180))
+        d.text((PAD + 5, y + 5), ln, font=hf, fill=(0, 0, 0, 200))
         d.text((PAD, y), ln, font=hf, fill=GOLD)
-        y += mdv._th(hf) + 6
-    d.rectangle([PAD, y + 12, PAD + 320, y + 19], fill=(*accent, 235))
+        y += mdv._th(hf) + 4
+    # Clearance is derived from the FONT SIZE, not _th(): _th measures the
+    # rendered string's bbox (79px for a 108px font, and smaller still for
+    # text with no descenders), so a fixed +12 put this bar on the glyph
+    # baseline — it read as a strikethrough across the heading rather than
+    # an underline beneath it. 0.22em of clearance clears descenders too.
+    d.rectangle([PAD, y + 24, PAD + 360, y + 33], fill=(*accent, 235))
     _footer(d, "Astrology Prediction")
     return img if transparent else img.convert("RGB")
 
@@ -194,19 +212,23 @@ def render_verdict(data) -> Image.Image:
     _framelines(d, accent)
 
     v = data.get("verdict", {})
-    lbl = mdv._ui_font(44, 700)
-    d.text((PAD, 120), "THE VERDICT", font=lbl, fill=(*accent, 255))
+    # The payoff card — the frame most likely to be screenshotted/shared, so
+    # it carries the largest type in the video.
+    lbl = mdv._ui_font(46, 700)
+    d.text((PAD, 112), "THE VERDICT", font=lbl, fill=(*accent, 255))
 
-    hf = mdv._display_font(96, weight=700)
-    y = 200
+    hf = mdv._display_font(126, weight=700)
+    y = 186
     for ln in mdv._wrap(str(v.get("headline", "")), hf, PW - 2 * PAD)[:2]:
-        d.text((PAD + 3, y + 3), ln, font=hf, fill=(0, 0, 0, 180))
+        d.text((PAD + 5, y + 5), ln, font=hf, fill=(0, 0, 0, 200))
         d.text((PAD, y), ln, font=hf, fill=GOLD)
-        y += mdv._th(hf) + 8
+        y += mdv._th(hf) + 6
 
-    # confidence meter
+    # confidence meter. Clearance sized for the 126px headline's descenders
+    # (_th under-measures — same trap as the beat card's underline): at +30
+    # the meter bar cut through the 'g' of a headline like "Slight Edge".
     conf = int(v.get("confidence_pct", 60))
-    y += 30
+    y += 64
     mw, mh = PW - 2 * PAD - 360, 54
     d.rounded_rectangle([PAD, y, PAD + mw, y + mh], radius=mh // 2,
                         outline=(*accent, 255), width=3)
@@ -285,9 +307,13 @@ def _subtitle_filter_landscape(srt_path: str) -> str:
     'correct' to look like literal pixels."""
     esc = str(srt_path).replace("\\", "\\\\").replace(":", "\\:")
     fontsdir = str(Path(__file__).parent / "assets" / "fonts").replace(":", "\\:")
-    style = ("FontName=Poppins,Fontsize=22,PrimaryColour=&H00FFFFFF,"
-             "OutlineColour=&H00000000,BorderStyle=1,Outline=3,Shadow=0,"
-             "Bold=1,Alignment=2,MarginV=48")
+    # 22 -> 27 with a heavier outline: burned captions are the most-read text
+    # in the video and were undersized for phone viewing. Verified by test
+    # render (this is the empirical scale the note above refers to — changing
+    # it without a test render is what that warning is about, not a ban).
+    style = ("FontName=Poppins,Fontsize=27,PrimaryColour=&H00FFFFFF,"
+             "OutlineColour=&H00000000,BorderStyle=1,Outline=4,Shadow=0,"
+             "Bold=1,Alignment=2,MarginV=54")
     return f"subtitles={esc}:fontsdir={fontsdir}:force_style='{style}'"
 
 
@@ -615,7 +641,8 @@ def process(json_path: str) -> str:
         print("      OK")
 
         motion_on = os.getenv("PREDICTION_MOTION_ENABLED", "true").lower() == "true"
-        m_fps = mdv.safe_static_fps(total, frame_budget=_MOTION_FRAME_BUDGET, min_fps=3, max_fps=12)
+        m_fps = mdv.safe_static_fps(total, frame_budget=_MOTION_FRAME_BUDGET,
+                                    min_fps=3, max_fps=_MOTION_MAX_FPS)
         ok = False
         has_video_segs = any(s["type"] == "video" for s in segments)
         if video_bg_on and has_video_segs:

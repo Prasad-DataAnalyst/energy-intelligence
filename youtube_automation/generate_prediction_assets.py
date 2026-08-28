@@ -89,14 +89,22 @@ Return ONLY valid raw JSON — no markdown, no code fences, no commentary."""
 
 SYSTEM_PROMPTS = {
     "sports": (
-        "You are the host of a fun sports-astrology YouTube channel. You are "
-        "given ONE real match and a REAL computed astrology chart for its "
-        "start time. Give an entertaining astrological PICK for the match — "
-        "which side the stars slightly favor, and why (moon, ascendant vs 7th "
-        "house, day/hora lord). Interpret the GIVEN chart facts; never invent "
-        "different ones. Use 'slight edge', 'strong chance', 'close contest', "
-        "'astrology favors'. NEVER guarantee a result. NEVER mention or promote "
-        "betting/gambling." + _COMMON_RULES
+        "You are the host of WORLD SPORTS ASTROLOGY — a fun global "
+        "sports-astrology YouTube channel covering the biggest fixture on "
+        "earth each day: Premier League and Champions League football, IPL "
+        "and international cricket, the NBA, Formula 1, Grand Slam tennis, "
+        "rugby and the NFL. You are given ONE real match and a REAL computed "
+        "astrology chart for its start time. Give an entertaining "
+        "astrological PICK for the match — which side the stars slightly "
+        "favor, and why (moon, ascendant vs 7th house, day/hora lord). "
+        "Interpret the GIVEN chart facts; never invent different ones. Use "
+        "'slight edge', 'strong chance', 'close contest', 'astrology favors'. "
+        "NEVER guarantee a result. NEVER mention or promote betting/gambling. "
+        "AUDIENCE: worldwide — this OVERRIDES the US framing below. Write for "
+        "a global fan (say 'football' not 'soccer' for the world game, keep "
+        "references international, never assume the viewer is American). Name "
+        "the two teams and the competition early so fans searching for this "
+        "fixture recognise it instantly." + _COMMON_RULES
     ),
     "crypto": (
         "You are the host of a fun markets-astrology YouTube channel. Using the "
@@ -302,9 +310,26 @@ def generate(category: str, date_tag: str) -> str:
     data["default_image"] = default_img
     data.setdefault("title_ta", data["title_en"])
     data.setdefault("description", data.get("title_en", ""))
-    data.setdefault("tags", ["astrology", category, "prediction"])
-    data.setdefault("hashtags", ["#astrology", f"#{category}", "#prediction"])
-    data["title"] = f"{data['title_en']} | {when}"[:100]
+    if category == "sports":
+        # WORLD SPORTS ASTROLOGY branding + globally-searched tags. The match
+        # itself (teams/competition) is already in title_en from the prompt,
+        # so these ride alongside it rather than replacing it.
+        data.setdefault("tags", [
+            "world sports astrology", "sports astrology", "astrology prediction",
+            "football astrology", "cricket astrology", "match prediction astrology",
+            "vedic astrology sports", "astrology today", "sports prediction",
+        ])
+        data.setdefault("hashtags", ["#WorldSportsAstrology", "#SportsAstrology",
+                                     "#astrology", "#football", "#cricket"])
+    else:
+        data.setdefault("tags", ["astrology", category, "prediction"])
+        data.setdefault("hashtags", ["#astrology", f"#{category}", "#prediction"])
+    if category == "sports":
+        # Brand suffix so the series is recognisable in search/suggested; the
+        # fixture stays FIRST because that's what fans actually search for.
+        data["title"] = f"{data['title_en']} | World Sports Astrology"[:100]
+    else:
+        data["title"] = f"{data['title_en']} | {when}"[:100]
     data["outro"] = f"{str(data['outro']).rstrip('. ')}. {disclaimer}"
     data["description"] = f"{data['description']}\n\n{disclaimer}"
     data["pinned_comment"] = (

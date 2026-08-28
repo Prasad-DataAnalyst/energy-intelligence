@@ -1,16 +1,26 @@
 #!/usr/bin/env python3
 """
 sports_data.py
-Fetches today's US matches (NFL, NBA, MLB, NHL, MLS) for the daily Sports
-Astrology prediction video. The channel is US-only, so events are filtered
-to US-hosted games / US leagues. Two sources, checked in order:
+Fetches today's marquee WORLDWIDE fixtures for the daily World Sports
+Astrology prediction video — global football, cricket, basketball, F1,
+tennis, rugby, hockey and NFL.
+
+The channel used to be US-only, which filtered out exactly the fixtures
+with the largest astrology-receptive audiences on earth (Premier League,
+Champions League, IPL/T20 cricket, F1). Dropping that filter alone would
+have surfaced obscure lower-tier games, so the US filter is replaced by a
+QUALITY filter: _fixture_rank() scores every event by how marquee its
+competition is, and fetch_today_matches() returns them best-first, so the
+generator's matches[0] is the biggest game on the planet that day.
+
+Two sources, checked in order:
 
 1. A manual override file, sports_matches_YYYYMMDD.json, in this directory —
-   if present, ALWAYS used instead of the live API (and NOT re-filtered:
-   whatever you hand-supply is trusted as-is). This is also the fallback for
-   a broken/rate-limited API day.
+   if present, ALWAYS used instead of the live API (and NOT re-ranked:
+   whatever you hand-supply is trusted as-is, in your order). This is also
+   the fallback for a broken/rate-limited API day.
 2. TheSportsDB free tier (eventsday.php), one call per configured sport,
-   filtered through _is_us_event().
+   ranked through _fixture_rank().
 
 The response shape (strEvent/strHomeTeam/strVenue/strTime/strCountry, times
 in UTC) was VERIFIED against a real production fetch on 2026-07-10 — the
@@ -35,33 +45,54 @@ SPORTSDB_KEY = os.getenv("SPORTSDB_API_KEY", "123")   # "123" = public free test
 SPORTSDB_BASE = f"https://www.thesportsdb.com/api/v1/json/{SPORTSDB_KEY}"
 
 # internal sport key -> TheSportsDB's own sport-name string for the `s=` param.
-# US-ONLY channel: the five sports Americans actually watch, filtered below
-# to US-hosted events (the first live fetch without a filter returned Irish
-# soccer, English cricket, and a Canadian CFL game — none suitable). Between
-# MLB (daily Apr-Oct), NBA/NHL (Oct-Jun) and NFL (Sep-Feb) there is something
-# on virtually every day of the year.
+# WORLDWIDE: football (the planet's #1 sport) and cricket (India/Pakistan/
+# Australia/England — the largest astrology-following audiences anywhere) lead,
+# then the other globally-followed codes. Between them something marquee is on
+# essentially every day of the year, in every time zone.
 SPORT_MAP = {
-    "nfl":        "American Football",
-    "basketball": "Basketball",
-    "baseball":   "Baseball",
-    "hockey":     "Ice Hockey",
-    "soccer":     "Soccer",
+    "football":   "Soccer",            # Premier League, La Liga, UCL, Serie A...
+    "cricket":    "Cricket",           # IPL, T20/ODI/Test internationals, BBL
+    "basketball": "Basketball",        # NBA, EuroLeague
+    "motorsport": "Motorsport",        # Formula 1
+    "tennis":     "Tennis",            # Grand Slams, ATP/WTA
+    "rugby":      "Rugby",             # Six Nations, World Cup, Super Rugby
+    "hockey":     "Ice Hockey",        # NHL
+    "nfl":        "American Football",  # NFL
 }
 
-# US filter: an event counts as US if its country field says so OR its league
-# is a known US league (belt-and-braces — TheSportsDB's country strings for
-# US events weren't live-verifiable from the dev sandbox, but league names
-# like "NFL"/"NBA"/"MLB" are stable and documented).
-_US_COUNTRIES = {"united states", "usa", "us", "united states of america"}
-_US_LEAGUE_HINTS = ("nfl", "nba", "mlb", "nhl", "mls", "major league soccer",
-                    "major league baseball", "ncaa", "wnba", "usl")
+# Marquee ranking (replaces the old US-only filter). A fixture's score is the
+# highest-scoring keyword its LEAGUE name matches; ties fall back to sport
+# order above. Everything still qualifies — a quiet Tuesday can legitimately
+# be a mid-table league — but the biggest competition of the day always sorts
+# to position 0, which is the one the generator turns into a video.
+_LEAGUE_TIERS = (
+    # tier 3 — planet-stopping events
+    (300, ("world cup", "champions league", "olympic", "super bowl",
+           "grand slam", "wimbledon", "us open", "french open",
+           "australian open", "formula 1", "grand prix", "indian premier league",
+           "ipl", "the ashes", "t20 world cup", "euro 20", "copa america",
+           "super rugby", "six nations", "nba finals")),
+    # tier 2 — top domestic / continental competitions
+    (200, ("premier league", "la liga", "serie a", "bundesliga", "ligue 1",
+           "europa league", "eredivisie", "primeira liga", "copa libertadores",
+           "nba", "nfl", "nhl", "euroleague", "big bash", "the hundred",
+           "test match", "one day international", "atp", "wta",
+           "saudi pro league", "mls", "major league soccer", "efl cup",
+           "fa cup", "copa del rey")),
+    # tier 1 — recognised national leagues
+    (100, ("championship", "league one", "league two", "serie b", "segunda",
+           "2. bundesliga", "j1", "k league", "a-league", "super lig",
+           "liga mx", "brasileiro", "scottish", "ncaa", "wnba")),
+)
 
 
-def _is_us_event(m: dict) -> bool:
-    if (m.get("country") or "").strip().lower() in _US_COUNTRIES:
-        return True
+def _fixture_rank(m: dict) -> int:
+    """Higher = more marquee. Used to sort the day's global fixtures."""
     league = (m.get("league") or "").lower()
-    return any(h in league for h in _US_LEAGUE_HINTS)
+    for score, hints in _LEAGUE_TIERS:
+        if any(h in league for h in hints):
+            return score
+    return 0
 
 
 # How many matches to keep per sport per day, to keep the video a reasonable
@@ -131,8 +162,9 @@ def _fetch_sport(sport_key: str, sportsdb_name: str, date_str: str) -> list:
     # Keep only matches with at least both team names and a start time —
     # a malformed/partial entry is worse than no entry for a scripted video.
     matches = [m for m in matches if m["team_a"] and m["team_b"] and m["datetime_utc"]]
-    # US-only channel: drop anything not hosted in the US / a US league.
-    matches = [m for m in matches if _is_us_event(m)]
+    # Worldwide: keep this sport's most marquee fixtures of the day (the old
+    # US-only filter is replaced by this quality ranking — see _fixture_rank).
+    matches.sort(key=_fixture_rank, reverse=True)
     return matches[:MAX_PER_SPORT]
 
 
@@ -158,6 +190,14 @@ def fetch_today_matches(date_tag: str, sports: list = None) -> list:
         all_matches.extend(found)
         time.sleep(1.5)   # stay well under the free tier's 30 req/min
 
+    # Global best-first: the generator uses matches[0], so the single biggest
+    # fixture on earth today becomes the video. Stable sort keeps SPORT_MAP
+    # order (football, then cricket, ...) as the tie-break within a tier.
+    all_matches.sort(key=_fixture_rank, reverse=True)
+    if all_matches:
+        top = all_matches[0]
+        print(f"[INFO] Top fixture: {top['team_a']} vs {top['team_b']} "
+              f"({top.get('league') or top['sport']}, rank {_fixture_rank(top)})")
     return all_matches
 
 
