@@ -53,12 +53,29 @@ SPORT_MAP = {
     "football":   "Soccer",            # Premier League, La Liga, UCL, Serie A...
     "cricket":    "Cricket",           # IPL, T20/ODI/Test internationals, BBL
     "basketball": "Basketball",        # NBA, EuroLeague
+    "baseball":   "Baseball",          # MLB, NPB (Japan), KBO (Korea)
     "motorsport": "Motorsport",        # Formula 1
     "tennis":     "Tennis",            # Grand Slams, ATP/WTA
     "rugby":      "Rugby",             # Six Nations, World Cup, Super Rugby
     "hockey":     "Ice Hockey",        # NHL
     "nfl":        "American Football",  # NFL
 }
+
+# COVERAGE NOTE — two caveats worth knowing before trusting this list:
+#
+# 1. Baseball is here deliberately. It was dropped in the first worldwide
+#    rewrite, which was a mistake: MLB alone plays ~15 games a day from April
+#    to October and is the main thing keeping mid-summer covered, exactly when
+#    the European football season is on its break. A day with zero fixtures
+#    skips the sports video entirely (handled gracefully, but no video), so
+#    off-season overlap is the real risk to daily output, not variety.
+#
+# 2. _normalize_event requires BOTH a home and an away side, so this pipeline
+#    can only cover head-to-head sports. Individual-field events (golf,
+#    athletics, cycling) are structurally out. Motorsport is queried because
+#    F1 ranks as marquee, but a Grand Prix has no home/away teams, so it may
+#    return nothing under that rule — harmless (one wasted call), and the
+#    first live run will show it in the per-sport counts printed below.
 
 # Marquee ranking (replaces the old US-only filter). A fixture's score is the
 # highest-scoring keyword its LEAGUE name matches; ties fall back to sport
@@ -71,18 +88,23 @@ _LEAGUE_TIERS = (
            "grand slam", "wimbledon", "us open", "french open",
            "australian open", "formula 1", "grand prix", "indian premier league",
            "ipl", "the ashes", "t20 world cup", "euro 20", "copa america",
-           "super rugby", "six nations", "nba finals")),
+           "super rugby", "six nations", "nba finals", "world series")),
     # tier 2 — top domestic / continental competitions
     (200, ("premier league", "la liga", "serie a", "bundesliga", "ligue 1",
            "europa league", "eredivisie", "primeira liga", "copa libertadores",
            "nba", "nfl", "nhl", "euroleague", "big bash", "the hundred",
            "test match", "one day international", "atp", "wta",
            "saudi pro league", "mls", "major league soccer", "efl cup",
-           "fa cup", "copa del rey")),
+           "fa cup", "copa del rey",
+           # baseball: MLB is a top-tier global league and was ranking 0 —
+           # below a second-tier domestic football fixture — purely because
+           # no baseball keyword existed here.
+           "mlb", "major league baseball")),
     # tier 1 — recognised national leagues
     (100, ("championship", "league one", "league two", "serie b", "segunda",
            "2. bundesliga", "j1", "k league", "a-league", "super lig",
-           "liga mx", "brasileiro", "scottish", "ncaa", "wnba")),
+           "liga mx", "brasileiro", "scottish", "ncaa", "wnba",
+           "nippon professional baseball", "npb", "kbo")),
 )
 
 
