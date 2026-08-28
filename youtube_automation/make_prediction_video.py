@@ -613,6 +613,7 @@ def process(json_path: str) -> str:
                   f"script came back long; consider trimming beats.")
         mdv.VIDEO_FPS = mdv.safe_static_fps(total)
         print(f"      Total: {total:.0f}s  |  static-fps {mdv.VIDEO_FPS}")
+        print(f"      Imagery: {stock_images.usage_summary()}")
 
         srt_path, has_captions = mdv._write_captions(caption_cues, str(tmp / "captions"),
                                                      frame_w=PW, frame_h=PH)

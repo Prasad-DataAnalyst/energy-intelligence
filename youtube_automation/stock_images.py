@@ -152,18 +152,36 @@ def fetch_images(query: str, count: int = 1) -> list:
     return out
 
 
+# Per-run photo-usage tally. WHY: every caller degrades to the cosmic
+# gradient when no image comes back, and a query that legitimately returns
+# ZERO results does so SILENTLY (only a network/HTTP error warns). So a
+# rate-limited, expired or simply unlucky key produces exactly the bare
+# gradient look the channel is trying to move away from, with nothing in the
+# log to say it happened. Renderers print usage_summary() after building
+# their cards, turning an invisible quality regression into one log line.
+_STATS = {"photo": 0, "gradient": 0}
+
+
+def usage_summary() -> str:
+    got, miss = _STATS["photo"], _STATS["gradient"]
+    total = got + miss
+    if not total:
+        return "no stock images requested"
+    if miss == 0:
+        return f"{got}/{total} cards got stock photos"
+    return (f"{got}/{total} cards got stock photos — {miss} fell back to the "
+            f"gradient (check PEXELS_API_KEY / rate limit / query wording)")
+
+
 def fetch_first(query: str, fallback_query: str = None):
     """Single best image path for a query, or None. Tries a fallback query
     (e.g. a broader term) before giving up — useful when a specific phrase
     like 'France vs Morocco' returns nothing but 'football stadium' does."""
     got = fetch_images(query, 1)
-    if got:
-        return got[0]
-    if fallback_query:
+    if not got and fallback_query:
         got = fetch_images(fallback_query, 1)
-        if got:
-            return got[0]
-    return None
+    _STATS["photo" if got else "gradient"] += 1
+    return got[0] if got else None
 
 
 # ── Stock VIDEO clips (Pexels video API) — Tier-3 experiment ─────────────────

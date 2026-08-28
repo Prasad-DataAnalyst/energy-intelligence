@@ -537,6 +537,10 @@ def process(json_path: str) -> str:
         total = sum(durs)
         mdv.VIDEO_FPS = mdv.safe_static_fps(total)
         print(f"      Total: {total:.0f}s ({int(total//60)}m {int(total%60)}s)  |  {mdv.VIDEO_FPS}fps")
+        # imported locally: this module keeps stock_images optional (it is
+        # imported inside _section_photo, not at module scope).
+        import stock_images as _si
+        print(f"      Imagery: {_si.usage_summary()}")
 
         # Write the caption file spanning the whole assembled timeline (each
         # card's cues already carry their global offset): karaoke .ass by
