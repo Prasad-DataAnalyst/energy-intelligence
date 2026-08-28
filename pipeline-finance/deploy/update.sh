@@ -31,25 +31,28 @@ done
 
 echo "── Syncing code ───────────────────────────────────────────────────────"
 # This script runs as root over a driftwire-owned tree, which git refuses to
-# touch ("detected dubious ownership") until the path is marked safe.
-if ! git config --global --get-all safe.directory 2>/dev/null | grep -qx "$INSTALL_DIR"; then
-    git config --global --add safe.directory "$INSTALL_DIR"
-fi
+# touch ("detected dubious ownership"). Passing safe.directory per invocation
+# is command-scope config — it works regardless of where HOME points under
+# sudo, which a `git config --global` write does not reliably do.
+GIT=(git -c "safe.directory=$INSTALL_DIR")
+# Also record it globally so manual `git` calls in this directory work later.
+git config --global --add safe.directory "$INSTALL_DIR" 2>/dev/null || true
 
 cd "$INSTALL_DIR"
 if [ ! -d .git ]; then
     echo "   first run — converting to a git checkout"
-    git init -q
+    "${GIT[@]}" init -q
 fi
 # Set the remote every run, not just on init: an interrupted first run can
 # leave .git present but remote-less, and the guard above would skip it.
-git remote add origin "$REPO_URL" 2>/dev/null || git remote set-url origin "$REPO_URL"
+"${GIT[@]}" remote add origin "$REPO_URL" 2>/dev/null \
+    || "${GIT[@]}" remote set-url origin "$REPO_URL"
 
-git fetch -q --depth 1 origin "$BRANCH"
+"${GIT[@]}" fetch -q --depth 1 origin "$BRANCH"
 # -f/--hard overwrites tracked code only; gitignored secrets and state survive.
-git checkout -q -f -B "$BRANCH" "origin/$BRANCH"
-git reset -q --hard "origin/$BRANCH"
-echo "   now at: $(git log --oneline -1)"
+"${GIT[@]}" checkout -q -f -B "$BRANCH" "origin/$BRANCH"
+"${GIT[@]}" reset -q --hard "origin/$BRANCH"
+echo "   now at: $("${GIT[@]}" log --oneline -1)"
 
 echo "── Restoring credentials ──────────────────────────────────────────────"
 for f in .env finance_oauth.json youtube_token.json analytics_token.json; do
