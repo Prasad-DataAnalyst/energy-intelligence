@@ -102,6 +102,36 @@ def _check_heartbeat() -> tuple[str, str, str]:
         return _WARN, "Daemon heartbeat", str(exc)[:80]
 
 
+def _check_startup_error() -> tuple[str, str, str, list[str]]:
+    """
+    A scheduler startup crash writes its traceback here. Surfacing it turns a
+    silent systemd restart loop into a named cause.
+    """
+    path = settings.logs_dir / "STARTUP_ERROR.txt"
+    if not path.exists():
+        return _OK, "Scheduler startup", "no recorded startup crash", []
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+        stamp = text.splitlines()[0] if text else "?"
+        # The final traceback line is the exception itself — the useful part.
+        last = [l for l in text.splitlines() if l.strip()][-1]
+        age_note = ""
+        try:
+            age_h = (datetime.now() - datetime.fromisoformat(stamp)).total_seconds() / 3600
+            age_note = f" ({age_h:.1f} h ago)"
+            if age_h > 24:
+                # Stale file from an already-fixed crash — inform, don't alarm.
+                return (_WARN, "Scheduler startup",
+                        f"old crash recorded{age_note} — delete logs/STARTUP_ERROR.txt "
+                        f"once resolved", [f"   {last[:150]}"])
+        except Exception:
+            pass
+        return (_FAIL, "Scheduler startup", f"crashed at boot{age_note}",
+                [f"   {last[:150]}", f"   full traceback: {path}"])
+    except Exception as exc:
+        return _WARN, "Scheduler startup", str(exc)[:80], []
+
+
 def _check_pipeline_states(days: int = 5) -> tuple[str, str, str, list[str]]:
     """Read the last N days of checkpoint files: where did runs stop?"""
     from scheduler.pipeline_state import STATE_DIR
@@ -220,7 +250,9 @@ def run_health_report() -> int:
             failures.append(label)
 
     print()
-    for status, label, detail, lines in (_check_pipeline_states(), _check_uploads()):
+    for status, label, detail, lines in (
+        _check_startup_error(), _check_pipeline_states(), _check_uploads()
+    ):
         print(_line(status, label, detail))
         for line in lines:
             print(line)
@@ -235,7 +267,11 @@ def run_health_report() -> int:
         print(f"  VERDICT: {len(failures)} problem(s): {', '.join(failures)}")
         print()
         # Order matters — name the upstream cause, not the symptom
-        if "Anthropic API" in failures or "Anthropic API key" in failures:
+        if "Scheduler startup" in failures:
+            print("  ROOT CAUSE: the scheduler crashed during startup — see the")
+            print("  traceback above and in logs/STARTUP_ERROR.txt. systemd keeps")
+            print("  restarting it, which shows as 'activating', not 'failed'.")
+        elif "Anthropic API" in failures or "Anthropic API key" in failures:
             print("  ROOT CAUSE: no Claude access — every run aborts at the API")
             print("  gate before spending anything. Top up credit, then:")
             print("    sudo systemctl restart driftwire326")

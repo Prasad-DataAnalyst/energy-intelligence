@@ -686,3 +686,89 @@ class TestHealthReport:
             assert any("ffmpeg timed out" in l for l in lines)
         finally:
             ps.STATE_DIR = original
+
+
+class TestSchedulerStartupWithRealAPScheduler:
+    """
+    Regression guard for the crash loop that silenced the channel for 39 days.
+
+    The original smoke test used a fake whose get_jobs() returned [], so the
+    job-listing loop never executed and the AttributeError on pending jobs'
+    next_run_time went unnoticed in tests while killing every real boot.
+    These tests drive REAL APScheduler objects.
+    """
+
+    def _one_shot_scheduler_class(self, started_flag):
+        from apscheduler.schedulers.blocking import BlockingScheduler
+
+        class OneShotScheduler(BlockingScheduler):
+            def start(self, *args, **kwargs):
+                started_flag["reached_start"] = True
+                raise KeyboardInterrupt   # unwind exactly as the daemon does on stop
+
+            def shutdown(self, *args, **kwargs):
+                pass                      # never actually started
+
+        return OneShotScheduler
+
+    def test_pending_job_next_run_time_does_not_crash_startup(self):
+        pytest.importorskip("apscheduler")
+        import apscheduler.schedulers.blocking as blocking_mod
+        from scheduler import master_scheduler as ms
+
+        flag: dict = {}
+        with patch.object(blocking_mod, "BlockingScheduler",
+                          self._one_shot_scheduler_class(flag)), \
+             patch.object(ms, "_setup_logging"), \
+             patch.object(ms, "run_heartbeat"):
+            ms.start_scheduler()
+
+        assert flag.get("reached_start"), (
+            "start_scheduler() crashed before scheduler.start() — the daemon "
+            "would restart-loop in systemd's 'activating' state"
+        )
+
+    def test_all_jobs_registered_on_real_scheduler(self):
+        pytest.importorskip("apscheduler")
+        import apscheduler.schedulers.blocking as blocking_mod
+        from scheduler import master_scheduler as ms
+
+        flag: dict = {}
+        captured: dict = {}
+        Base = self._one_shot_scheduler_class(flag)
+
+        class CapturingScheduler(Base):
+            def start(self, *args, **kwargs):
+                captured["ids"] = {j.id for j in self.get_jobs()}
+                return super().start(*args, **kwargs)
+
+        with patch.object(blocking_mod, "BlockingScheduler", CapturingScheduler), \
+             patch.object(ms, "_setup_logging"), \
+             patch.object(ms, "run_heartbeat"):
+            ms.start_scheduler()
+
+        expected = {
+            "weekday_premarket", "weekday_postmarket", "sunday_educational",
+            "monitor_check", "heartbeat", "midday_short", "saturday_short",
+            "pipeline_retry_weekday", "pipeline_retry_sunday", "deadman_check",
+            "comment_check", "analytics_pull", "community_post",
+            "description_refresh",
+        }
+        assert expected.issubset(captured.get("ids", set())), (
+            f"missing jobs: {expected - captured.get('ids', set())}"
+        )
+
+    def test_startup_heartbeat_written_before_start(self, tmp_path):
+        """Liveness must be provable immediately, not 30 minutes later."""
+        pytest.importorskip("apscheduler")
+        import apscheduler.schedulers.blocking as blocking_mod
+        from scheduler import master_scheduler as ms
+
+        flag: dict = {}
+        with patch.object(blocking_mod, "BlockingScheduler",
+                          self._one_shot_scheduler_class(flag)), \
+             patch.object(ms, "_setup_logging"), \
+             patch.object(ms.settings, "logs_dir", tmp_path):
+            ms.start_scheduler()
+
+        assert (tmp_path / "heartbeat.log").exists()

@@ -371,7 +371,11 @@ def start_scheduler() -> None:
 
     logger.info("DriftWire326 Scheduler starting — %d jobs registered", len(scheduler.get_jobs()))
     for job in scheduler.get_jobs():
-        logger.info("  Job: %s | Next run: %s", job.name, job.next_run_time)
+        # Jobs added before start() are pending and their next_run_time slot is
+        # unassigned — reading it directly raises AttributeError and killed the
+        # daemon on every boot. getattr keeps the listing informational.
+        next_run = getattr(job, "next_run_time", None) or "on first trigger"
+        logger.info("  Job: %s | Next run: %s", job.name, next_run)
 
     try:
         scheduler.start()

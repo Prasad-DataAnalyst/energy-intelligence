@@ -21,6 +21,7 @@ Usage:
 import argparse
 import logging
 import sys
+from datetime import datetime
 from pathlib import Path
 
 # ── Bootstrap path so all modules import cleanly ───────────────────────────
@@ -224,7 +225,24 @@ def cmd_test() -> int:
 
 def cmd_start_scheduler() -> int:
     from scheduler.master_scheduler import start_scheduler
-    start_scheduler()
+    try:
+        start_scheduler()
+    except Exception:
+        # A startup crash under systemd is otherwise invisible: the unit just
+        # restarts and sits in "activating". Record the traceback where both a
+        # human and `main.py --health` will find it.
+        import traceback
+        detail = traceback.format_exc()
+        logging.getLogger("main").error("Scheduler startup FAILED:\n%s", detail)
+        try:
+            path = settings.logs_dir / "STARTUP_ERROR.txt"
+            settings.logs_dir.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                f"{datetime.now().isoformat()}\n\n{detail}", encoding="utf-8"
+            )
+        except Exception:
+            pass
+        raise
     return 0
 
 
