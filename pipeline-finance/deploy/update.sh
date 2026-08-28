@@ -30,14 +30,21 @@ for f in .env config/finance_oauth.json config/youtube_token.json config/analyti
 done
 
 echo "── Syncing code ───────────────────────────────────────────────────────"
-if [ ! -d "$INSTALL_DIR/.git" ]; then
-    echo "   first run — converting to a git checkout"
-    cd "$INSTALL_DIR"
-    git init -q
-    git remote add origin "$REPO_URL" 2>/dev/null || git remote set-url origin "$REPO_URL"
+# This script runs as root over a driftwire-owned tree, which git refuses to
+# touch ("detected dubious ownership") until the path is marked safe.
+if ! git config --global --get-all safe.directory 2>/dev/null | grep -qx "$INSTALL_DIR"; then
+    git config --global --add safe.directory "$INSTALL_DIR"
 fi
 
 cd "$INSTALL_DIR"
+if [ ! -d .git ]; then
+    echo "   first run — converting to a git checkout"
+    git init -q
+fi
+# Set the remote every run, not just on init: an interrupted first run can
+# leave .git present but remote-less, and the guard above would skip it.
+git remote add origin "$REPO_URL" 2>/dev/null || git remote set-url origin "$REPO_URL"
+
 git fetch -q --depth 1 origin "$BRANCH"
 # -f/--hard overwrites tracked code only; gitignored secrets and state survive.
 git checkout -q -f -B "$BRANCH" "origin/$BRANCH"
@@ -61,8 +68,15 @@ for f in .env finance_oauth.json youtube_token.json analytics_token.json; do
 done
 
 echo "── Dependencies ───────────────────────────────────────────────────────"
-"$INSTALL_DIR/venv/bin/pip" install -q -r "$APP_DIR/requirements.txt"
-echo "   requirements satisfied"
+if [ -x "$INSTALL_DIR/venv/bin/pip" ]; then
+    if "$INSTALL_DIR/venv/bin/pip" install -q -r "$APP_DIR/requirements.txt"; then
+        echo "   requirements satisfied"
+    else
+        echo "   ⚠️  pip reported a problem — check manually, code is already updated"
+    fi
+else
+    echo "   (no venv at $INSTALL_DIR/venv — skipped)"
+fi
 
 echo "── Permissions ────────────────────────────────────────────────────────"
 chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
