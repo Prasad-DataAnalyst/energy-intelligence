@@ -161,9 +161,44 @@ def _check_pipeline_states(days: int = 5) -> tuple[str, str, str, list[str]]:
                 detail_lines.append(f"   ⚠️  {day} {pipeline}: unreadable ({exc})")
 
     if not found_any:
+        # A daemon that only just started has had no chance to fire yet —
+        # that is "waiting", not "broken".
+        if _daemon_uptime_hours() is not None and _daemon_uptime_hours() < 12:
+            return (_WARN, "Pipeline runs",
+                    "none yet — daemon started recently, waiting for the next slot", [])
         return (_FAIL, "Pipeline runs",
                 f"NO runs attempted in {days} days — the scheduler never fired", [])
     return _OK, "Pipeline runs", f"{len(detail_lines)} run(s) recorded", detail_lines
+
+
+def _daemon_uptime_hours() -> "float | None":
+    """Hours since the scheduler process started, via the heartbeat file's age."""
+    hb = settings.logs_dir / "heartbeat.log"
+    if not hb.exists():
+        return None
+    try:
+        # The startup heartbeat is the first line; its timestamp is the boot time.
+        first = hb.read_text(encoding="utf-8").splitlines()
+        for line in reversed(first):
+            if "] " in line and "|" in line:
+                stamp = line.split("] ")[1].split(" |")[0].strip()
+                started = datetime.strptime(stamp, "%Y-%m-%d %H:%M:%S")
+                return max((datetime.now() - started).total_seconds() / 3600, 0.0)
+    except Exception:
+        return None
+    return None
+
+
+def _next_content_slots() -> list[str]:
+    """Human-readable 'when is the next video due' lines."""
+    try:
+        from scheduler.master_scheduler import next_content_runs
+        return [
+            f"   {label}: {fire.strftime('%a %b %d, %-I:%M %p %Z')}"
+            for label, fire in next_content_runs(limit=3)
+        ]
+    except Exception:
+        return []
 
 
 def _check_uploads() -> tuple[str, str, str, list[str]]:
@@ -188,6 +223,11 @@ def _check_uploads() -> tuple[str, str, str, list[str]]:
         for r in records[:5]
     ]
     if age_days > 1:
+        uptime = _daemon_uptime_hours()
+        if uptime is not None and uptime < 12:
+            return (_WARN, "Uploads",
+                    f"last upload {age_days} days ago — daemon restarted "
+                    f"{uptime:.1f} h ago, nothing due yet", lines)
         return (_FAIL, "Uploads",
                 f"last upload was {age_days} days ago ({newest[:16]})", lines)
     return _OK, "Uploads", f"{len(records)} total, newest {newest[:16]}", lines
@@ -258,6 +298,13 @@ def run_health_report() -> int:
             print(line)
         if status == _FAIL:
             failures.append(label)
+        print()
+
+    upcoming = _next_content_slots()
+    if upcoming:
+        print("Next scheduled content:")
+        for line in upcoming:
+            print(line)
         print()
 
     print("═" * 66)

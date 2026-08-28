@@ -655,7 +655,8 @@ class TestHealthReport:
         from monitor import health_report as hr
         old = (date.today() - timedelta(days=39)).isoformat() + "T02:35:00"
         records = [{"uploaded_at": old, "video_type": "weekday", "title": "Old"}]
-        with patch("uploader.uploader.load_upload_manifest", return_value=records):
+        with patch("uploader.uploader.load_upload_manifest", return_value=records), \
+             patch.object(hr, "_daemon_uptime_hours", return_value=100.0):
             status, _, detail, lines = hr._check_uploads()
         assert status == hr._FAIL
         assert "39 days ago" in detail
@@ -667,7 +668,8 @@ class TestHealthReport:
         original = ps.STATE_DIR
         ps.STATE_DIR = tmp_path
         try:
-            status, _, detail, _ = hr._check_pipeline_states()
+            with patch.object(hr, "_daemon_uptime_hours", return_value=100.0):
+                status, _, detail, _ = hr._check_pipeline_states()
             assert status == hr._FAIL
             assert "NO runs attempted" in detail
         finally:
@@ -772,3 +774,64 @@ class TestSchedulerStartupWithRealAPScheduler:
             ms.start_scheduler()
 
         assert (tmp_path / "heartbeat.log").exists()
+
+
+class TestHealthReportWaitingVsBroken:
+    """A freshly restarted daemon is 'waiting', not 'broken' — the report
+    must not cry failure before the first scheduled slot has arrived."""
+
+    def test_recent_restart_downgrades_no_runs_to_warning(self, tmp_path):
+        from monitor import health_report as hr
+        import scheduler.pipeline_state as ps
+        original = ps.STATE_DIR
+        ps.STATE_DIR = tmp_path
+        try:
+            with patch.object(hr, "_daemon_uptime_hours", return_value=0.2):
+                status, _, detail, _ = hr._check_pipeline_states()
+            assert status == hr._WARN
+            assert "waiting" in detail
+        finally:
+            ps.STATE_DIR = original
+
+    def test_recent_restart_downgrades_stale_uploads_to_warning(self):
+        from monitor import health_report as hr
+        old = (date.today() - timedelta(days=39)).isoformat() + "T02:35:00"
+        records = [{"uploaded_at": old, "video_type": "weekday", "title": "Old"}]
+        with patch("uploader.uploader.load_upload_manifest", return_value=records), \
+             patch.object(hr, "_daemon_uptime_hours", return_value=0.4):
+            status, _, detail, _ = hr._check_uploads()
+        assert status == hr._WARN
+        assert "nothing due yet" in detail
+
+    def test_uptime_parsed_from_heartbeat(self, tmp_path):
+        from monitor import health_report as hr
+        from datetime import datetime as dt
+        stamp = dt.now().strftime("%Y-%m-%d %H:%M:%S")
+        (tmp_path / "heartbeat.log").write_text(
+            f"[HEARTBEAT] {stamp} | PID=1 | scheduler alive\n"
+        )
+        with patch.object(hr.settings, "logs_dir", tmp_path):
+            hours = hr._daemon_uptime_hours()
+        assert hours is not None and hours < 0.1
+
+    def test_uptime_none_without_heartbeat(self, tmp_path):
+        from monitor import health_report as hr
+        with patch.object(hr.settings, "logs_dir", tmp_path):
+            assert hr._daemon_uptime_hours() is None
+
+
+class TestNextContentRuns:
+    def test_returns_upcoming_slots_in_order(self):
+        pytest.importorskip("apscheduler")
+        from scheduler.master_scheduler import next_content_runs
+        runs = next_content_runs(limit=3)
+        assert len(runs) == 3
+        assert all(isinstance(label, str) and label for label, _ in runs)
+        times = [fire for _, fire in runs]
+        assert times == sorted(times), "slots must be soonest-first"
+
+    def test_slot_ids_match_registered_jobs(self):
+        """CONTENT_SLOTS drives registration — guard against drift."""
+        pytest.importorskip("apscheduler")
+        from scheduler.master_scheduler import CONTENT_SLOTS, CONTENT_SLOT_NAMES
+        assert set(CONTENT_SLOTS) == set(CONTENT_SLOT_NAMES)

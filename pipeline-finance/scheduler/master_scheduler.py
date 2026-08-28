@@ -201,6 +201,53 @@ def run_description_refresh() -> None:
         logger.warning("Channel description refresh failed: %s", exc)
 
 
+# Cron timing for the jobs that actually publish content. Single source of
+# truth: start_scheduler() registers from this, and the health report reads it
+# to answer "when is the next video due?" without duplicating the schedule.
+CONTENT_SLOTS: dict[str, dict] = {
+    "weekday_premarket": {"day_of_week": "mon-fri", "hour": 8, "minute": 0},
+    "midday_short":      {"day_of_week": "mon-fri", "hour": 12, "minute": 30},
+    "weekday_postmarket": {"day_of_week": "mon-fri", "hour": 17, "minute": 15},
+    "saturday_short":    {"day_of_week": "sat", "hour": 11, "minute": 0},
+    "sunday_educational": {"day_of_week": "sun", "hour": 11, "minute": 0},
+}
+
+CONTENT_SLOT_NAMES: dict[str, str] = {
+    "weekday_premarket": "Pre-market video",
+    "midday_short": "Midday Short",
+    "weekday_postmarket": "Post-market video",
+    "saturday_short": "Saturday Short",
+    "sunday_educational": "Sunday deep-dive",
+}
+
+
+def next_content_runs(limit: int = 3) -> list[tuple[str, "datetime"]]:
+    """
+    Upcoming content slots as (label, fire time), soonest first.
+    Returns [] if APScheduler or the timezone is unavailable.
+    """
+    try:
+        from apscheduler.triggers.cron import CronTrigger
+        try:
+            from zoneinfo import ZoneInfo
+            tz = ZoneInfo(settings.timezone)
+        except Exception:
+            import pytz
+            tz = pytz.timezone(settings.timezone)
+
+        now = datetime.now(tz)
+        upcoming: list[tuple[str, datetime]] = []
+        for job_id, cron in CONTENT_SLOTS.items():
+            fire = CronTrigger(timezone=tz, **cron).get_next_fire_time(None, now)
+            if fire:
+                upcoming.append((CONTENT_SLOT_NAMES.get(job_id, job_id), fire))
+        upcoming.sort(key=lambda pair: pair[1])
+        return upcoming[:limit]
+    except Exception as exc:
+        logger.debug("Could not compute next content runs: %s", exc)
+        return []
+
+
 def start_scheduler() -> None:
     """Start APScheduler with all jobs configured."""
     # Logging first: a startup crash must land in the log, not vanish into
@@ -235,7 +282,7 @@ def start_scheduler() -> None:
     # Pre-market recap (8 AM ET, Mon–Fri)
     scheduler.add_job(
         run_weekday_pipeline,
-        CronTrigger(day_of_week="mon-fri", hour=8, minute=0, timezone=tz),
+        CronTrigger(timezone=tz, **CONTENT_SLOTS["weekday_premarket"]),
         id="weekday_premarket",
         name="Weekday Pre-Market Pipeline",
         max_instances=1,
@@ -246,7 +293,7 @@ def start_scheduler() -> None:
     # Post-market recap (5:15 PM ET, Mon–Fri — spec: markets settle by 5:15)
     scheduler.add_job(
         run_weekday_pipeline,
-        CronTrigger(day_of_week="mon-fri", hour=17, minute=15, timezone=tz),
+        CronTrigger(timezone=tz, **CONTENT_SLOTS["weekday_postmarket"]),
         id="weekday_postmarket",
         name="Weekday Post-Market Pipeline",
         max_instances=1,
@@ -257,7 +304,7 @@ def start_scheduler() -> None:
     # Midday themed Short (12:30 PM ET, Mon–Fri)
     scheduler.add_job(
         run_themed_short_job,
-        CronTrigger(day_of_week="mon-fri", hour=12, minute=30, timezone=tz),
+        CronTrigger(timezone=tz, **CONTENT_SLOTS["midday_short"]),
         id="midday_short",
         name="Midday Themed Short",
         max_instances=1,
@@ -268,7 +315,7 @@ def start_scheduler() -> None:
     # Saturday evergreen Short (11:00 AM ET)
     scheduler.add_job(
         run_themed_short_job,
-        CronTrigger(day_of_week="sat", hour=11, minute=0, timezone=tz),
+        CronTrigger(timezone=tz, **CONTENT_SLOTS["saturday_short"]),
         id="saturday_short",
         name="Saturday Evergreen Short",
         max_instances=1,
@@ -279,7 +326,7 @@ def start_scheduler() -> None:
     # ── Sunday educational ────────────────────────────────────────────────
     scheduler.add_job(
         run_sunday_pipeline,
-        CronTrigger(day_of_week="sun", hour=11, minute=0, timezone=tz),
+        CronTrigger(timezone=tz, **CONTENT_SLOTS["sunday_educational"]),
         id="sunday_educational",
         name="Sunday Educational Pipeline",
         max_instances=1,
