@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Debian packages
+*.deb
+
+# Output / logs
+youtube_automation/outputs/
+youtube_automation/logs/
+youtube_automation/voice_*.wav
+youtube_automation/voice_*.mp3
+youtube_automation/music_*.wav
+youtube_automation/audio_*.wav
+youtube_automation/silent_*.mp4
+youtube_automation/.run_daily.lock
+
+# Secrets / tokens
+youtube_automation/client_secrets.json
+youtube_automation/youtube_token.json
+youtube_automation/.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code session state
+.claude/
+
+# Runtime artifacts
+youtube-ai-engine/vault/
+youtube-ai-engine/data/*.sqlite
+youtube-ai-engine/data/*.json
+youtube-ai-engine/output/
+youtube-ai-engine/logs/
+youtube-ai-engine/data/input/
+youtube-ai-engine/__pycache__/
+youtube-ai-engine/**/__pycache__/
+
+# Stock image cache / overrides (prediction videos)
+youtube_automation/.stock_cache/
+youtube_automation/stock_override/
+youtube_automation/.tarot_cards/
+youtube_automation/tarot_override/

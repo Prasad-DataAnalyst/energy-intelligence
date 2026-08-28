@@ -1,0 +1,313 @@
+#!/usr/bin/env python3
+"""
+generate_daily_assets.py
+Generates all 12 sign horoscope data in ONE Claude API call, for any timeframe.
+Output: <type>_horoscope_YYYYMMDD.json  (daily_/weekly_/monthly_)
+
+The card LAYOUT is identical across types — only the words, the on-card period
+label, the per-sign duration and the SEO change. So a weekly/monthly video
+reuses the whole renderer; this file just swaps the prompt and metadata.
+
+Usage:
+  python3 generate_daily_assets.py "July 2026"                 # daily, today
+  python3 generate_daily_assets.py "July 2026" 20260705        # daily, dated
+  python3 generate_daily_assets.py "July 2026" 20260705 weekly
+  python3 generate_daily_assets.py "July 2026" 20260701 monthly
+"""
+import json
+import re
+import sys
+from datetime import date, datetime, timedelta
+
+import anthropic
+from dotenv import load_dotenv
+
+load_dotenv()
+
+SIGNS = [
+    "aries","taurus","gemini","cancer","leo","virgo",
+    "libra","scorpio","sagittarius","capricorn","aquarius","pisces",
+]
+
+# Per-type configuration. period_label shows on each card; sign_secs sets the
+# slot length (and thus whether the video is a Short (<180s) or a regular video).
+TYPE_CONFIG = {
+    "daily": {
+        "noun":         "Daily",
+        "timeframe":    "today",
+        "period_label": "TODAY",
+        "sign_secs":    14,
+        "max_words":    6,
+    },
+    # Weekly horoscope is a REGULAR VIDEO by requirement (not a Short):
+    # 4 + 12x24 = 292s (~4m52s) — past YouTube's 3-minute Shorts cutoff, so
+    # the vertical upload lands on the watch page, not the Shorts shelf.
+    # (Weekly horoscopes are the one type explicitly EXEMPT from the 3-minute
+    # cap that applies to every other long-form type.)
+    "weekly": {
+        "noun":         "Weekly",
+        "timeframe":    "this week",
+        "period_label": "THIS WEEK",
+        "sign_secs":    24,
+        "max_words":    10,
+    },
+    "monthly": {
+        "noun":         "Monthly",
+        "timeframe":    "this month",
+        "period_label": "THIS MONTH",
+        "sign_secs":    13,      # 4 + 12x13 = 160s — under the 3-minute cap
+        "max_words":    6,
+    },
+    # LONG-FORM daily for MONETIZATION: ~8.5 min (mid-roll-ad eligible), all 12
+    # signs in depth. Card stays punchy (max_words 6); the extra "reading"
+    # paragraph is what the narrator reads for ~35s/sign.
+    "deep": {
+        "noun":         "Full Daily",
+        "timeframe":    "today",
+        "period_label": "IN DEPTH",
+        "sign_secs":    40,
+        "max_words":    6,
+        "deep":         True,    # adds a "reading" paragraph + luckiest_sign
+    },
+    # LONG-FORM WEEKLY for MONETIZATION: publishes Monday morning. Same idea as
+    # "deep" but for the week ahead — a full narrated reading per sign (not
+    # just punchy one-liners), ~8 min total, mid-roll-ad eligible. The short
+    # Sunday "weekly" video above is untouched (still runs for discovery).
+    "weeklyfull": {
+        "noun":         "Weekly",
+        "timeframe":    "this week",
+        "period_label": "WEEK AHEAD",
+        "sign_secs":    40,
+        "max_words":    10,
+        "deep":         True,
+    },
+}
+
+_REQUIRED_FIELDS = ("love", "career", "money", "health",
+                    "lucky_number", "lucky_color", "best_time", "advice")
+
+# Default lucky-value seeds so Claude has a template to overwrite (kept varied).
+_SEED = {
+    "aries": (7, "Red", "4 PM"),        "taurus": (4, "Forest Green", "10 AM"),
+    "gemini": (11, "Yellow", "2 PM"),   "cancer": (2, "Silver", "9 PM"),
+    "leo": (1, "Gold", "Noon"),         "virgo": (6, "Navy Blue", "8 AM"),
+    "libra": (9, "Rose Pink", "5 PM"),  "scorpio": (8, "Deep Red", "11 PM"),
+    "sagittarius": (3, "Purple", "3 PM"), "capricorn": (10, "Dark Brown", "7 AM"),
+    "aquarius": (5, "Electric Blue", "6 PM"), "pisces": (12, "Sea Green", "Sunset"),
+}
+
+
+def _system_prompt(cfg: dict) -> str:
+    tf, mw = cfg["timeframe"], cfg["max_words"]
+    scope = {
+        "today":      "the day ahead",
+        "this week":  "the 7 days ahead (mention the strongest and the most cautious day)",
+        "this month": "the month ahead (mention which week is strongest)",
+    }[tf]
+    deep_block = ""
+    if cfg.get("deep"):
+        # Size the narration to the card's dwell time (~2.6 words/sec at a
+        # natural narration pace) so the TTS clip fills the slot without
+        # heavy padding (silence) or a forced speed-up. A too-short reading
+        # for a 40s slot was the original bug here.
+        target = round(cfg["sign_secs"] * 2.6)
+        lo, hi = max(60, target - 15), target + 15
+        deep_block = f"""
+- reading:      A warm, flowing spoken paragraph of {lo}-{hi} words that a narrator
+                reads aloud — cover love, career, money, health and lucky guidance
+                in real depth, like a real astrologer speaking directly to the
+                viewer about their {tf}. Full sentences, genuinely informative,
+                not just a longer version of the short fields above (this text
+                is NOT shown on screen, only spoken).
+"""
+    return f"""You are a professional astrologer creating {cfg['noun'].lower()} horoscope content for all 12 zodiac signs.
+
+Cover the 5 things people actually check in a horoscope:
+Love & Relationships, Career & Business, Money & Finance, Health & Energy, and Lucky Guidance.
+
+Each prediction is for {scope}. The short fields below appear ON SCREEN and must be
+MAX {mw} words — punchy and specific, never vague.
+
+Fields per sign:
+- love:         romance, relationships, connections {tf} (MAX {mw} words)
+- career:       job, business, workplace energy {tf} (MAX {mw} words)
+- money:        income, spending, investments {tf} (MAX {mw} words)
+- health:       physical energy, stress, mood {tf} (MAX {mw} words)
+- lucky_number: one integer 1-99
+- lucky_color:  one color name (1-2 words)
+- best_time:    the luckiest time/day, e.g. "4 PM", "Tuesday", "First Week" (1-3 words)
+- advice:       one simple actionable tip or remedy for {tf} (MAX {mw} words){deep_block}
+Style rules:
+- Direct. Specific. No generic fluff.
+- Vary tone across signs — not all positive, some carry warnings.
+- lucky_number, lucky_color and best_time must be single values (no lists).
+{"- ALSO return a top-level string field 'luckiest_sign' = the ONE sign with the best day (capitalized, e.g. 'Leo')." if cfg.get('deep') else ""}
+
+Return ONLY valid raw JSON. No markdown. No explanation. No code fences."""
+
+
+def _title(cfg: dict, when: str) -> str:
+    n = cfg["noun"]
+    if cfg is TYPE_CONFIG["daily"]:
+        return f"{n} Horoscope Today, {when} — All 12 Zodiac Signs (Love, Career, Money)"
+    if cfg is TYPE_CONFIG["weekly"]:
+        return f"{n} Horoscope {when} — All 12 Zodiac Signs This Week (Love, Career, Money)"
+    if cfg is TYPE_CONFIG.get("weeklyfull"):
+        return f"Your Week Ahead, {when} — Full In-Depth Horoscope for All 12 Zodiac Signs"
+    if cfg.get("deep"):
+        return f"Full Horoscope Today {when} — All 12 Zodiac Signs In Depth (Love, Career, Money, Health)"
+    return f"{n} Horoscope {when} — All 12 Zodiac Signs (Love, Career, Money, Health)"
+
+
+def _validate(data: dict, deep: bool = False) -> None:
+    """Raise ValueError if any sign or required field is missing/empty."""
+    signs = data.get("signs")
+    if not isinstance(signs, dict):
+        raise ValueError("'signs' object missing")
+    missing_signs = [s for s in SIGNS if s not in signs]
+    if missing_signs:
+        raise ValueError(f"missing signs: {missing_signs}")
+    required = _REQUIRED_FIELDS + (("reading",) if deep else ())
+    for s in SIGNS:
+        f = signs[s]
+        if not isinstance(f, dict):
+            raise ValueError(f"{s}: not an object")
+        for k in required:
+            v = f.get(k)
+            if v is None or (isinstance(v, str) and not v.strip()):
+                raise ValueError(f"{s}: empty field '{k}'")
+            if isinstance(v, (list, dict)):
+                raise ValueError(f"{s}: field '{k}' must be a single value, got {type(v).__name__}")
+        if deep and len(str(f.get("reading", "")).split()) < 40:
+            raise ValueError(f"{s}: 'reading' too short for a deep-dive narration")
+
+
+def _when_label(ctype: str, date_tag: str) -> str:
+    """Human 'when' string for titles: a date, a week range, or a month."""
+    d = datetime.strptime(date_tag, "%Y%m%d")
+    if ctype == "daily":
+        return d.strftime("%B %d, %Y")
+    if ctype in ("weekly", "weeklyfull"):
+        end = d + timedelta(days=6)
+        if d.month == end.month:
+            return f"{d.strftime('%B %d')}–{end.strftime('%d, %Y')}"
+        return f"{d.strftime('%b %d')} – {end.strftime('%b %d, %Y')}"
+    return d.strftime("%B %Y")   # monthly, deep
+
+
+def generate(period: str, date_tag: str = None, ctype: str = "daily") -> str:
+    ctype = ctype if ctype in TYPE_CONFIG else "daily"
+    cfg   = TYPE_CONFIG[ctype]
+    client = anthropic.Anthropic(timeout=90)
+
+    if not date_tag:
+        date_tag = date.today().strftime("%Y%m%d")
+    when = _when_label(ctype, date_tag)
+
+    is_deep = bool(cfg.get("deep"))
+    # Build the per-sign JSON skeleton with seeded lucky values.
+    sign_lines = []
+    for s in SIGNS:
+        n, c, t = _SEED[s]
+        reading = ', "reading": "..."' if is_deep else ""
+        sign_lines.append(
+            f'    "{s}": {{"love": "...", "career": "...", "money": "...", '
+            f'"health": "...", "lucky_number": {n}, "lucky_color": "{c}", '
+            f'"best_time": "{t}", "advice": "..."{reading}}}'
+        )
+    signs_block = ",\n".join(sign_lines)
+
+    title = _title(cfg, when)
+    tf    = cfg["timeframe"]
+    desc  = (f"Complete {cfg['noun'].lower()} horoscope for all 12 zodiac signs — {when}. "
+             f"Love, career, money, health, lucky number, lucky color and best time. "
+             f"Subscribe for {cfg['noun'].lower()} cosmic guidance. "
+             f"#horoscope #astrology #zodiac")
+    tags = [f"{cfg['noun'].lower()} horoscope", "all 12 signs horoscope",
+            f"horoscope {tf}", "astrology", "zodiac reading",
+            f"love horoscope {tf}", "health horoscope", f"money horoscope {tf}",
+            f"horoscope {when}"]
+
+    luckiest_line = '  "luckiest_sign": "...",\n' if is_deep else ""
+    user_msg = f"""Generate the {cfg['noun'].lower()} horoscope for all 12 signs.
+When: {when}
+Period: {period}
+
+Return this EXACT JSON structure (fill in all 12 signs, every "..." replaced):
+{{
+{luckiest_line}  "signs": {{
+{signs_block}
+  }}
+}}"""
+
+    print(f"[INFO] Generating all 12 signs ({ctype}) via Claude...")
+    data = None
+    last_err = None
+    for attempt in range(1, 4):
+        try:
+            response = client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=8000 if is_deep else 6000,
+                system=_system_prompt(cfg),
+                messages=[{"role": "user", "content": user_msg}],
+            )
+            raw = response.content[0].text.strip()
+            raw = re.sub(r"^```[a-z]*\n?", "", raw)
+            raw = re.sub(r"\n?```$", "", raw)
+            candidate = json.loads(raw)
+            _validate(candidate, deep=is_deep)
+            data = candidate
+            break
+        except Exception as e:
+            last_err = e
+            print(f"[WARN] Attempt {attempt}/3 failed: {e}", file=sys.stderr)
+
+    if data is None:
+        raise RuntimeError(f"Claude asset generation failed after 3 attempts: {last_err}")
+
+    # Attach the metadata the renderer + uploader read.
+    data["content_type"] = ctype
+    data["period_label"] = cfg["period_label"]
+    data["sign_secs"]    = cfg["sign_secs"]
+    data["date"]         = when
+    data["title"]        = title
+    data["description"]  = desc
+    data["tags"]         = tags
+    data["hashtags"]     = ["#horoscope", "#astrology", "#zodiac",
+                            f"#{cfg['noun'].lower().replace(' ','')}horoscope", "#allsigns"]
+    if is_deep:
+        # Long-form: fps is computed dynamically by the renderer from the
+        # actual total duration (make_daily_video.safe_static_fps) — not
+        # fixed here, since a fixed value safe at one duration can time out
+        # at another. Keep luckiest_sign for the outro reveal.
+        data.setdefault("luckiest_sign", "")
+        cadence = "every Monday" if ctype == "weeklyfull" else "every morning"
+        subject = "this week" if ctype == "weeklyfull" else f"{when}, in depth"
+        data["description"] = (
+            f"Your COMPLETE {cfg['noun'].lower()} horoscope for all 12 zodiac signs — "
+            f"{subject}. A full reading of love, career, money, health and lucky guidance "
+            f"for every sign. Use the chapters to jump to your sign, and stay to the end "
+            f"for {'this week' if ctype == 'weeklyfull' else 'today'}'s luckiest sign. "
+            f"New full horoscope {cadence} — subscribe for cosmic guidance. "
+            f"#horoscope #astrology #zodiac #{'weeklyhoroscope' if ctype == 'weeklyfull' else 'dailyhoroscope'}")
+
+    filename = f"{ctype}_horoscope_{date_tag}.json"
+    with open(filename, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+    print(f"[OK] Assets → {filename}")
+    return filename
+
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: python3 generate_daily_assets.py 'July 2026' [YYYYMMDD] [daily|weekly|monthly]")
+        sys.exit(1)
+    period   = sys.argv[1]
+    date_tag = sys.argv[2] if len(sys.argv) > 2 else None
+    ctype    = sys.argv[3] if len(sys.argv) > 3 else "daily"
+    generate(period, date_tag, ctype)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,45 @@
+moviepy==1.0.3
+opencv-python-headless==4.9.0.80
+Pillow==10.3.0
+numpy==1.26.4
+matplotlib==3.8.4
+requests==2.31.0
+google-api-python-client==2.126.0
+google-auth-oauthlib==1.2.0
+google-auth-httplib2==0.2.0
+python-dotenv==1.0.1
+schedule==1.2.1
+tqdm==4.66.4
+PyYAML>=6.0.1
+
+# Claude content generation (ACTIVE daily pipeline)
+anthropic>=0.40.0,<1.0
+
+# Cinematic pipeline — broadcast audio
+# edge-tts is pinned with an upper bound: it tracks an unofficial Microsoft
+# endpoint and breaking changes between majors have broken TTS before.
+# Known-good: 7.2.x. Bump deliberately, then run: python3 doctor.py
+edge-tts>=7.0.0,<8.0
+noisereduce>=3.0.0
+pyloudnorm>=0.1.1
+soundfile>=0.12.1
+librosa>=0.10.1
+scipy>=1.12.0
+pydub>=0.25.1
+
+# Trend intelligence
+praw>=7.7.1
+aiohttp>=3.9.3
+feedparser>=6.0.11
+pytrends>=4.9.2
+
+# Scheduling
+APScheduler>=3.10.4
+
+# AI services
+openai>=1.0.0
+# elevenlabs>=1.0.0
+# replicate>=0.25.0
+
+# Caption sync (optional — improves word-highlight captions)
+# openai-whisper>=20231117
