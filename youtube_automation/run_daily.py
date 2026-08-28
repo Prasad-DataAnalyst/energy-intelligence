@@ -598,12 +598,17 @@ def run_prediction_pipeline(args) -> int:
                 int(time.time() - t_start), args.upload)
             return 1
 
-        # 2. Render (short landscape → modest timeout)
+        # 2. Render. 45 min per attempt (was 30): the renderer now tries a
+        # 24fps motion tier and then a static fallback, each capped at
+        # make_prediction_video._MOTION_TIMEOUT (1500s) — see the TIMEOUT
+        # INVARIANT note there. The outer budget must exceed BOTH tiers or
+        # this process-group kill lands first and the fallback never runs.
+        # Two attempts stay inside the gap to the Sunday weekly at 7:30.
         print(f"\n[2/4] Video    — rendering 90s landscape {cat} prediction...")
-        ok = run_live([PYTHON, "make_prediction_video.py", json_file], timeout=1800)
+        ok = run_live([PYTHON, "make_prediction_video.py", json_file], timeout=2700)
         if not ok:
             print("      FAILED — retry in 60s...", file=sys.stderr); time.sleep(60)
-            ok = run_live([PYTHON, "make_prediction_video.py", json_file], timeout=1800)
+            ok = run_live([PYTHON, "make_prediction_video.py", json_file], timeout=2700)
         if not ok:
             print("      FAILED (after retry)", file=sys.stderr)
             send_summary_email(args.date, {f"pred-{cat}": {"assets": "✅",

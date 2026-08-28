@@ -52,9 +52,20 @@ DEFAULT = ((255, 215, 0), (16, 12, 2), (40, 30, 6))
 # (Budget/timeout raised together: the timeout must cover a CPU-credit
 # throttled encode of the larger frame count — see make_daily_video's
 # caption_fps_for note on the 2026-07-19 burst-credit incident.)
+# TIMEOUT INVARIANT: _MOTION_TIMEOUT + _STATIC_TIMEOUT must stay under
+# run_daily's per-attempt prediction timeout (2700s), with margin for the
+# non-encode work (TTS, audio mix, thumbnail). assemble_landscape tries the
+# motion tier and THEN the static tier, so their budgets ADD; if the sum
+# exceeds the outer budget, the outer process-group kill lands first and the
+# static fallback never runs — turning a graceful degradation into a lost
+# video. 1500 + 900 = 2400 < 2700 leaves 300s of headroom.
+# The static tier gets the smaller budget because it is genuinely cheaper:
+# ~900 base-fps frames of plain concat (no zoompan), ~9 min even on a
+# credit-throttled vCPU.
 _MOTION_FRAME_BUDGET = 2300
 _MOTION_MAX_FPS = 24
-_MOTION_TIMEOUT = 2400
+_MOTION_TIMEOUT = 1500
+_STATIC_TIMEOUT = 900
 
 
 def _accent(cat):
@@ -384,7 +395,7 @@ def assemble_landscape(pngs, durs, audio_path, srt_path, out_path, fps, motion=T
            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "22",
            "-threads", "0", "-movflags", "+faststart", tmp_video]
     try:
-        r = _sp.run(cmd, capture_output=True, timeout=1200)
+        r = _sp.run(cmd, capture_output=True, timeout=_STATIC_TIMEOUT)
         if r.returncode != 0:
             print(f"[ERROR] Landscape static failed: {r.stderr.decode()[-300:]}", file=sys.stderr)
             return False
@@ -460,7 +471,7 @@ def assemble_landscape_segments(segments, audio_path, srt_path, out_path, fps) -
                "-i", concat_txt, "-vf", vf, "-pix_fmt", "yuv420p",
                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
                "-threads", "0", "-movflags", "+faststart", tmp_video]
-        r = _sp.run(cmd, capture_output=True, timeout=_MOTION_TIMEOUT)
+        r = _sp.run(cmd, capture_output=True, timeout=_STATIC_TIMEOUT)
         if r.returncode != 0:
             print(f"[WARN] segment concat failed: {r.stderr.decode()[-200:]}",
                   file=sys.stderr)
