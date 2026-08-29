@@ -288,3 +288,297 @@ class TestAssOutput:
         audio = tmp_path / "a.mp3"
         audio.write_bytes(b"\xff\xfb")
         assert captions_for_audio(audio, tmp_path) is None
+
+
+# ── Phase 4: beat system ──────────────────────────────────────────────────────
+
+class TestBeatHighlights:
+    """Numbers pulled out of the narration for on-screen stat cards."""
+
+    SEGMENTS = {
+        "HOOK": "Something big happened today.",
+        "MARKET RECAP": "The S&P 500 closed up 0.66% at 5,930. "
+                        "Treasury yields fell 6 basis points to 4.21%.",
+        "TOP MOVERS": "Tesla dropped 3.4%. Apple added 0.8%.",
+        "ECONOMIC DATA": "Jobless claims came in at 221,000 last week.",
+    }
+
+    @staticmethod
+    def _words(segments, per_word=0.5):
+        words, index = [], 0
+        for text in segments.values():
+            for token in text.split():
+                words.append({"word": token,
+                              "start": round(index * per_word, 3),
+                              "end": round(index * per_word + 0.4, 3)})
+                index += 1
+        return words
+
+    def _highlights(self, per_word=1.5):
+        from builders.beat_planner import find_highlights
+        return find_highlights(self.SEGMENTS, self._words(self.SEGMENTS, per_word))
+
+    def test_percentages_become_stat_cards(self):
+        values = [h["value"] for h in self._highlights()]
+        assert "+0.66%" in values
+
+    def test_label_is_the_proper_noun_not_the_verb(self):
+        labels = {h["value"]: h["label"] for h in self._highlights()}
+        assert labels["+0.66%"] == "S&P 500"
+
+    def test_direction_read_from_nearest_word_not_earliest(self):
+        """
+        "Tesla dropped 3.4%. Apple added 0.8%" — scanning forwards finds
+        "dropped" first and paints Apple's gain red.
+        """
+        from builders.beat_planner import find_highlights, GREEN
+        segments = {"A": "Tesla dropped 3.4%. Apple added 0.8% on the day."}
+        found = find_highlights(segments, self._words(segments, per_word=1.5))
+        apple = [h for h in found if h["label"] == "APPLE"]
+        assert apple, f"Apple's move was not detected: {found}"
+        assert apple[0]["color"] == GREEN
+        assert apple[0]["value"] == "+0.8%"
+
+    def test_earlier_number_does_not_leak_into_the_label(self):
+        from builders.beat_planner import find_highlights
+        segments = {"A": "Tesla dropped 3.4%. Apple added 0.8% on the day."}
+        found = find_highlights(segments, self._words(segments, per_word=1.5))
+        assert all("%" not in h["label"] for h in found), found
+
+    def test_earlier_bare_number_does_not_leak_into_the_label(self):
+        """"closed at 5,930. Treasury yields fell 6 bps" is two figures."""
+        from builders.beat_planner import find_highlights
+        segments = {"A": "The index closed at 5,930 today. "
+                         "Treasury yields fell 6 basis points overnight."}
+        found = find_highlights(segments, self._words(segments, per_word=1.5))
+        bps = [h for h in found if h["value"] == "-6 bps"]
+        assert bps and bps[0]["label"] == "TREASURY YIELDS", found
+
+    def test_label_does_not_cross_a_sentence_boundary(self):
+        from builders.beat_planner import find_highlights
+        segments = {"A": "Stocks rose on Friday. "
+                         "Jobless claims came in at 221,000 last week."}
+        found = find_highlights(segments, self._words(segments, per_word=1.5))
+        claims = [h for h in found if h["value"] == "221,000"]
+        assert claims and claims[0]["label"] == "JOBLESS CLAIMS", found
+
+    def test_comma_grouped_number_counts_as_a_figure(self):
+        from builders.beat_planner import find_highlights
+        segments = {"A": "Jobless claims came in at 221,000 last week."}
+        found = find_highlights(segments, self._words(segments, per_word=1.5))
+        assert [h["value"] for h in found] == ["221,000"]
+
+    def test_clock_times_and_years_are_not_figures(self):
+        """A bare number is usually a date or a time, not a statistic."""
+        from builders.beat_planner import find_highlights
+        segments = {"A": "Watch the print at 8:30 Eastern in 2026 next quarter."}
+        assert find_highlights(segments, self._words(segments)) == []
+
+    def test_unit_words_never_become_the_label(self):
+        from builders.beat_planner import find_highlights
+        segments = {"A": "The index fell 6 basis points to 4.21% on the session."}
+        found = find_highlights(segments, self._words(segments, per_word=1.5))
+        assert all("BASIS" not in h["label"] and "POINTS" not in h["label"]
+                   for h in found), found
+
+    def test_lowercase_word_kept_when_a_proper_noun_precedes_it(self):
+        labels = [h["label"] for h in self._highlights()]
+        assert "TREASURY YIELDS" in labels
+
+    def test_unit_word_is_folded_into_the_value(self):
+        from builders.beat_planner import find_highlights
+        segments = {"A": "The index fell 6 basis points overnight."}
+        found = find_highlights(segments, self._words(segments))
+        assert found[0]["value"] == "-6 bps"
+
+    def test_scale_word_is_abbreviated(self):
+        from builders.beat_planner import find_highlights
+        segments = {"A": "NVIDIA added $400 billion in market value."}
+        found = find_highlights(segments, self._words(segments))
+        assert found[0]["value"] == "$400B"
+
+    def test_unit_word_does_not_fire_a_second_card(self):
+        """"4.2 billion" must yield one card, not one for 4.2 and one for billion."""
+        from builders.beat_planner import find_highlights
+        segments = {"A": "Revenue reached $4.2 billion this quarter."}
+        found = find_highlights(segments, self._words(segments))
+        assert len(found) == 1, found
+
+    def test_price_level_gets_no_plus_sign(self):
+        """A level is not a move — "+5,930" would be nonsense."""
+        from builders.beat_planner import find_highlights
+        segments = {"A": "The index climbed to 5,930 points at the close."}
+        found = find_highlights(segments, self._words(segments))
+        assert not found[0]["value"].startswith("+")
+
+    def test_cards_are_spaced_out(self):
+        from builders.beat_planner import MIN_STAT_GAP_SECONDS
+        times = [h["time"] for h in self._highlights(per_word=0.5)]
+        gaps = [b - a for a, b in zip(times, times[1:])]
+        assert all(g >= MIN_STAT_GAP_SECONDS for g in gaps), gaps
+
+    def test_no_words_means_no_cards(self):
+        from builders.beat_planner import find_highlights
+        assert find_highlights(self.SEGMENTS, []) == []
+
+    def test_prose_without_numbers_yields_nothing(self):
+        from builders.beat_planner import find_highlights
+        segments = {"A": "Traders watched and waited for direction all session."}
+        assert find_highlights(segments, self._words(segments)) == []
+
+
+class TestBeatChapters:
+    def test_section_names_become_chapters(self):
+        from builders.beat_planner import find_chapters
+        segments = {"HOOK": "one two three", "MARKET RECAP": "four five six"}
+        words = [{"word": "w", "start": i * 0.5, "end": i * 0.5 + 0.4}
+                 for i in range(6)]
+        names = [c["text"] for c in find_chapters(segments, words)]
+        assert names == ["MARKET RECAP"]
+
+    def test_structural_sections_are_not_shown(self):
+        """HOOK/CTA label the script's plumbing, not anything a viewer needs."""
+        from builders.beat_planner import find_chapters
+        segments = {"HOOK": "a b", "CTA": "c d", "OUTRO": "e f"}
+        words = [{"word": "w", "start": i * 0.5, "end": i * 0.5 + 0.4}
+                 for i in range(6)]
+        assert find_chapters(segments, words) == []
+
+
+class TestBeatTimeline:
+    VISUALS = [Path(f"/tmp/visual_{i}.png") for i in range(11)]
+
+    def test_beats_are_denser_than_the_visuals(self):
+        """The whole point: 11 slides over 4 minutes is one change per 21s."""
+        from builders.beat_planner import plan_beats
+        segments = {"MARKET RECAP": " ".join(
+            f"Ticker{i} rose {i}.5% today." for i in range(20))}
+        words = [{"word": "w", "start": i * 2.0, "end": i * 2.0 + 1.5}
+                 for i in range(120)]
+        beats = plan_beats(self.VISUALS, 240.0, segments, words)
+        assert len(beats) > len(self.VISUALS)
+
+    def test_durations_sum_to_the_narration_length(self):
+        from builders.beat_planner import plan_beats
+        segments = {"MARKET RECAP": "The S&P 500 rose 0.66% today. " * 10}
+        words = [{"word": "w", "start": i * 2.0, "end": i * 2.0 + 1.5}
+                 for i in range(120)]
+        beats = plan_beats(self.VISUALS, 240.0, segments, words)
+        assert sum(b.duration for b in beats) == pytest.approx(240.0, abs=0.05)
+
+    def test_beats_carrying_graphics_stay_near_the_target_interval(self):
+        """
+        Idle stretches are allowed to hold — see _merge_idle_beats. What must
+        not drift is the pace where there is something to show.
+        """
+        from builders.beat_planner import plan_beats, BEAT_SECONDS
+        segments = {"MARKET RECAP": " ".join(
+            f"Ticker{i} rose {i}.5% today and held there." for i in range(24))}
+        words = [{"word": "w", "start": i * 1.0, "end": i * 1.0 + 0.8}
+                 for i in range(240)]
+        beats = plan_beats(self.VISUALS, 240.0, segments, words)
+        graphic = [b for b in beats if b.has_overlay]
+        assert len(graphic) >= 20, len(graphic)
+        assert all(b.duration <= BEAT_SECONDS * 1.6 for b in graphic)
+
+    def test_beats_follow_the_visual_order(self):
+        """Backgrounds are sequenced to the narration — beats must not reshuffle."""
+        from builders.beat_planner import plan_beats
+        segments = {"MARKET RECAP": "The S&P 500 rose 0.66% today. " * 10}
+        words = [{"word": "w", "start": i * 2.0, "end": i * 2.0 + 1.5}
+                 for i in range(120)]
+        beats = plan_beats(self.VISUALS, 240.0, segments, words)
+        seen = list(dict.fromkeys(b.image for b in beats))
+        assert seen == self.VISUALS
+
+    def test_idle_beats_are_merged_back_together(self):
+        """
+        With nothing to overlay, splitting a slide into identical copies costs
+        files and decoding and changes not one pixel on screen.
+        """
+        from builders.beat_planner import plan_beats
+        beats = plan_beats(self.VISUALS, 240.0, {}, [])
+        assert len(beats) == len(self.VISUALS)
+
+    def test_stat_spacing_exceeds_a_beat(self):
+        """
+        The invariant that lets the planner assign cards without arbitrating:
+        cards are spaced further apart than a beat is long, so two can never
+        want the same frame.
+        """
+        from builders.beat_planner import BEAT_SECONDS, MIN_STAT_GAP_SECONDS
+        assert MIN_STAT_GAP_SECONDS > BEAT_SECONDS
+
+    def test_every_card_gets_its_own_frame(self):
+        from builders.beat_planner import plan_beats, find_highlights
+        segments = {"MARKET RECAP": " ".join(
+            f"Ticker{i} rose {i}.5% today and held there." for i in range(24))}
+        words = [{"word": "w", "start": i * 1.0, "end": i * 1.0 + 0.8}
+                 for i in range(240)]
+        beats = plan_beats(self.VISUALS, 240.0, segments, words)
+        placed = sum(1 for b in beats if b.stat_value)
+        assert placed == len(find_highlights(segments, words))
+
+    def test_empty_input_is_survivable(self):
+        from builders.beat_planner import plan_beats
+        assert plan_beats([], 240.0, {}, []) == []
+        assert plan_beats(self.VISUALS, 0.0, {}, []) == []
+
+
+class TestBeatRendering:
+    @staticmethod
+    def _background(tmp_path, size=(640, 360)):
+        Image = pytest.importorskip("PIL.Image")
+        path = tmp_path / "bg.png"
+        Image.new("RGB", size, (10, 10, 15)).save(path)
+        return path
+
+    def test_overlay_changes_the_frame(self, tmp_path):
+        from builders.beat_planner import Beat, render_beat, GREEN
+        Image = pytest.importorskip("PIL.Image")
+        source = self._background(tmp_path)
+        beat = Beat(source, 3.5, stat_value="+0.66%", stat_label="S&P 500",
+                    stat_color=GREEN)
+        out = render_beat(beat, tmp_path / "beat.png", 640, 360)
+        assert out.exists()
+        assert list(Image.open(out).getdata()) != list(Image.open(source).getdata())
+
+    def test_rendered_frame_matches_the_canvas(self, tmp_path):
+        """Concat locks stream parameters to the first input — see Phase 1."""
+        from builders.beat_planner import Beat, render_beat
+        Image = pytest.importorskip("PIL.Image")
+        beat = Beat(self._background(tmp_path, (500, 280)), 3.5,
+                    chapter="MARKET RECAP")
+        out = render_beat(beat, tmp_path / "beat.png", 640, 360)
+        assert Image.open(out).size == (640, 360)
+
+    def test_plain_beats_reuse_their_background(self, tmp_path):
+        """No overlay means no reason to write a byte-identical copy."""
+        from builders.beat_planner import build_beat_sequence
+        pytest.importorskip("PIL.Image")
+        source = self._background(tmp_path)
+        sequence = build_beat_sequence([source], 12.0, {}, [], tmp_path, 640, 360)
+        assert [f for f, _ in sequence] == [source]
+
+    def test_sequence_durations_cover_the_narration(self, tmp_path):
+        from builders.beat_planner import build_beat_sequence
+        pytest.importorskip("PIL.Image")
+        source = self._background(tmp_path)
+        segments = {"MARKET RECAP": "The S&P 500 rose 0.66% today. " * 4}
+        words = [{"word": "w", "start": i * 0.5, "end": i * 0.5 + 0.4}
+                 for i in range(24)]
+        sequence = build_beat_sequence([source], 12.0, segments, words,
+                                       tmp_path, 640, 360)
+        assert sum(d for _, d in sequence) == pytest.approx(12.0, abs=0.05)
+
+    def test_unreadable_background_falls_back_to_the_plain_slide(self, tmp_path):
+        """A card that will not draw is not worth losing the frame over."""
+        from builders.beat_planner import build_beat_sequence
+        broken = tmp_path / "broken.png"
+        broken.write_text("not an image")
+        segments = {"MARKET RECAP": "The S&P 500 rose 0.66% today."}
+        words = [{"word": "w", "start": i * 0.5, "end": i * 0.5 + 0.4}
+                 for i in range(6)]
+        sequence = build_beat_sequence([broken], 12.0, segments, words,
+                                       tmp_path, 640, 360)
+        assert sequence and all(f == broken for f, _ in sequence)

@@ -296,13 +296,30 @@ def _build_with_ffmpeg(assets: VideoAssets, output_path: Path) -> Optional[float
                     len(valid_charts), assets.duration_seconds,
                     assets.duration_seconds / len(valid_charts))
 
-        # Create concat file for images (each shown for equal duration)
-        dur_per_img = assets.duration_seconds / len(valid_charts)
+        # A slide held for 20 seconds reads as a lecture. Re-cut the same
+        # backgrounds into ~3.5s beats with stat cards and section kickers
+        # layered on, so something changes on screen at a modern rhythm.
+        sequence = []
+        try:
+            from builders.beat_planner import build_beat_sequence
+            from generators.audio_gen import load_word_timings
+            sequence = build_beat_sequence(
+                valid_charts, assets.duration_seconds, assets.script_segments,
+                load_word_timings(assets.audio_path), tmp,
+                settings.video_width, settings.video_height,
+            )
+        except Exception as exc:
+            logger.warning("Beat sequence unavailable (non-fatal): %s", exc)
+
+        if not sequence:
+            dur_per_img = assets.duration_seconds / len(valid_charts)
+            sequence = [(p, dur_per_img) for p in valid_charts]
+
         concat_file = tmp / "imgs.txt"
         lines = []
-        for p in valid_charts:
-            lines.append(f"file '{p.resolve()}'")
-            lines.append(f"duration {dur_per_img:.2f}")
+        for frame, seconds in sequence:
+            lines.append(f"file '{Path(frame).resolve()}'")
+            lines.append(f"duration {seconds:.2f}")
 
         # 2-second disclaimer/copyright end-card (channel policy — this
         # path must match the MoviePy build)
@@ -312,7 +329,7 @@ def _build_with_ffmpeg(assets: VideoAssets, output_path: Path) -> Optional[float
             lines.append(f"duration {DISCLAIMER_CARD_SECONDS:.2f}")
             lines.append(f"file '{card_path.resolve()}'")   # last-frame quirk
         else:
-            lines.append(f"file '{valid_charts[-1].resolve()}'")
+            lines.append(f"file '{Path(sequence[-1][0]).resolve()}'")
         concat_file.write_text("\n".join(lines))
 
         # Round channel-logo badge — burned in on EVERY build path
