@@ -128,6 +128,79 @@ def _random_hook() -> str:
 
 # ── Weekday script ───────────────────────────────────────────────────────────
 
+# Seed terms for the trending-search context. Deliberately short: the
+# scraper sleeps a second between keywords to respect Google's rate limit,
+# so every extra seed is another second of a pipeline that publishes to a
+# clock.
+_TREND_SEEDS = ["stock market today", "S&P 500", "inflation"]
+_TREND_CACHE_NAME = "trending_queries.json"
+
+
+def _trending_context(limit: int = 6) -> str:
+    """
+    What people are actually searching about markets right now.
+
+    The scraper for this has existed since the project started and nothing
+    ever called it, so every script was written purely from price data —
+    which is a large part of why every recap came out sounding the same.
+    Giving Claude the day's rising queries lets the script lead with what
+    people are already curious about.
+
+    Strictly optional. Google Trends is unofficial and rate-limited, and a
+    script that publishes on a schedule must never wait on it or fail with
+    it, so every path here returns "" rather than raising.
+    """
+    import json
+    from datetime import date
+    # Imported locally: this module pulls named constants from config.settings,
+    # not the settings object itself.
+    from config.settings import settings
+
+    cache = settings.logs_dir / _TREND_CACHE_NAME
+    today = date.today().isoformat()
+    try:
+        if cache.exists():
+            cached = json.loads(cache.read_text(encoding="utf-8"))
+            # Two runs a weekday share one fetch: the day's searches do not
+            # change enough between them to be worth the rate-limit budget.
+            if cached.get("date") == today:
+                queries = cached.get("queries", [])
+                return _format_trends(queries[:limit])
+    except Exception as exc:
+        logger.debug("Trend cache unreadable (non-fatal): %s", exc)
+
+    try:
+        from scrapers.trends_scraper import TrendsScraper
+        rising = TrendsScraper().get_rising_queries(keywords=_TREND_SEEDS)
+        queries = [item["query"] for item in rising if item.get("query")]
+    except Exception as exc:
+        logger.warning("Google Trends unavailable (non-fatal): %s", exc)
+        return ""
+
+    if not queries:
+        return ""
+    try:
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps({"date": today, "queries": queries}),
+                         encoding="utf-8")
+    except Exception as exc:
+        logger.debug("Trend cache not written (non-fatal): %s", exc)
+    return _format_trends(queries[:limit])
+
+
+def _format_trends(queries: list) -> str:
+    if not queries:
+        return ""
+    listed = ", ".join(str(q) for q in queries)
+    return (
+        "WHAT PEOPLE ARE SEARCHING RIGHT NOW (Google Trends, rising queries):\n"
+        f"{listed}\n"
+        "If any of these connect to today's market data above, lead with that "
+        "connection — it is what the audience already wants explained. Ignore "
+        "any that do not relate to today's session."
+    )
+
+
 def generate_weekday_script(
     market_narrative: str,
     earnings_narrative: str,
@@ -145,12 +218,14 @@ def generate_weekday_script(
     style = _random_style()
     hook  = _random_hook()
 
-    # Compose context block from all three data narratives
-    context = "\n\n".join([
+    # Compose context block from the data narratives, plus what the audience
+    # is searching for today when Trends is reachable.
+    context = "\n\n".join([part for part in (
         market_narrative,
         earnings_narrative,
         economic_narrative,
-    ])
+        _trending_context(),
+    ) if part])
 
     prompt_template = _TIER_PROMPTS.get(tier, WEEKDAY_SCRIPT_TIER2_PROMPT)
 
