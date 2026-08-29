@@ -87,8 +87,27 @@ chmod 600 "$APP_DIR/.env" 2>/dev/null || true
 chmod 600 "$APP_DIR"/config/*token*.json 2>/dev/null || true
 
 echo "── Restarting scheduler ───────────────────────────────────────────────"
-systemctl restart driftwire326 || echo "   (service not installed — skipped)"
-sleep 5
+if ! systemctl restart driftwire326 2>/dev/null; then
+    echo "   (service not installed — skipped)"
+else
+    # `systemctl restart` returns as soon as the unit is *started*, not when
+    # it is healthy: a Type=simple unit that dies 200ms later still exits 0.
+    # Reporting success on that basis is what the 39-day outage looked like
+    # from the outside — a daemon crash-looping in "activating (auto-restart)"
+    # while everything upstream of it said fine. Ask what state it is in.
+    sleep 8
+    state=$(systemctl is-active driftwire326 2>/dev/null || true)
+    if [ "$state" != "active" ]; then
+        echo "   ❌ scheduler is '$state', not 'active' — it did not survive the restart"
+        echo "      the code is updated; the daemon is not running."
+        echo ""
+        journalctl -u driftwire326 -n 25 --no-pager 2>&1 | sed 's/^/   /'
+        echo ""
+        echo "   startup errors are also written to $APP_DIR/logs/STARTUP_ERROR.txt"
+        exit 1
+    fi
+    echo "   ✅ scheduler active"
+fi
 
 echo ""
 echo "════════════════════════════════════════════════════════════════════════"
