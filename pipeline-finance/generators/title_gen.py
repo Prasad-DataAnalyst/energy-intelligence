@@ -21,6 +21,7 @@ from config.prompts import (
     DESCRIPTION_PROMPT,
     TAGS_PROMPT,
 )
+from monitor.usage_ledger import record
 
 logger = logging.getLogger(__name__)
 
@@ -154,6 +155,7 @@ def _generate_titles_via_claude(
             system=SYSTEM_PERSONA,
             messages=[{"role": "user", "content": prompt}],
         )
+        record(resp, "title_gen")
         raw = resp.content[0].text
         json_match = re.search(r'\{.*\}', raw, re.DOTALL)
         if json_match:
@@ -193,6 +195,7 @@ def _generate_description_via_claude(
             system=SYSTEM_PERSONA,
             messages=[{"role": "user", "content": prompt}],
         )
+        record(resp, "title_gen")
         return resp.content[0].text
     except Exception as exc:
         logger.error("Claude description generation failed: %s", exc)
