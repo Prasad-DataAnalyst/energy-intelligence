@@ -30,6 +30,7 @@ from config.prompts import (
     SUNDAY_SAVINGS_SCRIPT_PROMPT,
     SUNDAY_BONUS_SCRIPT_PROMPT,
 )
+from monitor.usage_ledger import record
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +98,7 @@ def _call_claude(system: str, user_prompt: str) -> tuple[str, int]:
         system=system,
         messages=[{"role": "user", "content": user_prompt}],
     )
+    record(resp, "script_gen")
     text = resp.content[0].text
     tokens = resp.usage.input_tokens + resp.usage.output_tokens
     return text, tokens

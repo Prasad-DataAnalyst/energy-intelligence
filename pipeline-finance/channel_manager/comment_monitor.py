@@ -18,6 +18,7 @@ from typing import Optional
 import anthropic
 
 from config.settings import settings
+from monitor.usage_ledger import record
 
 logger = logging.getLogger(__name__)
 
@@ -242,6 +243,7 @@ class CommentMonitor:
                     "content": _CLASSIFY_PROMPT.format(comment_text=text[:500]),
                 }],
             )
+            record(message, "comment_monitor")
             label = message.content[0].text.strip().lower()
             if label not in {CLASS_SPAM, CLASS_FINANCIAL_ADVICE, CLASS_POSITIVE,
                              CLASS_QUESTION, CLASS_GENERAL}:
@@ -273,6 +275,7 @@ class CommentMonitor:
                     ),
                 }],
             )
+            record(message, "comment_monitor")
             reply = message.content[0].text.strip()
         except Exception as exc:
             logger.warning("Reply generation failed: %s", exc)

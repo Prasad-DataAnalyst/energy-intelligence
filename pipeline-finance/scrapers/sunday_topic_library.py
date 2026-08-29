@@ -9,6 +9,7 @@ import random
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Optional
+from monitor.usage_ledger import record
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +106,7 @@ def _ai_pick(available: list[dict], week_market_summary: str) -> Optional[dict]:
             temperature=0.3,
             messages=[{"role": "user", "content": prompt}],
         )
+        record(resp, "sunday_topics")
         raw = resp.content[0].text
         match = re.search(r"\{.*\}", raw, re.DOTALL)
         if match:

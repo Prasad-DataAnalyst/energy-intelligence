@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Optional
 
 from config.settings import settings
+from monitor.usage_ledger import record
 
 logger = logging.getLogger(__name__)
 
@@ -438,6 +439,7 @@ def generate_thumbnail_from_claude(
             temperature=0.4,
             messages=[{"role": "user", "content": prompt}],
         )
+        record(resp, "thumbnail_gen")
         raw = resp.content[0].text
         json_match = re.search(r'\{.*\}', raw, re.DOTALL)
         data = json.loads(json_match.group()) if json_match else {}

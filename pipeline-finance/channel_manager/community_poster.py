@@ -22,6 +22,7 @@ from typing import Optional
 import anthropic
 
 from config.settings import settings
+from monitor.usage_ledger import record
 
 logger = logging.getLogger(__name__)
 
@@ -131,6 +132,7 @@ class CommunityPoster:
                 max_tokens=600,
                 messages=[{"role": "user", "content": prompt}],
             )
+            record(message, "community_poster")
             text = message.content[0].text.strip()
             # Hard cap
             if len(text) > POST_CHAR_LIMIT:

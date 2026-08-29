@@ -132,6 +132,67 @@ def _check_startup_error() -> tuple[str, str, str, list[str]]:
         return _WARN, "Scheduler startup", str(exc)[:80], []
 
 
+def _check_claude_burn(days: int = 7) -> tuple[str, str, str, list[str]]:
+    """
+    How fast credit is draining, and whether that changed.
+
+    The credit check above only answers "is there any left". Running out
+    stops the channel exactly as completely as a dead daemon, and just as
+    quietly — so the useful question is the rate, not the balance.
+    """
+    try:
+        from monitor.usage_ledger import burn_summary, estimated_cost, BURN_ALERT_RATIO
+        summary = burn_summary(days)
+    except Exception as exc:
+        return _WARN, "Claude burn rate", f"usage ledger unreadable: {exc}", []
+
+    if not summary["calls"]:
+        return (_OK, "Claude burn rate",
+                f"no Claude calls recorded in {days} days "
+                "(ledger starts at the next pipeline run)", [])
+
+    headline = (f"{summary['tokens']:,} tokens over {days}d "
+                f"(~{summary['tokens_per_day']:,}/day, {summary['calls']} calls)")
+    cost = estimated_cost(summary)
+    if cost is not None:
+        headline += f" ≈ ${cost}"
+
+    lines = [f"   {source}: {tokens:,} tokens"
+             for source, tokens in list(summary["by_source"].items())[:5]]
+
+    ratio = summary["ratio"]
+    if ratio and ratio >= BURN_ALERT_RATIO:
+        return (_WARN, "Claude burn rate",
+                f"{headline} — {ratio}x the previous {days} days", lines)
+    if ratio:
+        lines.append(f"   vs previous {days}d: {ratio}x")
+    return _OK, "Claude burn rate", headline, lines
+
+
+def _check_optional_keys() -> tuple[str, str, str, list[str]]:
+    """
+    Optional API keys that features quietly rely on.
+
+    Credentials that are *required* already fail loudly. These do not: with
+    no key the feature simply disappears, the run still succeeds, and
+    nothing says the video came out thinner than intended.
+    """
+    optional = [
+        ("PEXELS_API_KEY", "B-roll photos",
+         "visual sequence loses its ~3 photo slides"),
+        ("MARKETSTACK_API_KEY", "backup EOD prices",
+         "no fallback if yfinance is down on a publishing day"),
+    ]
+    missing = [(name, feature, effect) for name, feature, effect in optional
+               if not (os.getenv(name) or "").strip()]
+    if not missing:
+        return _OK, "Optional API keys", f"all {len(optional)} present", []
+    return (_WARN, "Optional API keys",
+            f"{len(missing)} unset — features silently disabled",
+            [f"   {name} missing → {feature}: {effect}"
+             for name, feature, effect in missing])
+
+
 def _check_pipeline_states(days: int = 5) -> tuple[str, str, str, list[str]]:
     """Read the last N days of checkpoint files: where did runs stop?"""
     from scheduler.pipeline_state import STATE_DIR
@@ -397,7 +458,8 @@ def run_health_report() -> int:
     print()
     for status, label, detail, lines in (
         _check_startup_error(), _check_registered_jobs(),
-        _check_pipeline_states(), _check_uploads()
+        _check_pipeline_states(), _check_uploads(),
+        _check_claude_burn(), _check_optional_keys()
     ):
         print(_line(status, label, detail))
         for line in lines:

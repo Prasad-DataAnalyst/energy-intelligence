@@ -14,6 +14,7 @@ import anthropic
 
 from config.settings import settings
 from config.prompts import COMPLIANCE_REVIEW_PROMPT
+from monitor.usage_ledger import record
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +111,7 @@ def _claude_review(script: str) -> dict:
             temperature=0.1,  # low temp for consistent compliance analysis
             messages=[{"role": "user", "content": prompt}],
         )
+        record(response, "compliance_filter")
         raw = response.content[0].text
         # Extract JSON from response
         json_match = re.search(r'\{.*\}', raw, re.DOTALL)

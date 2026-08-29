@@ -18,6 +18,7 @@ from datetime import date, datetime
 from typing import Optional
 
 from config.settings import settings
+from monitor.usage_ledger import record
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +181,7 @@ def generate_short_script(theme: dict, context: str) -> Optional[str]:
             max_tokens=400,
             messages=[{"role": "user", "content": prompt}],
         )
+        record(message, "short_pipeline")
         script = message.content[0].text.strip()
         if "[CARD 1]" not in script.upper().replace(" ", ""):
             # Tolerate "CARD 1:" style too — the builder's parser has fallbacks
