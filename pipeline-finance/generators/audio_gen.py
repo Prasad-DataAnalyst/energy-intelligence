@@ -162,14 +162,105 @@ def _apply_ssml_markup(text: str) -> str:
     return f'<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US">{body}</speak>'
 
 
-async def _edge_tts_async(text: str, voice: str, output_path: Path, use_ssml: bool = True) -> None:
+# ── Word-level timing (drives synced captions and on-beat text overlays) ──────
+
+SEGMENT_GAP_SECONDS = 0.4     # matches the silence inserted by _merge_audio_files
+
+
+def _timings_path(audio_path: Path) -> Path:
+    return audio_path.with_suffix(".words.json")
+
+
+def save_word_timings(audio_path: Path, words: list) -> Optional[Path]:
+    """Persist word timings beside their audio file. Never raises."""
+    if not words:
+        return None
+    try:
+        import json
+        dest = _timings_path(audio_path)
+        dest.write_text(json.dumps(words), encoding="utf-8")
+        return dest
+    except Exception as exc:
+        logger.warning("Could not save word timings for %s: %s", audio_path.name, exc)
+        return None
+
+
+def load_word_timings(audio_path: Path) -> list:
+    """Read word timings for an audio file, or [] when unavailable."""
+    try:
+        import json
+        src = _timings_path(audio_path)
+        if src.exists():
+            return json.loads(src.read_text(encoding="utf-8"))
+    except Exception as exc:
+        logger.warning("Could not load word timings for %s: %s", audio_path.name, exc)
+    return []
+
+
+def build_merged_timings(segments: list, merged_path: Path) -> list:
+    """
+    Shift each segment's word timings into the merged track's timeline.
+
+    Segments are concatenated with SEGMENT_GAP_SECONDS of silence after each,
+    so segment i begins at the sum of all previous durations plus one gap per
+    preceding segment. Without this offset every caption after the first
+    segment would appear early, drifting further as the video runs.
+    """
+    merged: list = []
+    offset = 0.0
+    for seg in segments:
+        if not seg.audio_path or not seg.duration_seconds:
+            continue
+        for word in load_word_timings(seg.audio_path):
+            merged.append({
+                "word": word.get("word", ""),
+                "start": round(word.get("start", 0.0) + offset, 3),
+                "end": round(word.get("end", 0.0) + offset, 3),
+            })
+        offset += seg.duration_seconds + SEGMENT_GAP_SECONDS
+
+    if merged:
+        save_word_timings(merged_path, merged)
+        logger.info("Word timings: %d words mapped across the merged track", len(merged))
+    return merged
+
+
+async def _edge_tts_async(
+    text: str, voice: str, output_path: Path, use_ssml: bool = True
+) -> list[dict]:
+    """
+    Synthesise speech AND capture word-level timings.
+
+    Streaming instead of save() costs nothing extra but yields WordBoundary
+    events carrying each word's exact offset in the audio. Those timings are
+    what make synced burned-in captions and on-beat text overlays possible;
+    estimating them from a words-per-minute constant drifts badly over a
+    four-minute script.
+
+    Returns [{"word": str, "start": float_seconds, "end": float_seconds}, ...]
+    (empty if the service sends no boundaries, e.g. for SSML input).
+    """
     import edge_tts
-    if use_ssml:
-        ssml = _apply_ssml_markup(text)
-        communicate = edge_tts.Communicate(ssml, voice)
-    else:
-        communicate = edge_tts.Communicate(text, voice)
-    await communicate.save(str(output_path))
+
+    payload = _apply_ssml_markup(text) if use_ssml else text
+    communicate = edge_tts.Communicate(payload, voice)
+
+    words: list[dict] = []
+    with open(output_path, "wb") as audio_file:
+        async for chunk in communicate.stream():
+            kind = chunk.get("type")
+            if kind == "audio":
+                audio_file.write(chunk["data"])
+            elif kind == "WordBoundary":
+                # edge-tts reports 100-nanosecond ticks
+                start = chunk.get("offset", 0) / 10_000_000
+                duration = chunk.get("duration", 0) / 10_000_000
+                words.append({
+                    "word": chunk.get("text", ""),
+                    "start": round(start, 3),
+                    "end": round(start + duration, 3),
+                })
+    return words
 
 
 # SSML is OFF by default: the edge-tts service mishandles raw SSML documents
@@ -180,19 +271,28 @@ _SSML_ENABLED = _os.getenv("ENABLE_SSML", "").lower() == "true"
 
 
 def _edge_tts(text: str, output_path: Path) -> Optional[float]:
-    """Primary TTS engine — edge-tts (plain text; SSML opt-in via ENABLE_SSML)."""
+    """
+    Primary TTS engine — edge-tts (plain text; SSML opt-in via ENABLE_SSML).
+    Word timings are written next to the audio as <name>.words.json.
+    """
+    def _run(use_ssml: bool) -> Optional[float]:
+        words = asyncio.run(
+            _edge_tts_async(text, EDGE_TTS_VOICE, output_path, use_ssml=use_ssml)
+        )
+        save_word_timings(output_path, words)
+        if words:
+            # Real end-of-speech beats any words-per-minute estimate.
+            return max(w["end"] for w in words)
+        return (len(text.split()) / 155) * 60
+
     try:
-        asyncio.run(_edge_tts_async(text, EDGE_TTS_VOICE, output_path, use_ssml=_SSML_ENABLED))
-        word_count = len(text.split())
-        duration = (word_count / 155) * 60
+        duration = _run(_SSML_ENABLED)
         logger.debug("edge-tts → %s (%.1fs)", output_path.name, duration)
         return duration
     except Exception as exc:
         logger.warning("edge-tts failed, retrying plain text: %s", exc)
         try:
-            asyncio.run(_edge_tts_async(text, EDGE_TTS_VOICE, output_path, use_ssml=False))
-            word_count = len(text.split())
-            return (word_count / 155) * 60
+            return _run(False)
         except Exception as exc2:
             logger.warning("edge-tts plain text also failed: %s", exc2)
             return None
@@ -552,6 +652,12 @@ def generate_audio(script_segments: dict[str, str], video_type: str) -> AudioTra
     merge_duration = _merge_audio_files(valid_paths, merged_path)
     if merge_duration:
         total_duration = merge_duration
+
+    # Map per-segment word timings onto the merged timeline for captions
+    try:
+        build_merged_timings(audio_segments, merged_path)
+    except Exception as exc:
+        logger.warning("Word timing merge failed (captions will fall back): %s", exc)
 
     # Sanity: actual merged audio must be near the word-count estimate.
     # A large shortfall means the TTS engine swallowed part of the script.
