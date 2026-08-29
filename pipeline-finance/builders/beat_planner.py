@@ -300,19 +300,6 @@ def _scan_figures(segments: dict, words: list) -> list[dict]:
     return timed
 
 
-def find_highlights(segments: dict, words: list) -> list[dict]:
-    """
-    The figures worth putting on screen: every one found, thinned so no two
-    cards land within MIN_STAT_GAP_SECONDS of each other.
-    """
-    spaced: list[dict] = []
-    for figure in _scan_figures(segments, words):
-        if spaced and figure["time"] - spaced[-1]["time"] < MIN_STAT_GAP_SECONDS:
-            continue
-        spaced.append(figure)
-    return spaced
-
-
 def _impact(figure: dict) -> float:
     """
     How loudly a figure reads as a headline. Percentages score on their
@@ -334,6 +321,26 @@ def _impact(figure: dict) -> float:
     if text.endswith("bps"):
         return magnitude / 10.0
     return 0.0
+
+
+def find_highlights(segments: dict, words: list) -> list[dict]:
+    """
+    The figures worth putting on screen: every one found, thinned so no two
+    cards land within MIN_STAT_GAP_SECONDS of each other.
+
+    A figure is dropped when it says nothing on its own — no unit to show how
+    big it is, and no name to say what it is. "MARKETS / 5,930" is a card
+    that occupies the frame without telling anyone anything; "JOBLESS CLAIMS
+    / 221,000" and "S&P 500 / +0.66%" both still earn their place.
+    """
+    spaced: list[dict] = []
+    for figure in _scan_figures(segments, words):
+        if _impact(figure) == 0 and figure["label"] == "MARKETS":
+            continue
+        if spaced and figure["time"] - spaced[-1]["time"] < MIN_STAT_GAP_SECONDS:
+            continue
+        spaced.append(figure)
+    return spaced
 
 
 def pick_hook(segments: dict, words: list):

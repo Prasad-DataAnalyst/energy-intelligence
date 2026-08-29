@@ -407,8 +407,9 @@ class TestBeatHighlights:
     def test_price_level_gets_no_plus_sign(self):
         """A level is not a move — "+5,930" would be nonsense."""
         from builders.beat_planner import find_highlights
-        segments = {"A": "The index climbed to 5,930 points at the close."}
+        segments = {"A": "The Nasdaq climbed to 5,930 points at the close."}
         found = find_highlights(segments, self._words(segments))
+        assert found, "a named level should still get a card"
         assert not found[0]["value"].startswith("+")
 
     def test_cards_are_spaced_out(self):
@@ -834,3 +835,98 @@ class TestDissolves:
         sequence = build_beat_sequence(visuals, 240.0, segments,
                                        _timed(segments), tmp_path, 640, 360)
         assert any(f.name.startswith("fade_000") for f, _ in sequence)
+
+
+# ── Phase 7: charts sized and set for video ───────────────────────────────────
+
+class TestChartsAreVideoSized:
+    """
+    Charts were rendering at roughly 1500x750 because bbox_inches="tight"
+    crops to content. The video builder letterboxes rather than upscales
+    (enlarging just blurs), so they covered 52-66% of the frame with black
+    bars around them and type shrunk to match. Rendering at the exact canvas
+    size fixes the framing, the legibility and the Phase 1 concat invariant
+    all at once.
+    """
+
+    @staticmethod
+    def _canvas():
+        from config.settings import settings
+        return settings.video_width, settings.video_height
+
+    def _size(self, path):
+        Image = pytest.importorskip("PIL.Image")
+        return Image.open(path).size
+
+    def test_index_chart_fills_the_frame(self):
+        pytest.importorskip("matplotlib")
+        from generators.chart_generator import generate_index_performance_chart
+        chart = generate_index_performance_chart(
+            {"S&P 500": 0.66, "Nasdaq": 1.2, "Dow": -0.14})
+        assert self._size(chart.path) == self._canvas()
+
+    def test_movers_chart_fills_the_frame(self):
+        pytest.importorskip("matplotlib")
+        from generators.chart_generator import generate_gainers_losers_chart
+        chart = generate_gainers_losers_chart(
+            [("NVDA", 9.1), ("AAPL", 0.8)], [("TSLA", -3.4), ("INTC", -1.9)])
+        assert self._size(chart.path) == self._canvas()
+
+    def test_heatmap_fills_the_frame(self):
+        pytest.importorskip("matplotlib")
+        from generators.chart_generator import generate_sector_heatmap
+        chart = generate_sector_heatmap({"Technology": 2.1, "Energy": -1.2})
+        assert self._size(chart.path) == self._canvas()
+
+    def test_charts_come_out_the_same_size_every_time(self):
+        """
+        The concat demuxer locks stream parameters to its first input, so a
+        chart of a different size is dropped or garbled — the Phase 1 bug.
+        Variable output was what made that possible.
+        """
+        pytest.importorskip("matplotlib")
+        from generators.chart_generator import generate_index_performance_chart
+        first = generate_index_performance_chart({"S&P 500": 0.66})
+        second = generate_index_performance_chart(
+            {"S&P 500": 0.66, "Nasdaq": 1.2, "Dow": -0.14, "Russell 2000": 0.4})
+        assert self._size(first.path) == self._size(second.path)
+
+    def test_type_clears_the_legibility_floor(self):
+        """
+        Read on a phone, in a feed. Every label has to be around 30px on a
+        1080p frame; the old 9-10pt print defaults came out near 20px.
+        """
+        from generators.chart_generator import FONT, VIDEO_DPI
+        smallest = min(size for name, size in FONT.items() if name != "mark")
+        assert smallest / 72 * VIDEO_DPI >= 30
+
+    def test_the_overlay_band_is_left_clear(self):
+        """
+        The beat system draws stat cards down the upper left; a card runs to
+        about 32% of frame height, so the axes must start below that.
+        """
+        from generators.chart_generator import OVERLAY_SAFE_TOP
+        assert OVERLAY_SAFE_TOP >= 0.32
+
+
+class TestWeakCardsAreDropped:
+    def test_a_bare_level_with_no_name_gets_no_card(self):
+        """"MARKETS / 5,930" fills the frame without saying anything."""
+        from builders.beat_planner import find_highlights
+        segments = {"A": "The index closed up 0.66% at 5,930 on the session."}
+        found = find_highlights(segments, _timed(segments, 30.0))
+        assert all(h["value"] != "5,930" for h in found), found
+
+    def test_a_named_level_still_gets_one(self):
+        from builders.beat_planner import find_highlights
+        segments = {"A": "Jobless claims came in at 221,000 last week."}
+        found = find_highlights(segments, _timed(segments, 30.0))
+        assert [(h["label"], h["value"]) for h in found] == \
+            [("JOBLESS CLAIMS", "221,000")]
+
+    def test_an_unnamed_move_still_gets_one(self):
+        """No name, but the number itself carries the news."""
+        from builders.beat_planner import find_highlights
+        segments = {"A": "It closed up 0.66% against a weak tape overall."}
+        found = find_highlights(segments, _timed(segments, 30.0))
+        assert [h["value"] for h in found] == ["+0.66%"]

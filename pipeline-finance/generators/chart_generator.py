@@ -68,17 +68,80 @@ class ChartFile:
     generated_at: str
 
 
+# ── Sizing for video ──────────────────────────────────────────────────────
+# Charts are read on a phone, in a feed, for a few seconds at a time — not
+# studied on a monitor. Two things follow.
+#
+# First, fill the frame. These were rendering at roughly 1500x750 because
+# bbox_inches="tight" crops to the content, and the video builder letterboxes
+# rather than upscales (enlarging a chart just blurs it). Measured, that left
+# charts covering 52-66% of the frame with black bars around them, and shrank
+# the type by the same proportion. Rendering at the exact canvas size fixes
+# both at once, and gives the concat demuxer the uniform dimensions it needs.
+#
+# Second, type has to be far larger than print defaults. Everything below is
+# at least 30px on a 1080p frame; the old 9-10pt labels came out near 20px.
+VIDEO_DPI = 120
+
+
+def _video_size() -> tuple[float, float]:
+    return (settings.video_width / VIDEO_DPI, settings.video_height / VIDEO_DPI)
+
+
+# The beat system draws stat cards and section kickers down the upper left.
+# Charts keep that band clear so the two never fight for the same pixels.
+# Measured against a rendered stat card: the card runs to about 32% of the
+# frame height, so the axes have to start below that or the two overlap.
+OVERLAY_SAFE_TOP = 0.34
+
+FONT = {
+    "title": 30,     # 50px
+    "label": 22,     # 37px
+    "value": 24,     # 40px
+    "tick": 20,      # 33px
+    "mark": 13,      # 22px — watermark, deliberately quiet
+}
+
+
+def _video_fig(nrows: int = 1, ncols: int = 1, **kwargs):
+    """A figure that is exactly the video canvas, with the overlay band free."""
+    fig, axes = plt.subplots(nrows, ncols, figsize=_video_size(),
+                             dpi=VIDEO_DPI, **kwargs)
+    fig.patch.set_facecolor(BRAND["bg"])
+    # Generous left margin: category names ("Russell 2000") are set at video
+    # size now, and at 0.08 they ran off the edge of the frame.
+    fig.subplots_adjust(left=0.17, right=0.95,
+                        top=1.0 - OVERLAY_SAFE_TOP, bottom=0.10,
+                        wspace=0.25)
+    return fig, axes
+
+
 def _add_brand_watermark(ax: plt.Axes, alpha: float = 0.15) -> None:
     ax.text(0.98, 0.02, "@DriftWire326",
             transform=ax.transAxes,
-            fontsize=9, color=BRAND["text"], alpha=alpha,
+            fontsize=FONT["mark"], color=BRAND["text"], alpha=alpha,
             ha="right", va="bottom", style="italic")
+
+
+def _save_video_figure(fig: plt.Figure, path: Path) -> Path:
+    """
+    Save a figure that built its own layout, resized to the video canvas.
+
+    Same reasoning as _save_chart: no bbox_inches="tight", because cropping
+    to content returns a different size every run and the video builder
+    letterboxes whatever it is handed.
+    """
+    fig.set_size_inches(*_video_size())
+    fig.savefig(path, dpi=VIDEO_DPI, facecolor=BRAND["bg"], edgecolor="none")
+    plt.close(fig)
+    return path
 
 
 def _save_chart(fig: plt.Figure, name: str) -> Path:
     path = OUTPUT_DIR / f"{name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
-    fig.savefig(path, dpi=150, bbox_inches="tight",
-                facecolor=BRAND["bg"], edgecolor="none")
+    # No bbox_inches="tight": it crops to content and returns a different size
+    # every run, which is what left charts letterboxed inside the frame.
+    fig.savefig(path, dpi=VIDEO_DPI, facecolor=BRAND["bg"], edgecolor="none")
     plt.close(fig)
     logger.info("Chart saved → %s", path)
     return path
@@ -89,29 +152,41 @@ def generate_index_performance_chart(
     title: str = "Market Performance Today",
 ) -> ChartFile:
     """Horizontal bar chart of index/sector performance."""
-    fig, ax = plt.subplots(figsize=(10, 5))
-    fig.patch.set_facecolor(BRAND["bg"])
+    fig, ax = _video_fig()
+    ax.set_facecolor(BRAND["surface"])
 
     labels = list(performance.keys())
     values = list(performance.values())
     colors = [BRAND["green"] if v >= 0 else BRAND["primary"] for v in values]
 
-    bars = ax.barh(labels, values, color=colors, height=0.6, zorder=3)
-    ax.axvline(0, color=BRAND["text2"], linewidth=0.8, alpha=0.5)
+    bars = ax.barh(labels, values, color=colors, height=0.68, zorder=3)
+    ax.axvline(0, color=BRAND["text2"], linewidth=1.4, alpha=0.5)
     ax.grid(axis="x", zorder=0)
 
-    for bar, val in zip(bars, values):
-        x_pos = val + (0.05 if val >= 0 else -0.05)
-        ha = "left" if val >= 0 else "right"
-        ax.text(x_pos, bar.get_y() + bar.get_height() / 2,
-                f"{val:+.2f}%", va="center", ha=ha,
-                color=BRAND["text"], fontsize=10, fontweight="bold")
+    # Fit the range to the data, not symmetrically around zero: on a day when
+    # everything moved the same way, a symmetric axis spends half the frame on
+    # empty space. Extra padding only on the side the labels sit.
+    low, high = min(list(values) + [0.0]), max(list(values) + [0.0])
+    span = (high - low) or 1.0
+    ax.set_xlim(low - span * (0.30 if low < 0 else 0.05),
+                high + span * (0.30 if high > 0 else 0.05))
 
-    ax.set_title(title, color=BRAND["text"], fontsize=14, fontweight="bold", pad=15)
-    ax.set_xlabel("Daily Change (%)", color=BRAND["text2"])
+    for bar, val in zip(bars, values):
+        offset = span * 0.03
+        ax.text(val + (offset if val >= 0 else -offset),
+                bar.get_y() + bar.get_height() / 2,
+                f"{val:+.2f}%", va="center",
+                ha="left" if val >= 0 else "right",
+                color=BRAND["text"], fontsize=FONT["value"], fontweight="bold")
+
+    ax.set_title(title, color=BRAND["text"], fontsize=FONT["title"],
+                 fontweight="bold", pad=18)
+    # No axis label: every bar is already labelled with its own number, and
+    # a second explanation of the same thing is what makes a chart look busy
+    # at a glance.
     ax.xaxis.set_major_formatter(FuncFormatter(lambda x, _: f"{x:+.1f}%"))
+    ax.tick_params(labelsize=FONT["tick"])
     _add_brand_watermark(ax)
-    fig.tight_layout()
 
     path = _save_chart(fig, "index_performance")
     return ChartFile("index_performance", path, title, datetime.now().isoformat())
@@ -162,9 +237,7 @@ def generate_candlestick_chart(
             tight_layout=True,
         )
         _add_brand_watermark(axes[0])
-        fig.savefig(path, dpi=150, bbox_inches="tight",
-                    facecolor=BRAND["bg"])
-        plt.close(fig)
+        _save_video_figure(fig, path)
         logger.info("Candlestick chart saved → %s", path)
         return ChartFile("candlestick", path, f"{symbol} Price Chart", datetime.now().isoformat())
 
@@ -181,7 +254,7 @@ def generate_sector_heatmap(sector_performance: dict[str, float]) -> ChartFile:
         "Energy": 5, "Real Estate": 3, "Materials": 2, "Utilities": 2,
     }
 
-    fig, ax = plt.subplots(figsize=(12, 6))
+    fig, ax = _video_fig()
     x, y, w = 0, 0, 12
 
     items = []
@@ -195,7 +268,8 @@ def generate_sector_heatmap(sector_performance: dict[str, float]) -> ChartFile:
     if not items:
         logger.warning("generate_sector_heatmap: no sector data — rendering placeholder")
         ax.text(0.5, 0.5, "Sector data unavailable", transform=ax.transAxes,
-                ha="center", va="center", fontsize=16, color=BRAND["text2"])
+                ha="center", va="center", fontsize=FONT["title"],
+                color=BRAND["text2"])
 
     n = len(items)
     cols = 4
@@ -216,19 +290,20 @@ def generate_sector_heatmap(sector_performance: dict[str, float]) -> ChartFile:
         ax.add_patch(rect)
         ax.text(cx + cell_w / 2, cy + cell_h / 2 + 0.1,
                 sector, ha="center", va="center",
-                fontsize=9, fontweight="bold", color="#000000" if abs(perf) < 1.5 else BRAND["text"])
+                fontsize=FONT["label"], fontweight="bold",
+                color="#000000" if abs(perf) < 1.5 else BRAND["text"])
         ax.text(cx + cell_w / 2, cy + cell_h / 2 - 0.2,
                 f"{perf:+.2f}%", ha="center", va="center",
-                fontsize=11, fontweight="bold", color="#000000" if abs(perf) < 1.5 else BRAND["text"])
+                fontsize=FONT["value"], fontweight="bold",
+                color="#000000" if abs(perf) < 1.5 else BRAND["text"])
 
     ax.set_xlim(0, w)
     ax.set_ylim(0, 6)
     ax.set_aspect("equal")
     ax.axis("off")
-    ax.set_title("Sector Performance Heatmap", color=BRAND["text"], fontsize=14, fontweight="bold", pad=15)
+    ax.set_title("Sector Performance Heatmap", color=BRAND["text"],
+                 fontsize=FONT["title"], fontweight="bold", pad=18)
     _add_brand_watermark(ax)
-    fig.patch.set_facecolor(BRAND["bg"])
-    fig.tight_layout()
 
     path = _save_chart(fig, "sector_heatmap")
     return ChartFile("sector_heatmap", path, "Sector Performance Heatmap", datetime.now().isoformat())
@@ -239,33 +314,41 @@ def generate_gainers_losers_chart(
     losers: list[tuple[str, float]],
 ) -> ChartFile:
     """Side-by-side bars of top gainers and losers."""
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
-    fig.patch.set_facecolor(BRAND["bg"])
+    fig, (ax1, ax2) = _video_fig(1, 2)
 
     g_symbols = [g[0] for g in gainers[:5]]
     g_values = [g[1] for g in gainers[:5]]
     l_symbols = [l[0] for l in losers[:5]]
     l_values = [l[1] for l in losers[:5]]
 
-    ax1.barh(g_symbols, g_values, color=BRAND["green"], height=0.6, zorder=3)
-    ax1.set_title("Top Gainers ▲", color=BRAND["green"], fontsize=12, fontweight="bold")
+    g_reach = max((abs(v) for v in g_values), default=1.0) or 1.0
+    l_reach = max((abs(v) for v in l_values), default=1.0) or 1.0
+
+    ax1.barh(g_symbols, g_values, color=BRAND["green"], height=0.68, zorder=3)
+    ax1.set_title("Top Gainers ▲", color=BRAND["green"],
+                  fontsize=FONT["title"], fontweight="bold", pad=14)
     ax1.grid(axis="x", zorder=0)
+    ax1.set_xlim(0, g_reach * 1.40)
     for i, val in enumerate(g_values):
-        ax1.text(val + 0.1, i, f"+{val:.2f}%", va="center", color=BRAND["green"], fontweight="bold")
+        ax1.text(val + g_reach * 0.05, i, f"+{val:.2f}%", va="center",
+                 color=BRAND["green"], fontweight="bold", fontsize=FONT["value"])
 
-    ax2.barh(l_symbols, l_values, color=BRAND["primary"], height=0.6, zorder=3)
-    ax2.set_title("Top Losers ▼", color=BRAND["primary"], fontsize=12, fontweight="bold")
+    ax2.barh(l_symbols, l_values, color=BRAND["primary"], height=0.68, zorder=3)
+    ax2.set_title("Top Losers ▼", color=BRAND["primary"],
+                  fontsize=FONT["title"], fontweight="bold", pad=14)
     ax2.grid(axis="x", zorder=0)
+    ax2.set_xlim(-l_reach * 1.45, 0)
     for i, val in enumerate(l_values):
-        ax2.text(val - 0.1, i, f"{val:.2f}%", va="center", ha="right", color=BRAND["primary"], fontweight="bold")
+        ax2.text(val - l_reach * 0.05, i, f"{val:.2f}%", va="center", ha="right",
+                 color=BRAND["primary"], fontweight="bold", fontsize=FONT["value"])
 
-    for ax in [ax1, ax2]:
+    for ax in (ax1, ax2):
         _add_brand_watermark(ax)
         ax.set_facecolor(BRAND["surface"])
-
-    fig.suptitle(f"Market Movers — {datetime.now().strftime('%b %d, %Y')}",
-                 color=BRAND["text"], fontsize=14, fontweight="bold", y=1.02)
-    fig.tight_layout()
+        ax.tick_params(labelsize=FONT["tick"])
+        # Match the bar labels: bare "2.5" next to "+2.80%" reads as a
+        # different unit at a glance.
+        ax.xaxis.set_major_formatter(FuncFormatter(lambda x, _: f"{x:+.1f}%"))
 
     path = _save_chart(fig, "gainers_losers")
     return ChartFile("gainers_losers", path, "Market Movers", datetime.now().isoformat())
@@ -334,17 +417,18 @@ class ChartGenerator:
             ax.fill_between(prices.index, prices.values, prices.min(),
                             color=line_color, alpha=0.15, zorder=2)
 
-            ax.set_title(f"{ticker} — {days}d Price", fontsize=14, fontweight="bold")
+            ax.set_title(f"{ticker} — {days}d Price", fontsize=FONT["title"],
+                         fontweight="bold")
             ax.set_xlabel("")
-            ax.set_ylabel("Price (USD)")
+            ax.set_ylabel("Price (USD)", fontsize=FONT["label"])
+            ax.tick_params(labelsize=FONT["tick"])
             ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"${v:,.2f}"))
             _add_brand_watermark(ax)
             fig.tight_layout()
 
             out_dir = self._ticker_dir(ticker)
             path = out_dir / f"price_line_{ticker}_{orientation}_{datetime.now().strftime('%H%M%S')}.png"
-            fig.savefig(path, dpi=150, bbox_inches="tight", facecolor=BRAND["bg"])
-            plt.close(fig)
+            _save_video_figure(fig, path)
             logger.info("Price line chart saved → %s", path)
             return ChartFile("price_line", path, f"{ticker} Price", datetime.now().isoformat())
 
@@ -396,8 +480,9 @@ class ChartGenerator:
                 returnfig=True, tight_layout=True,
             )
             _add_brand_watermark(axes[0])
-            fig.savefig(path, dpi=150, bbox_inches="tight", facecolor=BRAND["bg"])
-            plt.close(fig)
+            # Leave the upper-left band free for the beat overlays.
+            fig.subplots_adjust(top=1.0 - OVERLAY_SAFE_TOP)
+            _save_video_figure(fig, path)
             logger.info("Candlestick saved → %s", path)
             return ChartFile("candlestick", path, f"{ticker} Candlestick", datetime.now().isoformat())
 
@@ -503,16 +588,17 @@ class ChartGenerator:
             for bar, val in zip(bars, [latest_val, prev_val]):
                 ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.02,
                         f"{val:.2f}", ha="center", va="bottom",
-                        color=BRAND["text"], fontsize=12, fontweight="bold")
+                        color=BRAND["text"], fontsize=FONT["value"],
+                        fontweight="bold")
 
-            ax.set_title(f"{label} ({series_id})", fontsize=13, fontweight="bold")
+            ax.set_title(f"{label} ({series_id})", fontsize=FONT["title"],
+                         fontweight="bold")
             ax.set_ylabel(label)
             _add_brand_watermark(ax)
             fig.tight_layout()
 
             path = self.output_dir / f"econ_bar_{series_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
-            fig.savefig(path, dpi=150, bbox_inches="tight", facecolor=BRAND["bg"])
-            plt.close(fig)
+            _save_video_figure(fig, path)
             logger.info("Economic bar chart → %s", path)
             return ChartFile("economic_bar", path, label, datetime.now().isoformat())
 
@@ -531,7 +617,7 @@ class ChartGenerator:
             self.apply_brand_style(fig)
             fig.suptitle(
                 f"Market Indices Summary — {datetime.now().strftime('%b %d, %Y')}",
-                fontsize=14, fontweight="bold", color=BRAND["text"],
+                fontsize=FONT["title"], fontweight="bold", color=BRAND["text"],
             )
 
             for ax, sym, lbl in zip(axes.flat, tickers, labels):
@@ -542,20 +628,20 @@ class ChartGenerator:
                     ax.plot(hist.index, hist.values, color=color, linewidth=2)
                     ax.fill_between(hist.index, hist.values, hist.min(), color=color, alpha=0.1)
                     chg = (hist.iloc[-1] / hist.iloc[0] - 1) * 100
-                    ax.set_title(f"{lbl}  {chg:+.2f}%", fontsize=11, fontweight="bold",
+                    ax.set_title(f"{lbl}  {chg:+.2f}%", fontsize=FONT["label"],
+                                 fontweight="bold",
                                  color=color)
                 except Exception:
                     ax.text(0.5, 0.5, f"{sym}\nN/A", transform=ax.transAxes,
                             ha="center", va="center", color=BRAND["text2"])
                 ax.set_facecolor(BRAND["surface"])
-                ax.tick_params(colors=BRAND["text2"], labelsize=8)
+                ax.tick_params(colors=BRAND["text2"], labelsize=FONT["mark"])
                 ax.grid(True, color=BRAND["grid"], linestyle="--", alpha=0.4)
                 _add_brand_watermark(ax, alpha=0.10)
 
             fig.tight_layout()
             path = self.output_dir / f"indices_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
-            fig.savefig(path, dpi=150, bbox_inches="tight", facecolor=BRAND["bg"])
-            plt.close(fig)
+            _save_video_figure(fig, path)
             logger.info("Indices summary chart → %s", path)
             return ChartFile("indices_summary", path, "Market Indices Summary", datetime.now().isoformat())
 
