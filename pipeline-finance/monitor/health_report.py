@@ -193,6 +193,43 @@ def _check_optional_keys() -> tuple[str, str, str, list[str]]:
              for name, feature, effect in missing])
 
 
+def _check_backups(stale_days: int = 10) -> tuple[str, str, str, list[str]]:
+    """
+    Is there a recent copy of the unrecoverable state, and is it anywhere
+    other than the machine it protects?
+
+    An archive sitting beside the thing it backs up survives a bad deploy
+    but not a lost instance, which is the failure it exists for.
+    """
+    from datetime import datetime as _dt
+    try:
+        from scheduler.backup import backup_dir, REMOTE_CMD_ENV
+    except Exception as exc:
+        return _WARN, "State backup", f"backup module unavailable: {exc}", []
+
+    archives = sorted(backup_dir().glob("driftwire326-state-*.tar.gz"))
+    remote = (os.getenv(REMOTE_CMD_ENV) or "").strip()
+
+    if not archives:
+        return (_WARN, "State backup",
+                "no archive yet — the first runs Sunday 06:00 ET", [])
+
+    newest = archives[-1]
+    age_days = (_dt.now() - _dt.fromtimestamp(newest.stat().st_mtime)).days
+    size_kb = newest.stat().st_size / 1024
+    detail = f"{len(archives)} archive(s), newest {age_days}d old ({size_kb:.0f} KB)"
+
+    if age_days > stale_days:
+        return (_FAIL, "State backup",
+                f"{detail} — the weekly job has not run", [])
+    if not remote:
+        return (_WARN, "State backup",
+                f"{detail}, but {REMOTE_CMD_ENV} is unset — the archive only "
+                "exists on the instance it protects",
+                [f"   set e.g. {REMOTE_CMD_ENV}=\"gsutil cp {{archive}} gs://bucket/\""])
+    return _OK, "State backup", f"{detail}, shipped off-instance", []
+
+
 def _check_pipeline_states(days: int = 5) -> tuple[str, str, str, list[str]]:
     """Read the last N days of checkpoint files: where did runs stop?"""
     from scheduler.pipeline_state import STATE_DIR
@@ -459,7 +496,7 @@ def run_health_report() -> int:
     for status, label, detail, lines in (
         _check_startup_error(), _check_registered_jobs(),
         _check_pipeline_states(), _check_uploads(),
-        _check_claude_burn(), _check_optional_keys()
+        _check_claude_burn(), _check_optional_keys(), _check_backups()
     ):
         print(_line(status, label, detail))
         for line in lines:

@@ -101,6 +101,16 @@ def run_weekday_pipeline(slot: str = "premarket") -> None:
         logger.exception("Weekday pipeline (%s) FAILED: %s", slot, exc)
 
 
+def run_state_backup() -> None:
+    """Weekly: archive the state that cannot be rebuilt and ship it off-box."""
+    try:
+        from scheduler.backup import run_backup
+        archive = run_backup()
+        logger.info("State backup: %s", archive.name if archive else "nothing archived")
+    except Exception as exc:
+        logger.error("State backup failed: %s", exc)
+
+
 def run_sunday_pipeline() -> None:
     """Full Sunday educational pipeline (process-isolated)."""
     logger.info("=" * 60)
@@ -455,6 +465,16 @@ def start_scheduler() -> None:
         max_instances=1,
         coalesce=True,
     )
+    # State backup (Sun 06:00 ET — before the Sunday pipeline, after the week)
+    scheduler.add_job(
+        run_state_backup,
+        CronTrigger(day_of_week="sun", hour=6, minute=0, timezone=tz),
+        id="state_backup",
+        name="Weekly State Backup",
+        max_instances=1,
+        coalesce=True,
+    )
+
     scheduler.add_job(
         run_description_refresh,
         CronTrigger(day_of_week="mon", hour=7, minute=30, timezone=tz),
