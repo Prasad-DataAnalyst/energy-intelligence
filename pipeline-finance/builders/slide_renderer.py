@@ -342,6 +342,68 @@ def _tomorrow_lines(economic) -> list[str]:
     return lines
 
 
+# What a big day looks like for each story, so that scores from different
+# units can be compared. A score of 1.0 means "as notable as a typical
+# notable day"; below 1.0 is an ordinary day for that story.
+NOTABLE = {
+    "indices": 1.0,       # a 1% move on an index
+    "movers": 5.0,        # a 5% move on a single name
+    "economy": 80.0,      # FRED significance — the scraper flags >=80 as high impact
+    "volatility": 10.0,   # a 10% move on the VIX
+}
+
+
+def _largest_move(snapshots) -> float:
+    """Biggest absolute percentage move across a set of tickers."""
+    biggest = 0.0
+    for snapshot in snapshots or []:
+        try:
+            biggest = max(biggest, abs(float(getattr(snapshot, "change_pct", 0.0) or 0.0)))
+        except (TypeError, ValueError):
+            continue
+    return biggest
+
+
+def story_scores(market, economic) -> dict:
+    """
+    How big each story was today, on one comparable scale.
+
+    Every lookup is defensive. This runs on live scraped data that can be
+    partial — a missing VIX or an economic feed that returned nothing must
+    reorder the video, not fail the build.
+    """
+    scores = {"indices": 0.0, "movers": 0.0, "economy": 0.0, "volatility": 0.0}
+    try:
+        indices = [getattr(market, name, None) for name in ("sp500", "nasdaq", "dow")]
+        scores["indices"] = _largest_move([i for i in indices if i]) / NOTABLE["indices"]
+    except Exception as exc:
+        logger.warning("Index score unavailable: %s", exc)
+    try:
+        movers = list(getattr(market, "top_gainers", []) or []) + \
+            list(getattr(market, "top_losers", []) or [])
+        scores["movers"] = _largest_move(movers) / NOTABLE["movers"]
+    except Exception as exc:
+        logger.warning("Mover score unavailable: %s", exc)
+    try:
+        vix = getattr(market, "vix", None)
+        scores["volatility"] = _largest_move([vix] if vix else []) / NOTABLE["volatility"]
+    except Exception as exc:
+        logger.warning("Volatility score unavailable: %s", exc)
+    try:
+        releases = list(getattr(economic, "todays_releases", None)
+                        or getattr(economic, "releases", None) or [])
+        significance = max(
+            (float(getattr(r, "significance_score", 0) or 0) for r in releases),
+            default=0.0)
+        # A surprise is news even when the series itself is minor.
+        if getattr(economic, "surprise_events", None):
+            significance = max(significance, NOTABLE["economy"])
+        scores["economy"] = significance / NOTABLE["economy"]
+    except Exception as exc:
+        logger.warning("Economic score unavailable: %s", exc)
+    return scores
+
+
 def build_visual_sequence(market, economic, chart_paths: list, title: str,
                           question: Optional[str] = None) -> list:
     """
@@ -371,20 +433,35 @@ def build_visual_sequence(market, economic, chart_paths: list, title: str,
     def _pick(index: int):
         return broll[index] if index < len(broll) else None
 
-    sequence = [
-        render_intro_slide(title),
-        _pick(1),                                   # generic market scene
-        render_market_slide(market),
-        charts.get("index"),
-        _pick(0),                                   # story-specific photo
-        render_movers_slide(market),
-        charts.get("gainers"),
-        render_econ_slide(economic) if economic is not None else None,
-        charts.get("candlestick"),
-        render_tomorrow_slide(_tomorrow_lines(economic)),
-        _pick(2),
+    # The day decides the running order. Everything between the title card
+    # and the outro is a story block, sorted by how big that story actually
+    # was — so a day NVIDIA moved 9% opens on the movers, and a day the Fed
+    # moved with stocks flat opens on the economy.
+    blocks = [
+        ("indices",    [render_market_slide(market), charts.get("index")]),
+        ("movers",     [render_movers_slide(market), charts.get("gainers")]),
+        ("economy",    [render_econ_slide(economic)] if economic is not None else []),
+        ("volatility", [charts.get("candlestick")]),
+    ]
+    scores = story_scores(market, economic)
+    ordered = sorted(blocks, key=lambda block: -scores.get(block[0], 0.0))
+    logger.info("Story order: %s", ", ".join(
+        f"{name} {scores.get(name, 0.0):.2f}" for name, _ in ordered))
+
+    sequence = [render_intro_slide(title), _pick(1)]
+    for position, (name, visuals_for_block) in enumerate(ordered):
+        sequence.extend(visuals_for_block)
+        # One photo after the lead story and one after the second, which is
+        # where the narration changes subject.
+        if position == 0:
+            sequence.append(_pick(0))
+        elif position == 1:
+            sequence.append(_pick(2))
+    sequence += [
+        render_tomorrow_slide(_tomorrow_lines(economic)),   # forward-looking: always late
         render_outro_slide(question),
     ]
+
     visuals = [p for p in sequence if p is not None]
     if len(visuals) < 3:
         logger.warning("Slide rendering mostly failed — using raw charts")

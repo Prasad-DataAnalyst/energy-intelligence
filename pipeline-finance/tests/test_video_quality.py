@@ -930,3 +930,153 @@ class TestWeakCardsAreDropped:
         segments = {"A": "It closed up 0.66% against a weak tape overall."}
         found = find_highlights(segments, _timed(segments, 30.0))
         assert [h["value"] for h in found] == ["+0.66%"]
+
+
+# ── Data-driven running order ─────────────────────────────────────────────────
+
+def _tick(pct):
+    from types import SimpleNamespace
+    return SimpleNamespace(change_pct=pct)
+
+
+def _market(sp=0.5, nas=0.5, dow=0.5, vix=-1.0, gainers=(1.0,), losers=(-1.0,)):
+    from types import SimpleNamespace
+    return SimpleNamespace(
+        sp500=_tick(sp), nasdaq=_tick(nas), dow=_tick(dow), vix=_tick(vix),
+        top_gainers=[_tick(g) for g in gainers],
+        top_losers=[_tick(l) for l in losers])
+
+
+def _economic(significance=0, surprises=()):
+    from types import SimpleNamespace
+    return SimpleNamespace(
+        todays_releases=[SimpleNamespace(significance_score=significance)] if significance else [],
+        surprise_events=list(surprises))
+
+
+def _lead(market, economic):
+    from builders.slide_renderer import story_scores
+    scores = story_scores(market, economic)
+    return max(scores, key=lambda key: scores[key])
+
+
+class TestStoryOrdering:
+    """
+    The running order was a hardcoded list, identical in every video ever
+    published. YouTube's inauthentic-content policy makes content that
+    "looks like it's made with a template with little to no variation
+    across videos" ineligible for monetisation, so a fixed order is a
+    business risk as well as a dull video.
+    """
+
+    def test_a_single_stock_running_leads_on_movers(self):
+        assert _lead(_market(sp=0.66, nas=1.2, gainers=(9.1, 2.8), losers=(-3.4,)),
+                     _economic()) == "movers"
+
+    def test_a_big_data_day_with_flat_stocks_leads_on_the_economy(self):
+        assert _lead(_market(sp=0.1, nas=0.05, dow=-0.02, gainers=(1.2,), losers=(-0.9,)),
+                     _economic(significance=95)) == "economy"
+
+    def test_a_broad_selloff_leads_on_the_indices(self):
+        assert _lead(_market(sp=-2.4, nas=-3.1, dow=-1.9, vix=28.0,
+                             gainers=(0.4,), losers=(-5.2,)), _economic()) == "indices"
+
+    def test_a_surprise_counts_even_on_a_minor_series(self):
+        """The number being small is not the same as the news being small."""
+        quiet = _market(sp=0.1, nas=0.1, dow=0.1, gainers=(0.5,), losers=(-0.5,))
+        assert _lead(quiet, _economic(surprises=("CPI hotter than expected",))) == "economy"
+
+    def test_different_days_produce_different_orders(self):
+        from builders.slide_renderer import story_scores
+        def order(market, economic):
+            scores = story_scores(market, economic)
+            return tuple(sorted(scores, key=lambda k: -scores[k]))
+        nvidia = order(_market(sp=0.66, gainers=(9.1,), losers=(-1.0,)), _economic())
+        selloff = order(_market(sp=-2.4, nas=-3.1, dow=-1.9, vix=28.0,
+                                gainers=(0.4,), losers=(-5.2,)), _economic())
+        assert nvidia != selloff
+
+
+class TestStoryScoringIsDefensive:
+    """
+    This runs on live scraped data that can arrive partial. A missing feed
+    must reorder the video, not fail the build.
+    """
+
+    def test_missing_economic_data_is_survivable(self):
+        from builders.slide_renderer import story_scores
+        assert story_scores(_market(), None)["economy"] == 0.0
+
+    def test_a_market_object_missing_fields_is_survivable(self):
+        from types import SimpleNamespace
+        from builders.slide_renderer import story_scores
+        scores = story_scores(SimpleNamespace(), None)
+        assert set(scores) == {"indices", "movers", "economy", "volatility"}
+        assert all(value == 0.0 for value in scores.values())
+
+    def test_unparseable_percentages_are_ignored(self):
+        from types import SimpleNamespace
+        from builders.slide_renderer import story_scores
+        broken = SimpleNamespace(
+            sp500=SimpleNamespace(change_pct="not a number"),
+            nasdaq=None, dow=None, vix=None, top_gainers=[], top_losers=[])
+        assert story_scores(broken, None)["indices"] == 0.0
+
+    def test_empty_mover_lists_score_zero(self):
+        from builders.slide_renderer import story_scores
+        assert story_scores(_market(gainers=(), losers=()), None)["movers"] == 0.0
+
+
+class TestSequenceStructureHolds:
+    """Ordering the middle must not disturb the parts that frame the video."""
+
+    @staticmethod
+    def _run(monkeypatch, market, economic, tmp_path):
+        from builders import slide_renderer as sr
+        made = {}
+
+        def stub(name):
+            def render(*args, **kwargs):
+                path = tmp_path / f"{name}.png"
+                path.write_bytes(b"x")
+                made[name] = path
+                return path
+            return render
+
+        for name in ("render_intro_slide", "render_market_slide", "render_movers_slide",
+                     "render_econ_slide", "render_tomorrow_slide", "render_outro_slide"):
+            monkeypatch.setattr(sr, name, stub(name))
+        monkeypatch.setattr(sr, "_tomorrow_lines", lambda economic: ["x"])
+        charts = []
+        for kind in ("index", "gainers", "candlestick"):
+            path = tmp_path / f"{kind}_1.png"
+            path.write_bytes(b"x")
+            charts.append(path)
+        return sr.build_visual_sequence(market, economic, charts, "T"), made
+
+    def test_the_title_card_is_always_first(self, monkeypatch, tmp_path):
+        sequence, made = self._run(monkeypatch, _market(gainers=(9.1,)), _economic(), tmp_path)
+        assert sequence[0] == made["render_intro_slide"]
+
+    def test_the_outro_is_always_last(self, monkeypatch, tmp_path):
+        sequence, made = self._run(monkeypatch, _market(gainers=(9.1,)), _economic(), tmp_path)
+        assert sequence[-1] == made["render_outro_slide"]
+
+    def test_the_forward_look_stays_near_the_end(self, monkeypatch, tmp_path):
+        """It is about tomorrow; leading with it would be backwards."""
+        sequence, made = self._run(monkeypatch, _market(sp=-3.0), _economic(95), tmp_path)
+        assert sequence.index(made["render_tomorrow_slide"]) == len(sequence) - 2
+
+    def test_every_story_block_still_appears(self, monkeypatch, tmp_path):
+        """Reordering must not drop content."""
+        sequence, made = self._run(monkeypatch, _market(gainers=(9.1,)), _economic(50), tmp_path)
+        for name in ("render_market_slide", "render_movers_slide", "render_econ_slide"):
+            assert made[name] in sequence, name
+
+    def test_the_lead_story_comes_first_after_the_title(self, monkeypatch, tmp_path):
+        sequence, made = self._run(
+            monkeypatch, _market(sp=0.1, nas=0.1, dow=0.1, gainers=(0.5,), losers=(-0.5,)),
+            _economic(95), tmp_path)
+        econ_at = sequence.index(made["render_econ_slide"])
+        movers_at = sequence.index(made["render_movers_slide"])
+        assert econ_at < movers_at
