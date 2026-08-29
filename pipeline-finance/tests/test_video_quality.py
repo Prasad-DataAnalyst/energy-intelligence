@@ -581,4 +581,153 @@ class TestBeatRendering:
                  for i in range(6)]
         sequence = build_beat_sequence([broken], 12.0, segments, words,
                                        tmp_path, 640, 360)
-        assert sequence and all(f == broken for f, _ in sequence)
+        # The cold open draws its own frame, so it survives a corrupt slide.
+        body = [f for f, _ in sequence if f.name != "hook.png"]
+        assert body and all(f == broken for f in body)
+
+
+# ── Phase 5: cold-open hook ───────────────────────────────────────────────────
+
+def _timed(segments, duration=240.0):
+    count = sum(len(t.split()) for t in segments.values())
+    return [{"word": "w",
+             "start": round(i * duration / count, 3),
+             "end": round(i * duration / count + 0.3, 3)}
+            for i in range(count)]
+
+
+class TestHookSelection:
+    def test_opens_on_the_figure_from_the_hook_line(self):
+        from builders.beat_planner import pick_hook
+        segments = {
+            "HOOK": "NVIDIA added $400 billion in market value today.",
+            "MARKET RECAP": "The S&P 500 rose 0.66%. Tesla dropped 12.5%.",
+        }
+        hook = pick_hook(segments, _timed(segments))
+        assert (hook["label"], hook["value"]) == ("NVIDIA", "$400B")
+
+    def test_falls_back_to_the_loudest_figure_anywhere(self):
+        """A qualitative hook line still deserves a number on screen."""
+        from builders.beat_planner import pick_hook
+        segments = {
+            "HOOK": "Something remarkable happened on Wall Street today.",
+            "MARKET RECAP": "The S&P 500 rose 0.66%. Tesla dropped 12.5%.",
+        }
+        hook = pick_hook(segments, _timed(segments))
+        assert hook["value"] == "-12.5%"
+
+    def test_a_script_with_no_figures_has_no_hook(self):
+        from builders.beat_planner import pick_hook
+        segments = {"HOOK": "Markets drifted sideways.",
+                    "RECAP": "Traders waited for direction."}
+        assert pick_hook(segments, _timed(segments)) is None
+
+    def test_a_single_segment_script_still_picks_one(self):
+        from builders.beat_planner import pick_hook
+        segments = {"ALL": "The S&P 500 rose 0.66%. Tesla dropped 12.5%."}
+        assert pick_hook(segments, _timed(segments)) is not None
+
+    def test_a_big_single_stock_move_outranks_a_market_cap_figure(self):
+        from builders.beat_planner import _impact
+        assert _impact({"value": "-12.5%"}) > _impact({"value": "$400B"})
+
+    def test_a_level_scores_nothing(self):
+        """"5,930" is where the index sits, not something that happened."""
+        from builders.beat_planner import _impact
+        assert _impact({"value": "5,930"}) == 0
+
+
+class TestColdOpenRendering:
+    HOOK = {"value": "+9.1%", "label": "NVIDIA", "color": (0, 196, 107)}
+
+    def test_hook_frame_matches_the_canvas(self, tmp_path):
+        from builders.beat_planner import render_hook
+        Image = pytest.importorskip("PIL.Image")
+        out = render_hook(self.HOOK, tmp_path / "hook.png", 640, 360)
+        assert Image.open(out).size == (640, 360)
+
+    def test_a_long_value_is_shrunk_to_fit(self, tmp_path):
+        """A hook that runs off the frame is worse than a small one."""
+        from builders.beat_planner import render_hook
+        Image = pytest.importorskip("PIL.Image")
+        wide = {"value": "-1,234,567.89%", "label": "SOMETHING VERY LONG",
+                "color": (255, 75, 75)}
+        out = render_hook(wide, tmp_path / "hook.png", 640, 360)
+        image = Image.open(out).convert("RGB")
+        # Nothing coloured may touch either edge of the frame.
+        for x in (0, 639):
+            column = {image.getpixel((x, y)) for y in range(0, 360, 4)}
+            assert all(pixel[0] < 90 or pixel[1] < 90 for pixel in column)
+
+    def test_direction_is_visible_in_the_frame(self, tmp_path):
+        from builders.beat_planner import render_hook
+        Image = pytest.importorskip("PIL.Image")
+        up = render_hook(self.HOOK, tmp_path / "up.png", 640, 360)
+        down = render_hook({**self.HOOK, "value": "-9.1%",
+                            "color": (255, 75, 75)}, tmp_path / "down.png", 640, 360)
+        assert Image.open(up).tobytes() != Image.open(down).tobytes()
+
+
+class TestColdOpenSequencing:
+    @staticmethod
+    def _visuals(tmp_path, count=6):
+        Image = pytest.importorskip("PIL.Image")
+        made = []
+        for i in range(count):
+            path = tmp_path / f"v{i}.png"
+            Image.new("RGB", (640, 360), (10, 10, 15)).save(path)
+            made.append(path)
+        return made
+
+    SEGMENTS = {
+        "HOOK": "NVIDIA added $400 billion in market value in a single session.",
+        "MARKET RECAP": "The S&P 500 closed up 0.66% at 5,930.",
+        "TOP MOVERS": "Tesla dropped 3.4%. Apple added 0.8% on heavy volume.",
+        "CTA": "Subscribe for daily briefings.",
+    }
+
+    def test_the_video_opens_on_the_hook(self, tmp_path):
+        from builders.beat_planner import build_beat_sequence, HOOK_SECONDS
+        sequence = build_beat_sequence(
+            self._visuals(tmp_path), 240.0, self.SEGMENTS,
+            _timed(self.SEGMENTS), tmp_path, 640, 360)
+        assert sequence[0][0].name == "hook.png"
+        assert sequence[0][1] == HOOK_SECONDS
+
+    def test_the_hook_does_not_stretch_the_video(self, tmp_path):
+        """
+        Audio length is fixed. Time given to the cold open has to come out of
+        the body, or the visuals outrun the narration.
+        """
+        from builders.beat_planner import build_beat_sequence
+        sequence = build_beat_sequence(
+            self._visuals(tmp_path), 240.0, self.SEGMENTS,
+            _timed(self.SEGMENTS), tmp_path, 640, 360)
+        assert sum(d for _, d in sequence) == pytest.approx(240.0, abs=0.05)
+
+    def test_overlays_stay_matched_to_the_narration(self, tmp_path):
+        """
+        The body starts after the hook, so its clock has to start there too —
+        otherwise every card lands HOOK_SECONDS early and drifts.
+        """
+        from builders.beat_planner import plan_beats, HOOK_SECONDS
+        beats = plan_beats(self._visuals(tmp_path), 240.0, self.SEGMENTS,
+                           _timed(self.SEGMENTS), reserved_head=HOOK_SECONDS)
+        assert beats[0].start == pytest.approx(HOOK_SECONDS)
+
+    def test_a_short_video_gets_no_cold_open(self, tmp_path):
+        """Two and a half seconds of preamble is a lot of a 6-second clip."""
+        from builders.beat_planner import build_beat_sequence
+        sequence = build_beat_sequence(
+            self._visuals(tmp_path, 2), 6.0, self.SEGMENTS,
+            _timed(self.SEGMENTS, 6.0), tmp_path, 640, 360)
+        assert all(f.name != "hook.png" for f, _ in sequence)
+
+    def test_a_script_with_no_figures_opens_as_before(self, tmp_path):
+        from builders.beat_planner import build_beat_sequence
+        segments = {"HOOK": "Markets drifted.", "RECAP": "Traders waited."}
+        sequence = build_beat_sequence(
+            self._visuals(tmp_path), 240.0, segments,
+            _timed(segments), tmp_path, 640, 360)
+        assert sequence[0][0].name != "hook.png"
+        assert sum(d for _, d in sequence) == pytest.approx(240.0, abs=0.05)

@@ -39,6 +39,11 @@ MIN_BEAT_SECONDS = 2.0
 # the same frame, so the planner never has to arbitrate between them.
 MIN_STAT_GAP_SECONDS = 4.5
 
+# The cold open: one number, full screen, before any branding. Two and a
+# half seconds is about as long as a viewer gives a video to justify itself,
+# and a logo animation spends that budget saying nothing.
+HOOK_SECONDS = 2.5
+
 # Palette shared with slide_renderer so beats look native to the slides.
 SURFACE = (20, 21, 30)
 TEXT    = (240, 242, 245)
@@ -257,11 +262,8 @@ def _label_for(tokens: list, index: int) -> str:
     return "MARKETS"
 
 
-def find_highlights(segments: dict, words: list) -> list[dict]:
-    """
-    Pull the numbers worth putting on screen out of the script, each with a
-    timestamp, a label and a direction colour.
-    """
+def _scan_figures(segments: dict, words: list) -> list[dict]:
+    """Every figure in the script, timed, labelled and colour-coded."""
     tokens, _ = _tokenize(segments)
     if not tokens:
         return []
@@ -275,6 +277,7 @@ def find_highlights(segments: dict, words: list) -> list[dict]:
             continue
         direction = _direction(tokens, index)
         found.append({
+            "token": index,
             "time": _token_time(index, len(tokens), words),
             "value": _format_value(tokens, index, direction),
             "label": _label_for(tokens, index),
@@ -283,15 +286,67 @@ def find_highlights(segments: dict, words: list) -> list[dict]:
         # Skip the unit word so "4.2 billion" cannot also fire on "billion".
         index += 2 if _clean(following).lower() in _UNIT_FOLLOW else 1
 
-    timed = [h for h in found if h["time"] is not None]
-    timed.sort(key=lambda h: h["time"])
+    timed = [figure for figure in found if figure["time"] is not None]
+    timed.sort(key=lambda figure: figure["time"])
+    return timed
 
+
+def find_highlights(segments: dict, words: list) -> list[dict]:
+    """
+    The figures worth putting on screen: every one found, thinned so no two
+    cards land within MIN_STAT_GAP_SECONDS of each other.
+    """
     spaced: list[dict] = []
-    for highlight in timed:
-        if spaced and highlight["time"] - spaced[-1]["time"] < MIN_STAT_GAP_SECONDS:
+    for figure in _scan_figures(segments, words):
+        if spaced and figure["time"] - spaced[-1]["time"] < MIN_STAT_GAP_SECONDS:
             continue
-        spaced.append(highlight)
+        spaced.append(figure)
     return spaced
+
+
+def _impact(figure: dict) -> float:
+    """
+    How loudly a figure reads as a headline. Percentages score on their
+    magnitude, a "$400B" on its scale. A figure with no unit is a level
+    rather than a move and makes a weak opening line.
+    """
+    text = figure["value"].replace(",", "")
+    digits = "".join(ch for ch in text if ch.isdigit() or ch == ".")
+    try:
+        magnitude = float(digits)
+    except ValueError:
+        return 0.0
+    if text.endswith("%"):
+        return magnitude
+    if text.endswith("T"):
+        return magnitude * 6.0
+    if text.endswith("B"):
+        return magnitude / 100.0
+    if text.endswith("bps"):
+        return magnitude / 10.0
+    return 0.0
+
+
+def pick_hook(segments: dict, words: list):
+    """
+    Choose the number to open the video on.
+
+    Prefers a figure from the script's opening segment — the hook line is
+    already the writer's pick of the day's headline — and falls back to the
+    loudest figure anywhere. Scoping this to the first segment rather than
+    to a fixed number of seconds means it holds however long the hook runs.
+    Returns None when the script has no figures at all, which is the cue to
+    open on the title card as before.
+    """
+    figures = _scan_figures(segments, words)
+    if not figures:
+        return None
+    _, starts = _tokenize(segments)
+    opening = figures
+    if len(starts) > 1:
+        first_segment_ends = starts[1][0]
+        opening = [f for f in figures if f["token"] < first_segment_ends]
+    return max(opening or figures, key=_impact)
 
 
 def find_chapters(segments: dict, words: list) -> list[dict]:
@@ -313,22 +368,31 @@ def find_chapters(segments: dict, words: list) -> list[dict]:
 # ── Beat timeline ─────────────────────────────────────────────────────────────
 
 def plan_beats(visuals: list, duration_seconds: float, segments: dict,
-               words: list, beat_seconds: float = BEAT_SECONDS) -> list:
+               words: list, beat_seconds: float = BEAT_SECONDS,
+               reserved_head: float = 0.0) -> list:
     """
     Subdivide each background's share of the runtime into beats, then attach
     the chapter and stat overlays whose timestamps land inside them.
+
+    reserved_head is time already spent by the cold open. The body is planned
+    over what is left and its clock is shifted by that much, so overlays stay
+    matched to the narration rather than sliding two seconds early.
     """
     if not visuals or duration_seconds <= 0:
         return []
+    body_seconds = duration_seconds - reserved_head
+    if body_seconds <= 0:
+        return []
 
-    span = duration_seconds / len(visuals)
+    span = body_seconds / len(visuals)
     beats: list[Beat] = []
     for position, visual in enumerate(visuals):
         subdivisions = max(1, int(round(span / max(beat_seconds, MIN_BEAT_SECONDS))))
         length = span / subdivisions
         for step in range(subdivisions):
-            beats.append(Beat(image=Path(visual), duration=length,
-                              start=position * span + step * length))
+            beats.append(Beat(
+                image=Path(visual), duration=length,
+                start=reserved_head + position * span + step * length))
 
     for chapter in find_chapters(segments, words):
         beat = _beat_at(beats, chapter["time"])
@@ -450,6 +514,69 @@ def render_beat(beat: Beat, dest: Path, width: int, height: int) -> Path:
     return dest
 
 
+def render_hook(figure: dict, dest: Path, width: int, height: int) -> Path:
+    """
+    Draw the cold open: the number, alone, filling the frame.
+
+    Deliberately unbranded. The logo, the date and the "Daily Market
+    Briefing" strapline all still come — one slide later, once the viewer
+    has a reason to stay. Leading with them spends the only two seconds
+    that decide whether the video gets watched on saying nothing.
+    """
+    from PIL import Image, ImageDraw
+
+    img = Image.new("RGB", (width, height), (6, 6, 10))
+    draw = ImageDraw.Draw(img)
+
+    # A wash of the move's colour behind the number: enough to read the
+    # direction before the digits are, without competing with them. Drawn on
+    # a thumbnail-sized mask and scaled up — blurring an ellipse at full
+    # resolution costs real time on a shared core, and a hard-edged ellipse
+    # reads as a badly drawn shape rather than as light.
+    from PIL import ImageFilter
+    small = (max(width // 12, 24), max(height // 12, 24))
+    mask = Image.new("L", small, 0)
+    ImageDraw.Draw(mask).ellipse(
+        (-small[0] // 5, small[1] // 5,
+         small[0] + small[0] // 5, small[1] - small[1] // 6),
+        fill=46,
+    )
+    mask = mask.filter(ImageFilter.GaussianBlur(small[0] / 5.0))
+    glow = Image.new("RGB", (width, height), figure["color"])
+    img = Image.composite(glow, img, mask.resize((width, height), Image.BILINEAR))
+    draw = ImageDraw.Draw(img)
+
+    label = (figure.get("label") or "MARKETS")[:24]
+    value = figure["value"]
+
+    # Shrink the number until it fits — "$400B" and "+0.66%" are not the
+    # same width, and a hook that runs off the frame is worse than a small one.
+    size = int(height * 0.30)
+    while size > int(height * 0.10):
+        font = _font(size)
+        box = draw.textbbox((0, 0), value, font=font)
+        if box[2] - box[0] <= width * 0.84:
+            break
+        size = int(size * 0.9)
+
+    label_font = _font(max(int(height * 0.042), 16))
+    draw.text((width // 2, int(height * 0.34)), label, font=label_font,
+              fill=MUTED, anchor="mm")
+    draw.text((width // 2, int(height * 0.53)), value, font=_font(size),
+              fill=figure["color"], anchor="mm")
+    rule = int(width * 0.06)
+    rule_y = int(height * 0.78)
+    draw.rounded_rectangle(
+        (width // 2 - rule, rule_y,
+         width // 2 + rule, rule_y + max(int(height * 0.008), 4)),
+        radius=4, fill=figure["color"],
+    )
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    img.save(dest)
+    return dest
+
+
 def build_beat_sequence(visuals: list, duration_seconds: float, segments: dict,
                         words: list, tmp_dir: Path,
                         width: Optional[int] = None,
@@ -464,15 +591,32 @@ def build_beat_sequence(visuals: list, duration_seconds: float, segments: dict,
     """
     width = width or settings.video_width
     height = height or settings.video_height
+
+    # Cold open: the day's loudest number, full screen, before any branding.
+    head: list[tuple[Path, float]] = []
+    reserved = 0.0
+    if duration_seconds > HOOK_SECONDS * 3:
+        try:
+            figure = pick_hook(segments, words)
+            if figure:
+                frame = render_hook(figure, Path(tmp_dir) / "hook.png",
+                                    width, height)
+                head = [(frame, HOOK_SECONDS)]
+                reserved = HOOK_SECONDS
+                logger.info("Cold open: %s %s", figure["label"], figure["value"])
+        except Exception as exc:
+            logger.warning("Cold open unavailable (non-fatal): %s", exc)
+
     try:
-        beats = plan_beats(visuals, duration_seconds, segments, words)
+        beats = plan_beats(visuals, duration_seconds, segments, words,
+                           reserved_head=reserved)
     except Exception as exc:
         logger.warning("Beat planning failed (non-fatal): %s", exc)
         return []
     if not beats:
-        return []
+        return head or []
 
-    sequence: list[tuple[Path, float]] = []
+    sequence: list[tuple[Path, float]] = list(head)
     overlaid = 0
     for index, beat in enumerate(beats):
         frame = beat.image
