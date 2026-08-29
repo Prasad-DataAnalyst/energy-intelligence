@@ -60,12 +60,25 @@ class PipelineState:
             data = load(state.artifact("scrape_market", "market_json"))
     """
 
-    def __init__(self, pipeline: str, run_date: Optional[str] = None):
+    def __init__(self, pipeline: str, run_date: Optional[str] = None,
+                 slot: Optional[str] = None):
         self.pipeline = pipeline
+        self.slot = slot
         self.run_date = run_date or date.today().isoformat()
         STATE_DIR.mkdir(parents=True, exist_ok=True)
-        self._path = STATE_DIR / f"{pipeline}_{self.run_date}.json"
+        # A pipeline that runs more than once a day needs one checkpoint per
+        # slot. Keying on the date alone meant the 5:15pm post-market run saw
+        # the 8am run's success and returned without doing anything, so that
+        # slot never produced a video. Sunday has one slot a week and keeps
+        # the plain name, which is also the name older files already use.
+        stem = f"{pipeline}_{slot}" if slot else pipeline
+        self._path = STATE_DIR / f"{stem}_{self.run_date}.json"
         self._data: dict = self._load()
+
+    @property
+    def exists(self) -> bool:
+        """Whether this slot has a checkpoint file — i.e. it ever started."""
+        return self._path.exists()
 
     # ── Persistence ──────────────────────────────────────────────────────────
 
@@ -77,6 +90,7 @@ class PipelineState:
                 logger.warning("Corrupt pipeline state %s (%s) — starting fresh", self._path.name, exc)
         return {
             "pipeline": self.pipeline,
+            "slot": self.slot,
             "run_date": self.run_date,
             "started_at": datetime.now().isoformat(),
             "steps": {},          # step -> {done, at, seconds, attempts, artifacts, error}
@@ -181,15 +195,48 @@ class PipelineState:
         }
 
 
+def state_files(pipeline: str, run_date: Optional[str] = None) -> list[Path]:
+    """
+    Every checkpoint file for one pipeline on one day, across all slots.
+
+    Matches both the per-slot names and the older single-file name, so a
+    machine carrying state written before slots existed still reads back.
+    """
+    day = run_date or date.today().isoformat()
+    if not STATE_DIR.exists():
+        return []
+    found = {STATE_DIR / f"{pipeline}_{day}.json"} | set(
+        STATE_DIR.glob(f"{pipeline}_*_{day}.json"))
+    return sorted(path for path in found if path.exists())
+
+
+def incomplete_slots(pipeline: str, run_date: Optional[str] = None) -> list[str]:
+    """
+    Slots that started today and did not reach success — what a retry should
+    pick up. A slot that never started is not incomplete: its own scheduled
+    time either has not arrived or was missed, and the main job owns that.
+    """
+    day = run_date or date.today().isoformat()
+    pending: list[str] = []
+    for path in state_files(pipeline, day):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            logger.warning("Unreadable state %s (%s) — treating as incomplete",
+                           path.name, exc)
+            data = {}
+        if data.get("outcome") != "success":
+            stem = path.stem[len(pipeline) + 1:-len(day) - 1]
+            pending.append(stem or None)
+    return pending
+
+
 def needs_retry(pipeline: str, run_date: Optional[str] = None) -> bool:
     """
-    True if today's pipeline started but did not reach a successful outcome.
-    Used by the retry job scheduled after each main slot.
+    True if any of today's slots started but did not reach a successful
+    outcome. Used by the retry job scheduled after each main slot.
     """
-    state = PipelineState(pipeline, run_date)
-    if not state._path.exists():
-        return False   # never started — the main slot will handle it
-    return state.outcome != "success"
+    return bool(incomplete_slots(pipeline, run_date))
 
 
 def todays_upload_recorded() -> bool:

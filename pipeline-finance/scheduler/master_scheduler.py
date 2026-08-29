@@ -35,10 +35,10 @@ def _setup_logging() -> None:
         root.addHandler(h)
 
 
-def _run_weekday_in_process() -> None:
+def _run_weekday_in_process(slot: str = "premarket") -> None:
     """Isolated child-process entry for weekday pipeline."""
     from scheduler.weekday_scheduler import WeekdayScheduler
-    sch = WeekdayScheduler()
+    sch = WeekdayScheduler(slot=slot)
     result = sch.run()
     if result:
         logger.info("Weekday pipeline complete: %s", result)
@@ -57,7 +57,7 @@ def _run_sunday_in_process() -> None:
         logger.error("Sunday pipeline returned no result")
 
 
-def _run_isolated(target_fn, name: str) -> None:
+def _run_isolated(target_fn, name: str, args: tuple = ()) -> None:
     """Spawn target_fn in a fresh child process for isolation.
 
     Uses the 'spawn' start method so the child gets a clean interpreter —
@@ -66,7 +66,9 @@ def _run_isolated(target_fn, name: str) -> None:
     """
     logger.info("Spawning isolated process for: %s (PID parent: %d)", name, os.getpid())
     ctx = multiprocessing.get_context("spawn")
-    proc = ctx.Process(target=target_fn, name=name, daemon=False)
+    # args must be picklable — "spawn" re-imports the module in the child
+    # rather than inheriting memory, so a closure would not survive.
+    proc = ctx.Process(target=target_fn, args=args, name=name, daemon=False)
     proc.start()
     proc.join(timeout=7200)   # 2-hour hard timeout per pipeline run
 
@@ -87,15 +89,16 @@ def _run_isolated(target_fn, name: str) -> None:
         logger.info("Isolated process '%s' completed successfully", name)
 
 
-def run_weekday_pipeline() -> None:
+def run_weekday_pipeline(slot: str = "premarket") -> None:
     """Full weekday pipeline: scrape → generate → build → upload (process-isolated)."""
     logger.info("=" * 60)
-    logger.info("WEEKDAY PIPELINE STARTING — %s", datetime.now().strftime("%Y-%m-%d %H:%M"))
+    logger.info("WEEKDAY PIPELINE STARTING (%s) — %s",
+                slot, datetime.now().strftime("%Y-%m-%d %H:%M"))
     logger.info("=" * 60)
     try:
-        _run_isolated(_run_weekday_in_process, "WeekdayPipeline")
+        _run_isolated(_run_weekday_in_process, f"WeekdayPipeline-{slot}", (slot,))
     except Exception as exc:
-        logger.exception("Weekday pipeline FAILED: %s", exc)
+        logger.exception("Weekday pipeline (%s) FAILED: %s", slot, exc)
 
 
 def run_sunday_pipeline() -> None:
@@ -284,17 +287,23 @@ def start_scheduler() -> None:
         run_weekday_pipeline,
         CronTrigger(timezone=tz, **CONTENT_SLOTS["weekday_premarket"]),
         id="weekday_premarket",
+        args=["premarket"],
         name="Weekday Pre-Market Pipeline",
         max_instances=1,
         coalesce=True,
         misfire_grace_time=1800,    # 30 min grace
     )
 
-    # Post-market recap (5:15 PM ET, Mon–Fri — spec: markets settle by 5:15)
+    # Post-market recap (5:15 PM ET, Mon–Fri — spec: markets settle by 5:15).
+    # Its own slot, so it publishes its own video rather than seeing the
+    # morning run's success and returning without doing anything. If the
+    # morning run is unfinished this one adopts it instead — see
+    # WeekdayScheduler._resolve_state.
     scheduler.add_job(
         run_weekday_pipeline,
         CronTrigger(timezone=tz, **CONTENT_SLOTS["weekday_postmarket"]),
         id="weekday_postmarket",
+        args=["postmarket"],
         name="Weekday Post-Market Pipeline",
         max_instances=1,
         coalesce=True,

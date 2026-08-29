@@ -328,17 +328,38 @@ class TestDeadman:
 
     def test_retry_if_needed_runs_pipeline(self):
         from scheduler import deadman
-        with patch("scheduler.pipeline_state.needs_retry", return_value=True), \
+        with patch("scheduler.pipeline_state.incomplete_slots",
+                   return_value=["premarket"]), \
              patch("scheduler.weekday_scheduler.WeekdayScheduler") as MockWS:
             deadman.retry_if_needed("weekday")
         MockWS.return_value.run.assert_called_once()
 
     def test_retry_if_needed_skips_when_done(self):
         from scheduler import deadman
-        with patch("scheduler.pipeline_state.needs_retry", return_value=False), \
+        with patch("scheduler.pipeline_state.incomplete_slots", return_value=[]), \
              patch("scheduler.weekday_scheduler.WeekdayScheduler") as MockWS:
             deadman.retry_if_needed("weekday")
         MockWS.return_value.run.assert_not_called()
+
+    def test_retry_targets_the_slot_that_stalled(self):
+        """
+        Retrying the default slot would resume the morning checkpoint and
+        leave a stalled evening run untouched.
+        """
+        from scheduler import deadman
+        with patch("scheduler.pipeline_state.incomplete_slots",
+                   return_value=["postmarket"]), \
+             patch("scheduler.weekday_scheduler.WeekdayScheduler") as MockWS:
+            deadman.retry_if_needed("weekday")
+        assert MockWS.call_args.kwargs["slot"] == "postmarket"
+
+    def test_retry_covers_every_stalled_slot(self):
+        from scheduler import deadman
+        with patch("scheduler.pipeline_state.incomplete_slots",
+                   return_value=["premarket", "postmarket"]), \
+             patch("scheduler.weekday_scheduler.WeekdayScheduler") as MockWS:
+            deadman.retry_if_needed("weekday")
+        assert MockWS.return_value.run.call_count == 2
 
 
 # ── Fallback builder ──────────────────────────────────────────────────────────
@@ -895,3 +916,249 @@ class TestDaemonUptimeAcrossRestarts:
         )
         with patch.object(hr.settings, "logs_dir", tmp_path):
             assert hr._daemon_uptime_hours() is None
+
+
+# ── Per-slot checkpoints ─────────────────────────────────────────────────────
+
+class TestSlotCheckpoints:
+    """
+    The 5:15pm post-market job fired every weekday and returned immediately,
+    because the checkpoint was keyed on the date alone and the 8am run had
+    already marked the day a success. That slot never produced a video.
+    """
+
+    @staticmethod
+    def _state_dir(tmp_path):
+        import scheduler.pipeline_state as ps
+        ps.STATE_DIR = tmp_path
+        return ps
+
+    def test_slots_get_separate_files(self, tmp_path):
+        ps = self._state_dir(tmp_path)
+        original = ps.STATE_DIR
+        try:
+            ps.PipelineState("weekday", slot="premarket").mark_done("scrape_market")
+            ps.PipelineState("weekday", slot="postmarket").mark_done("scrape_market")
+            day = date.today().isoformat()
+            assert (tmp_path / f"weekday_premarket_{day}.json").exists()
+            assert (tmp_path / f"weekday_postmarket_{day}.json").exists()
+        finally:
+            ps.STATE_DIR = original
+
+    def test_morning_success_does_not_mark_the_evening_done(self, tmp_path):
+        """The bug: one slot's success silenced the other."""
+        ps = self._state_dir(tmp_path)
+        original = ps.STATE_DIR
+        try:
+            ps.PipelineState("weekday", slot="premarket").finish(success=True)
+            evening = ps.PipelineState("weekday", slot="postmarket")
+            assert evening.outcome is None
+        finally:
+            ps.STATE_DIR = original
+
+    def test_sunday_keeps_the_plain_filename(self, tmp_path):
+        """One slot a week, and older files on disk already use this name."""
+        ps = self._state_dir(tmp_path)
+        original = ps.STATE_DIR
+        try:
+            ps.PipelineState("sunday").mark_done("pick_topic")
+            assert (tmp_path / f"sunday_{date.today().isoformat()}.json").exists()
+        finally:
+            ps.STATE_DIR = original
+
+    def test_state_files_finds_legacy_and_slotted(self, tmp_path):
+        """A machine carrying pre-slot state must still read back."""
+        ps = self._state_dir(tmp_path)
+        original = ps.STATE_DIR
+        try:
+            ps.PipelineState("weekday").mark_done("scrape_market")
+            ps.PipelineState("weekday", slot="postmarket").mark_done("scrape_market")
+            assert len(ps.state_files("weekday")) == 2
+        finally:
+            ps.STATE_DIR = original
+
+    def test_incomplete_slots_lists_only_stalled_ones(self, tmp_path):
+        ps = self._state_dir(tmp_path)
+        original = ps.STATE_DIR
+        try:
+            ps.PipelineState("weekday", slot="premarket").finish(success=True)
+            ps.PipelineState("weekday", slot="postmarket").mark_started("scrape_market")
+            assert ps.incomplete_slots("weekday") == ["postmarket"]
+        finally:
+            ps.STATE_DIR = original
+
+    def test_a_slot_that_never_started_is_not_incomplete(self, tmp_path):
+        """Its scheduled time has not come — the main job owns that."""
+        ps = self._state_dir(tmp_path)
+        original = ps.STATE_DIR
+        try:
+            ps.PipelineState("weekday", slot="premarket").finish(success=True)
+            assert ps.incomplete_slots("weekday") == []
+        finally:
+            ps.STATE_DIR = original
+
+
+class TestPostMarketResolvesItsState:
+    @staticmethod
+    def _state_dir(tmp_path):
+        import scheduler.pipeline_state as ps
+        ps.STATE_DIR = tmp_path
+        return ps
+
+    def _scheduler(self, slot):
+        from scheduler.weekday_scheduler import WeekdayScheduler
+        return WeekdayScheduler(slot=slot)
+
+    def test_evening_run_gets_its_own_slot_after_a_clean_morning(self, tmp_path):
+        ps = self._state_dir(tmp_path)
+        original = ps.STATE_DIR
+        try:
+            ps.PipelineState("weekday", slot="premarket").finish(success=True)
+            state = self._scheduler("postmarket")._resolve_state()
+            assert state.slot == "postmarket"
+            assert state.outcome is None, "the evening video should still be built"
+        finally:
+            ps.STATE_DIR = original
+
+    def test_evening_run_adopts_an_unfinished_morning(self, tmp_path):
+        """
+        Finishing the video already paid for beats abandoning it: one video
+        published late is a better day than one video missing.
+        """
+        ps = self._state_dir(tmp_path)
+        original = ps.STATE_DIR
+        try:
+            morning = ps.PipelineState("weekday", slot="premarket")
+            morning.mark_done("scrape_market")
+            morning.mark_done("scrape_earnings")
+            state = self._scheduler("postmarket")._resolve_state()
+            assert state.slot == "premarket"
+            assert state.is_done("scrape_market"), "should resume, not restart"
+        finally:
+            ps.STATE_DIR = original
+
+    def test_evening_run_does_not_adopt_a_morning_that_never_started(self, tmp_path):
+        ps = self._state_dir(tmp_path)
+        original = ps.STATE_DIR
+        try:
+            assert self._scheduler("postmarket")._resolve_state().slot == "postmarket"
+        finally:
+            ps.STATE_DIR = original
+
+    def test_morning_run_always_uses_its_own_slot(self, tmp_path):
+        ps = self._state_dir(tmp_path)
+        original = ps.STATE_DIR
+        try:
+            ps.PipelineState("weekday", slot="postmarket").mark_started("scrape_market")
+            assert self._scheduler("premarket")._resolve_state().slot == "premarket"
+        finally:
+            ps.STATE_DIR = original
+
+
+class TestBothWeekdaySlotsAreRegistered:
+    def test_each_slot_is_told_which_one_it_is(self):
+        """
+        Without args the two jobs are the same call, and the second one is
+        indistinguishable from a duplicate of the first.
+        """
+        import inspect
+        from scheduler import master_scheduler
+        source = inspect.getsource(master_scheduler.start_scheduler)
+        assert 'args=["premarket"]' in source
+        assert 'args=["postmarket"]' in source
+
+    def test_the_slot_survives_process_isolation(self):
+        """
+        The pipeline runs in a spawned child, so the slot has to travel as a
+        picklable argument — a closure would not survive the re-import.
+        """
+        import inspect
+        from scheduler.master_scheduler import _run_isolated, _run_weekday_in_process
+        assert "args" in inspect.signature(_run_isolated).parameters
+        assert "slot" in inspect.signature(_run_weekday_in_process).parameters
+
+
+class TestHealthReportSeesSlottedRuns:
+    def test_per_slot_runs_are_reported(self, tmp_path):
+        """
+        Building "weekday_<day>.json" by hand would find nothing now and
+        report "no runs" — the false all-clear this report exists to prevent.
+        """
+        import scheduler.pipeline_state as ps
+        from monitor import health_report
+        original = ps.STATE_DIR
+        ps.STATE_DIR = tmp_path
+        try:
+            ps.PipelineState("weekday", slot="premarket").finish(success=True)
+            ps.PipelineState("weekday", slot="postmarket").finish(success=True)
+            status, label, detail, lines = health_report._check_pipeline_states()
+            assert status == health_report._OK, (status, detail)
+            assert len(lines) == 2, lines
+            assert any("premarket" in line for line in lines)
+            assert any("postmarket" in line for line in lines)
+        finally:
+            ps.STATE_DIR = original
+
+
+class TestHealthReportNeverGreenOverRed:
+    """
+    Two weekday slots means one can publish while the other does not. A
+    green headline above a red line is how a partial outage goes unnoticed
+    for weeks — which is how the original 39-day one did.
+    """
+
+    @staticmethod
+    def _dir(tmp_path):
+        import scheduler.pipeline_state as ps
+        ps.STATE_DIR = tmp_path
+        return ps
+
+    def test_a_failed_slot_downgrades_the_headline(self, tmp_path):
+        ps = self._dir(tmp_path)
+        original = ps.STATE_DIR
+        try:
+            ps.PipelineState("weekday", slot="premarket").finish(success=True)
+            ps.PipelineState("weekday", slot="postmarket").finish(success=False)
+            from monitor import health_report
+            status, _, detail, _ = health_report._check_pipeline_states()
+            assert status == health_report._WARN
+            assert "postmarket" in detail
+        finally:
+            ps.STATE_DIR = original
+
+    def test_both_publishing_stays_green(self, tmp_path):
+        ps = self._dir(tmp_path)
+        original = ps.STATE_DIR
+        try:
+            for slot in ("premarket", "postmarket"):
+                ps.PipelineState("weekday", slot=slot).finish(success=True)
+            from monitor import health_report
+            status, _, _, _ = health_report._check_pipeline_states()
+            assert status == health_report._OK
+        finally:
+            ps.STATE_DIR = original
+
+    def test_a_run_still_going_today_is_not_a_failure(self, tmp_path):
+        ps = self._dir(tmp_path)
+        original = ps.STATE_DIR
+        try:
+            ps.PipelineState("weekday", slot="premarket").finish(success=True)
+            ps.PipelineState("weekday", slot="postmarket").mark_started("scrape_market")
+            from monitor import health_report
+            status, _, _, _ = health_report._check_pipeline_states()
+            assert status == health_report._OK
+        finally:
+            ps.STATE_DIR = original
+
+    def test_a_run_left_incomplete_on_a_past_day_is_a_failure(self, tmp_path):
+        ps = self._dir(tmp_path)
+        original = ps.STATE_DIR
+        try:
+            yesterday = (date.today() - timedelta(days=1)).isoformat()
+            stalled = ps.PipelineState("weekday", run_date=yesterday, slot="premarket")
+            stalled.mark_started("scrape_market")
+            from monitor import health_report
+            status, _, detail, _ = health_report._check_pipeline_states()
+            assert status == health_report._WARN, detail
+        finally:
+            ps.STATE_DIR = original

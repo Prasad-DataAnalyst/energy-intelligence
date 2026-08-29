@@ -83,10 +83,17 @@ def check_todays_upload(is_content_day: bool = True) -> bool:
     # No upload today — gather diagnostic context for the alert
     diagnostics: list[str] = []
     try:
-        from scheduler.pipeline_state import PipelineState
+        from scheduler.pipeline_state import PipelineState, state_files
         pipeline = "sunday" if date.today().weekday() == 6 else "weekday"
-        summary = PipelineState(pipeline).summary()
-        diagnostics.append(f"Pipeline state: {summary}")
+        # One summary per slot: the weekday pipeline has two, and reporting
+        # only the default one would describe a run that may not exist.
+        paths = state_files(pipeline)
+        if not paths:
+            diagnostics.append(f"Pipeline state: no {pipeline} run started today")
+        for path in paths:
+            slot = path.stem[len(pipeline) + 1:-len(date.today().isoformat()) - 1]
+            summary = PipelineState(pipeline, slot=slot or None).summary()
+            diagnostics.append(f"Pipeline state [{slot or 'default'}]: {summary}")
     except Exception as exc:
         diagnostics.append(f"(could not read pipeline state: {exc})")
 
@@ -130,18 +137,24 @@ def retry_if_needed(pipeline: str = "weekday") -> None:
     Retry job scheduled ~30 min after each main slot. If today's pipeline
     did not reach success, re-run it — checkpoints make this cheap.
     """
-    from scheduler.pipeline_state import needs_retry
-    if not needs_retry(pipeline):
+    from scheduler.pipeline_state import incomplete_slots
+    pending = incomplete_slots(pipeline)
+    if not pending:
         logger.debug("retry_if_needed(%s): nothing to retry", pipeline)
         return
 
-    logger.warning("retry_if_needed(%s): pipeline incomplete — re-running from checkpoint", pipeline)
-    try:
-        if pipeline == "sunday":
-            from scheduler.sunday_scheduler import SundayScheduler
-            SundayScheduler().run()
-        else:
-            from scheduler.weekday_scheduler import WeekdayScheduler
-            WeekdayScheduler().run()
-    except Exception as exc:
-        logger.error("retry_if_needed(%s) failed: %s", pipeline, exc)
+    for slot in pending:
+        logger.warning("retry_if_needed(%s/%s): incomplete — re-running from checkpoint",
+                       pipeline, slot or "default")
+        try:
+            if pipeline == "sunday":
+                from scheduler.sunday_scheduler import SundayScheduler
+                SundayScheduler().run()
+            else:
+                # Retry the slot that actually stalled. Re-running the default
+                # would resume the morning checkpoint and leave an unfinished
+                # evening run untouched.
+                from scheduler.weekday_scheduler import WeekdayScheduler
+                WeekdayScheduler(slot=slot or "premarket").run()
+        except Exception as exc:
+            logger.error("retry_if_needed(%s/%s) failed: %s", pipeline, slot, exc)

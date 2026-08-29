@@ -39,10 +39,38 @@ class PipelineResult:
 class WeekdayScheduler:
     """Orchestrates the weekday market recap pipeline end-to-end."""
 
-    def __init__(self, api_retry_delay: int = 300):
+    def __init__(self, api_retry_delay: int = 300, slot: str = "premarket"):
         self.run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.errors: list[str] = []
         self._api_retry_delay = api_retry_delay
+        # Which of the day's weekday slots this run is: "premarket" (8am) or
+        # "postmarket" (5:15pm). Each keeps its own checkpoint so both
+        # produce a video.
+        self.slot = slot
+
+    def _resolve_state(self):
+        """
+        Pick the checkpoint this run should write to.
+
+        Normally its own slot's. The exception is the evening run finding
+        that the morning run started and never finished: then it adopts that
+        checkpoint and carries the morning video to completion instead of
+        starting a second one. Finishing the video that was already paid for
+        — the scraping, the Claude call — beats abandoning it to publish a
+        fresh one, and a day with one video published late is a better
+        outcome than a day with one video missing.
+        """
+        from scheduler.pipeline_state import PipelineState
+        if self.slot == "postmarket":
+            morning = PipelineState("weekday", slot="premarket")
+            if morning.exists and morning.outcome != "success":
+                logger.warning(
+                    "Morning run left unfinished (%s) — resuming it instead of "
+                    "starting the post-market video",
+                    morning.next_step() or "unknown step",
+                )
+                return morning
+        return PipelineState("weekday", slot=self.slot)
 
     def _log_step(self, step: str, detail: str = "") -> None:
         logger.info("[%s] STEP: %s %s", self.run_id, step, f"— {detail}" if detail else "")
@@ -164,12 +192,13 @@ class WeekdayScheduler:
 
     def run(self) -> PipelineResult:
         start = datetime.now()
-        logger.info("WeekdayScheduler run started: %s", self.run_id)
+        logger.info("WeekdayScheduler run started: %s (%s slot)",
+                    self.run_id, self.slot)
 
-        from scheduler.pipeline_state import PipelineState
-        state = PipelineState("weekday")
+        state = self._resolve_state()
         if state.outcome == "success":
-            logger.info("Weekday pipeline already succeeded today — skipping re-run")
+            logger.info("Weekday %s slot already succeeded today — skipping re-run",
+                        state.slot or "run")
             return PipelineResult(
                 success=True, video_id=state.video_id, title=None,
                 script_path=None, video_path=None, upload_result=None,

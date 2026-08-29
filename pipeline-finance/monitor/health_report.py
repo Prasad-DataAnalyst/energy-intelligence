@@ -136,16 +136,19 @@ def _check_pipeline_states(days: int = 5) -> tuple[str, str, str, list[str]]:
     """Read the last N days of checkpoint files: where did runs stop?"""
     from scheduler.pipeline_state import STATE_DIR
     detail_lines: list[str] = []
+    unfinished: list[str] = []
     if not STATE_DIR.exists():
         return _FAIL, "Pipeline runs", "no state dir — no pipeline has ever started", []
 
     found_any = False
     for offset in range(days):
         day = (date.today() - timedelta(days=offset)).isoformat()
-        for pipeline in ("weekday", "sunday"):
-            path = STATE_DIR / f"{pipeline}_{day}.json"
-            if not path.exists():
-                continue
+        # Glob rather than build the filename: the weekday pipeline writes one
+        # checkpoint per slot now (weekday_premarket_<day>.json). Constructing
+        # "weekday_<day>.json" would find nothing and report "no runs" — the
+        # exact false all-clear this report exists to prevent.
+        for path in sorted(STATE_DIR.glob(f"*_{day}.json")):
+            pipeline = path.stem[:-len(day) - 1]
             found_any = True
             try:
                 data = json.loads(path.read_text())
@@ -157,8 +160,14 @@ def _check_pipeline_states(days: int = 5) -> tuple[str, str, str, list[str]]:
                 if errors:
                     line += f"\n      last error: {errors[-1][:150]}"
                 detail_lines.append(line)
+                # A run that failed, or one left incomplete on a day that is
+                # over, is a run that did not publish. Today's incomplete run
+                # may simply still be going.
+                if outcome == "failed" or (outcome == "incomplete" and offset > 0):
+                    unfinished.append(f"{day} {pipeline}")
             except Exception as exc:
                 detail_lines.append(f"   ⚠️  {day} {pipeline}: unreadable ({exc})")
+                unfinished.append(f"{day} {pipeline} (unreadable)")
 
     if not found_any:
         # A daemon that only just started has had no chance to fire yet —
@@ -168,6 +177,14 @@ def _check_pipeline_states(days: int = 5) -> tuple[str, str, str, list[str]]:
                     "none yet — daemon started recently, waiting for the next slot", [])
         return (_FAIL, "Pipeline runs",
                 f"NO runs attempted in {days} days — the scheduler never fired", [])
+    if unfinished:
+        # Never report OK over a failed run. Two weekday slots means one can
+        # publish while the other does not, and a green headline above a red
+        # line is how a partial outage goes unnoticed for weeks.
+        return (_WARN, "Pipeline runs",
+                f"{len(detail_lines)} run(s) recorded, "
+                f"{len(unfinished)} did not publish: {', '.join(unfinished[:3])}",
+                detail_lines)
     return _OK, "Pipeline runs", f"{len(detail_lines)} run(s) recorded", detail_lines
 
 
