@@ -374,6 +374,83 @@ def _check_learning() -> tuple[str, str, str, list[str]]:
             f"from {total} observations", lines)
 
 
+# Which upload type each content slot is supposed to produce, and how long
+# to allow for the build before calling it missing. A long-form video takes
+# a few minutes to render on this instance; ninety minutes is generous.
+SLOT_PRODUCES = {
+    "weekday_premarket": "weekday",
+    "weekday_postmarket": "weekday",
+    "midday_short": "shorts",
+    "saturday_short": "shorts",
+    "sunday_educational": "sunday",
+}
+SLOT_GRACE_MINUTES = 90
+
+
+def _check_todays_slots() -> tuple[str, str, str, list[str]]:
+    """
+    Did every slot that fired today actually publish something?
+
+    The Shorts pipeline keeps no checkpoint, so a Short that starts and dies
+    leaves no trace at all — not in the pipeline runs, not in the manifest,
+    nowhere. Nothing else in this report would notice. This compares what
+    the schedule says should have run against what actually reached the
+    manifest.
+    """
+    try:
+        from apscheduler.triggers.cron import CronTrigger
+        from scheduler.master_scheduler import CONTENT_SLOTS, CONTENT_SLOT_NAMES
+        from uploader.uploader import load_upload_manifest
+        try:
+            from zoneinfo import ZoneInfo
+            tz = ZoneInfo(settings.timezone)
+        except Exception:
+            import pytz
+            tz = pytz.timezone(settings.timezone)
+    except Exception as exc:
+        return _WARN, "Today's slots", f"schedule unavailable: {exc}", []
+
+    now = datetime.now(tz)
+    today = now.date().isoformat()
+
+    published: set[str] = set()
+    try:
+        for record in load_upload_manifest() or []:
+            if (record.get("uploaded_at") or "")[:10] == today:
+                published.add(record.get("video_type") or "")
+    except Exception as exc:
+        return _WARN, "Today's slots", f"manifest unreadable: {exc}", []
+
+    due: list[tuple[str, datetime]] = []
+    for slot, cron in CONTENT_SLOTS.items():
+        try:
+            trigger = CronTrigger(timezone=tz, **cron)
+            # Walk back from now to find today's fire time, if there was one.
+            previous = trigger.get_next_fire_time(
+                None, now.replace(hour=0, minute=0, second=0, microsecond=0))
+        except Exception:
+            continue
+        if previous and previous.date() == now.date() and previous <= now:
+            elapsed = (now - previous).total_seconds() / 60
+            if elapsed >= SLOT_GRACE_MINUTES:
+                due.append((slot, previous))
+
+    if not due:
+        return _OK, "Today's slots", "none due yet today", []
+
+    missing = [(slot, fired) for slot, fired in due
+               if SLOT_PRODUCES.get(slot) not in published]
+    lines = [f"   {CONTENT_SLOT_NAMES.get(slot, slot)} fired {fired:%H:%M %Z} "
+             f"— no {SLOT_PRODUCES.get(slot, '?')} upload recorded today"
+             for slot, fired in missing]
+    if missing:
+        return (_FAIL, "Today's slots",
+                f"{len(missing)} of {len(due)} slot(s) due today produced nothing",
+                lines)
+    return (_OK, "Today's slots",
+            f"all {len(due)} slot(s) due today published", [])
+
+
 def _check_backups(stale_days: int = 10) -> tuple[str, str, str, list[str]]:
     """
     Is there a recent copy of the unrecoverable state, and is it anywhere
@@ -678,7 +755,8 @@ def run_health_report() -> int:
         _check_startup_error(), _check_registered_jobs(),
         _check_pipeline_states(), _check_uploads(),
         _check_claude_burn(), _check_optional_keys(), _check_backups(),
-        _check_performance(), _check_format_performance(), _check_learning()
+        _check_performance(), _check_format_performance(), _check_learning(),
+        _check_todays_slots()
     ):
         print(_line(status, label, detail))
         for line in lines:

@@ -198,3 +198,103 @@ class TestWeeklyJobIsScheduled:
         with patch("channel_manager.analytics_tracker.AnalyticsTracker") as mock:
             mock.return_value.run_weekly_report.side_effect = RuntimeError("403")
             run_weekly_analytics()      # must not raise
+
+
+# ── Slots that fired but published nothing ───────────────────────────────────
+
+class TestTodaysSlots:
+    """
+    The Shorts pipeline keeps no checkpoint, so a Short that starts and dies
+    leaves no trace anywhere — not in the pipeline runs, not in the manifest.
+    Nothing else in the report would notice it never published.
+    """
+
+    from datetime import datetime as _datetime
+    TZ = None
+
+    @staticmethod
+    def _at(hour, minute=0, weekday_date=(2026, 8, 29)):
+        from zoneinfo import ZoneInfo
+        from config.settings import settings
+        return TestTodaysSlots._datetime(
+            *weekday_date, hour, minute, tzinfo=ZoneInfo(settings.timezone))
+
+    @staticmethod
+    def _run(now, manifest):
+        from datetime import datetime
+        from monitor import health_report
+
+        class FakeDT(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return now
+
+        with patch.object(health_report, "datetime", FakeDT), \
+             patch("uploader.uploader.load_upload_manifest", return_value=manifest):
+            return health_report._check_todays_slots()
+
+    def test_a_slot_that_published_nothing_fails(self):
+        """Saturday 11:00 Short fired, no Short in the manifest."""
+        from monitor import health_report
+        status, _, detail, lines = self._run(
+            self._at(13), [{"video_id": "x", "video_type": "weekday",
+                            "uploaded_at": "2026-08-28T18:26:00"}])
+        assert status == health_report._FAIL
+        assert "produced nothing" in detail
+        assert any("Saturday Short" in line for line in lines)
+
+    def test_a_slot_that_published_passes(self):
+        from monitor import health_report
+        status, _, _, _ = self._run(
+            self._at(13), [{"video_id": "x", "video_type": "shorts",
+                            "uploaded_at": "2026-08-29T11:12:00"}])
+        assert status == health_report._OK
+
+    def test_a_recent_slot_is_still_inside_the_build_window(self):
+        """A long-form build takes minutes; do not cry wolf mid-render."""
+        from monitor import health_report
+        status, _, detail, _ = self._run(self._at(11, 30), [])
+        assert status == health_report._OK
+        assert "none due yet" in detail
+
+    def test_yesterdays_upload_does_not_count_for_today(self):
+        from monitor import health_report
+        status, _, _, _ = self._run(
+            self._at(13), [{"video_id": "x", "video_type": "shorts",
+                            "uploaded_at": "2026-08-28T11:12:00"}])
+        assert status == health_report._FAIL
+
+    def test_before_any_slot_fires_nothing_is_due(self):
+        from monitor import health_report
+        status, _, detail, _ = self._run(self._at(6), [])
+        assert status == health_report._OK
+        assert "none due yet" in detail
+
+    def test_a_weekday_counts_only_slots_past_their_grace(self):
+        """
+        Monday 18:00. Pre-market (08:00) and the midday Short (12:30) are
+        long done. Post-market fired at 17:15, 45 minutes ago, and is still
+        inside the build window — counting it would cry wolf during a render.
+        """
+        from monitor import health_report
+        status, _, detail, lines = self._run(
+            self._at(18, 0, weekday_date=(2026, 8, 31)), [])
+        assert status == health_report._FAIL
+        assert "2 of 2 slot(s)" in detail
+        assert not any("Post-market" in line for line in lines)
+
+    def test_a_weekday_late_evening_includes_post_market(self):
+        from monitor import health_report
+        status, _, detail, lines = self._run(
+            self._at(19, 0, weekday_date=(2026, 8, 31)), [])
+        assert status == health_report._FAIL
+        assert "3 of 3 slot(s)" in detail
+        assert any("Post-market" in line for line in lines)
+
+    def test_an_unreadable_manifest_warns_rather_than_failing(self):
+        from monitor import health_report
+        with patch("uploader.uploader.load_upload_manifest",
+                   side_effect=RuntimeError("corrupt")):
+            status, _, detail, _ = health_report._check_todays_slots()
+        assert status == health_report._WARN
+        assert "manifest unreadable" in detail
