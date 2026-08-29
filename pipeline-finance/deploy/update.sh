@@ -13,6 +13,25 @@
 # backs up the credential files before touching the tree regardless.
 set -euo pipefail
 
+# Run from a throwaway copy of ourselves.
+#
+# This script updates the checkout it lives in, so `git reset --hard` below
+# replaces this very file while bash is still reading it. Bash reads a
+# script lazily by byte offset rather than loading it whole, so a mid-run
+# replacement makes it carry on with stale content or resume at the wrong
+# offset in a file that has changed underneath it. Observed in practice: a
+# run that checked out a commit containing the restart check still executed
+# the previous version and skipped it, reporting success without verifying
+# anything.
+if [ "${DW_UPDATE_REEXEC:-}" != "1" ]; then
+    _copy="$(mktemp /tmp/driftwire-update.XXXXXX)"
+    cat "$0" > "$_copy"
+    DW_UPDATE_REEXEC=1 exec bash "$_copy" "$@"
+fi
+# Now running from the copy. Unlink it so /tmp does not accumulate one per
+# deploy — on Linux the running shell keeps its open handle regardless.
+case "$0" in /tmp/driftwire-update.*) rm -f "$0" ;; esac
+
 REPO_URL="${REPO_URL:-https://github.com/Prasad-DataAnalyst/energy-intelligence.git}"
 BRANCH="${BRANCH:-claude/driftwire326-youtube-automation-h8zkx8}"
 INSTALL_DIR="${INSTALL_DIR:-/opt/driftwire326}"
@@ -48,6 +67,7 @@ fi
 "${GIT[@]}" remote add origin "$REPO_URL" 2>/dev/null \
     || "${GIT[@]}" remote set-url origin "$REPO_URL"
 
+BEFORE_SHA="$("${GIT[@]}" rev-parse HEAD 2>/dev/null || echo none)"
 "${GIT[@]}" fetch -q --depth 1 origin "$BRANCH"
 # -f/--hard overwrites tracked code only; gitignored secrets and state survive.
 "${GIT[@]}" checkout -q -f -B "$BRANCH" "origin/$BRANCH"
@@ -87,7 +107,25 @@ chmod 600 "$APP_DIR/.env" 2>/dev/null || true
 chmod 600 "$APP_DIR"/config/*token*.json 2>/dev/null || true
 
 echo "── Restarting scheduler ───────────────────────────────────────────────"
-if ! systemctl restart driftwire326 2>/dev/null; then
+AFTER_SHA="$("${GIT[@]}" rev-parse HEAD 2>/dev/null || echo none)"
+
+# A pipeline runs as a child of the scheduler, so restarting mid-build kills
+# it and loses that video — systemd takes the whole cgroup down with the unit.
+#
+# Detected by asking whether the unit's main process has children, not by
+# matching process names: the pipeline is spawned rather than forked, so the
+# child's command line is the multiprocessing bootstrap and carries none of
+# the name the scheduler gave it. The scheduler only has children while a
+# pipeline is running, which makes this both simpler and accurate.
+SCHED_PID="$(systemctl show -p MainPID --value driftwire326 2>/dev/null || echo 0)"
+if [ "${SCHED_PID:-0}" -gt 0 ] 2>/dev/null && pgrep -P "$SCHED_PID" >/dev/null 2>&1; then
+    echo "   ⚠️  a pipeline is building right now — restarting would kill it"
+    echo "      the code is updated and takes effect on the next scheduled run."
+    echo "      to apply it immediately once the build finishes:"
+    echo "        sudo systemctl restart driftwire326"
+elif [ "$BEFORE_SHA" = "$AFTER_SHA" ]; then
+    echo "   already at $AFTER_SHA — nothing changed, leaving the scheduler alone"
+elif ! systemctl restart driftwire326 2>/dev/null; then
     echo "   (service not installed — skipped)"
 else
     # `systemctl restart` returns as soon as the unit is *started*, not when
