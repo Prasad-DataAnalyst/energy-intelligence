@@ -193,6 +193,149 @@ def _check_optional_keys() -> tuple[str, str, str, list[str]]:
              for name, feature, effect in missing])
 
 
+# What YouTube's own guidance and the working benchmark for finance
+# explainers put a healthy channel at. Used only to label numbers, never to
+# gate anything — a young channel is below these and that is normal.
+GOOD_CTR = 0.04            # 4% impressions-to-click
+GOOD_RETENTION_SECONDS = 90
+
+
+def _latest_weekly_report() -> "dict | None":
+    import json as _json
+    directory = settings.logs_dir / "analytics"
+    if not directory.exists():
+        return None
+    reports = sorted(directory.glob("weekly_report_*.json"))
+    if not reports:
+        return None
+    try:
+        return _json.loads(reports[-1].read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _check_performance() -> tuple[str, str, str, list[str]]:
+    """
+    The numbers that decide what to publish more of.
+
+    Analytics were pulled daily and never aggregated, so nothing in this
+    report ever said whether anyone was watching. Every other check here
+    answers "is the machine running"; this is the only one that answers
+    "is it working".
+    """
+    report = _latest_weekly_report()
+    if report is None:
+        return (_WARN, "Performance",
+                "no weekly report yet — the first runs Monday 07:00 ET", [])
+
+    views = report.get("total_views", 0)
+    ctr = report.get("avg_ctr", 0.0) or 0.0
+    watch_minutes = report.get("total_watch_time_minutes", 0.0) or 0.0
+    videos = report.get("video_count", 0)
+    gained = report.get("subscribers_gained", 0)
+
+    detail = (f"week of {report.get('week_of', '?')}: {views:,} views, "
+              f"{ctr * 100:.1f}% CTR, {watch_minutes:,.0f} watch-minutes, "
+              f"{gained:+d} subs across {videos} videos")
+
+    lines: list[str] = []
+    if videos:
+        lines.append(f"   {views / videos:,.0f} views per video")
+    if views:
+        lines.append(f"   {watch_minutes * 60 / views:,.0f}s average view duration")
+    if report.get("top_video_id"):
+        lines.append(f"   best: {report['top_video_id']} "
+                     f"({report.get('top_video_views', 0):,} views)")
+    weak = report.get("low_ctr_videos") or []
+    if weak:
+        lines.append(f"   {len(weak)} video(s) below the CTR floor — "
+                     "candidates for a title swap")
+
+    # A channel with no views is not broken, it is new. Say which it is
+    # rather than colouring it red.
+    if not views:
+        return (_WARN, "Performance",
+                f"{detail} — nothing is being watched yet", lines)
+    if ctr < GOOD_CTR:
+        return (_WARN, "Performance",
+                f"{detail} — CTR below {GOOD_CTR * 100:.0f}%, "
+                "titles and thumbnails are the lever", lines)
+    return _OK, "Performance", detail, lines
+
+
+def _check_format_performance(days: int = 60) -> tuple[str, str, str, list[str]]:
+    """
+    Views per video by format, which is the question the publishing mix
+    turns on.
+
+    Daily recaps expire in a day and compete with every finance channel
+    there is; explainers accumulate search traffic for years. Whether to
+    keep two recap slots or move that time to explainers is a real
+    decision, and it should be made on these numbers rather than on
+    anybody's argument. Joins the daily analytics to the upload manifest,
+    which is the only place a video's format is recorded.
+    """
+    import json as _json
+    from collections import defaultdict
+
+    try:
+        from uploader.uploader import load_upload_manifest
+        manifest = load_upload_manifest() or []
+    except Exception as exc:
+        return _WARN, "Format performance", f"manifest unreadable: {exc}", []
+
+    kind_of = {r.get("video_id"): (r.get("video_type") or "unknown")
+               for r in manifest if r.get("video_id")}
+    if not kind_of:
+        return _OK, "Format performance", "no uploads recorded yet", []
+
+    directory = settings.logs_dir / "analytics"
+    if not directory.exists():
+        return (_WARN, "Format performance",
+                "no analytics pulled yet — the daily job populates this", [])
+
+    # Latest observation per video: the daily pull writes one file per day
+    # and a video appears in several of them.
+    latest: dict[str, dict] = {}
+    cutoff = (date.today() - timedelta(days=days)).isoformat()
+    for path in sorted(directory.glob("*.json")):
+        if path.name.startswith("weekly_report_") or path.stem < cutoff:
+            continue
+        try:
+            for entry in _json.loads(path.read_text(encoding="utf-8")):
+                if entry.get("video_id"):
+                    latest[entry["video_id"]] = entry
+        except Exception:
+            continue
+
+    if not latest:
+        return (_WARN, "Format performance",
+                f"no analytics in the last {days} days", [])
+
+    grouped: dict[str, list[dict]] = defaultdict(list)
+    for video_id, entry in latest.items():
+        grouped[kind_of.get(video_id, "unknown")].append(entry)
+
+    lines: list[str] = []
+    for kind, entries in sorted(grouped.items(),
+                                key=lambda kv: -_mean(kv[1], "views")):
+        views = _mean(entries, "views")
+        duration = _mean(entries, "avg_view_duration_seconds")
+        ctr = _mean(entries, "ctr")
+        lines.append(
+            f"   {kind:<10} {len(entries):>3} videos | {views:>7,.0f} views avg "
+            f"| {duration:>5.0f}s watched | {ctr * 100:4.1f}% CTR")
+
+    return (_OK, "Format performance",
+            f"{len(latest)} videos across {len(grouped)} format(s), "
+            f"last {days} days", lines)
+
+
+def _mean(entries: list, field: str) -> float:
+    values = [float(e.get(field, 0) or 0) for e in entries]
+    return sum(values) / len(values) if values else 0.0
+
+
 def _check_backups(stale_days: int = 10) -> tuple[str, str, str, list[str]]:
     """
     Is there a recent copy of the unrecoverable state, and is it anywhere
@@ -496,7 +639,8 @@ def run_health_report() -> int:
     for status, label, detail, lines in (
         _check_startup_error(), _check_registered_jobs(),
         _check_pipeline_states(), _check_uploads(),
-        _check_claude_burn(), _check_optional_keys(), _check_backups()
+        _check_claude_burn(), _check_optional_keys(), _check_backups(),
+        _check_performance(), _check_format_performance()
     ):
         print(_line(status, label, detail))
         for line in lines:

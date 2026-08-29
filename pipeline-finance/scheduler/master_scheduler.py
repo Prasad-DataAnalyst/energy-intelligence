@@ -101,6 +101,23 @@ def run_weekday_pipeline(slot: str = "premarket") -> None:
         logger.exception("Weekday pipeline (%s) FAILED: %s", slot, exc)
 
 
+def run_weekly_analytics() -> None:
+    """
+    Monday: roll the week's numbers up into one report.
+
+    run_weekly_report has always been documented as "called every Monday by
+    the scheduler" and never was, so the pipeline pulled analytics daily and
+    nothing ever aggregated or acted on them.
+    """
+    try:
+        from channel_manager.analytics_tracker import AnalyticsTracker
+        report = AnalyticsTracker().run_weekly_report()
+        logger.info("Weekly report: %d views, %.1f%% CTR, %d videos",
+                    report.total_views, report.avg_ctr * 100, report.video_count)
+    except Exception as exc:
+        logger.error("Weekly analytics report failed: %s", exc)
+
+
 def run_state_backup() -> None:
     """Weekly: archive the state that cannot be rebuilt and ship it off-box."""
     try:
@@ -465,6 +482,17 @@ def start_scheduler() -> None:
         max_instances=1,
         coalesce=True,
     )
+    # Weekly performance rollup (Mon 07:00 ET — after the week closes,
+    # before the first pipeline of the new week)
+    scheduler.add_job(
+        run_weekly_analytics,
+        CronTrigger(day_of_week="mon", hour=7, minute=0, timezone=tz),
+        id="weekly_analytics",
+        name="Weekly Analytics Report",
+        max_instances=1,
+        coalesce=True,
+    )
+
     # State backup (Sun 06:00 ET — before the Sunday pipeline, after the week)
     scheduler.add_job(
         run_state_backup,
