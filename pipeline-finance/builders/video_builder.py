@@ -234,6 +234,39 @@ def _build_with_moviepy(assets: VideoAssets, output_path: Path) -> Optional[floa
         return None
 
 
+def _normalize_for_concat(paths: list, tmp_dir: Path, width: int, height: int) -> list:
+    """
+    Letterbox every image onto an identical canvas before concatenation.
+
+    ffmpeg's concat demuxer locks stream parameters to the FIRST input and
+    drops or garbles anything of a different size. Our sequence mixes PIL
+    slides (exactly WxH) with matplotlib charts saved using
+    bbox_inches="tight" (a different size every time), so an 11-visual
+    sequence collapsed to a single static frame for the whole video.
+    """
+    from PIL import Image
+
+    normalized: list[Path] = []
+    for index, source in enumerate(paths):
+        try:
+            img = Image.open(source).convert("RGB")
+            if img.size != (width, height):
+                canvas = Image.new("RGB", (width, height), (10, 10, 15))
+                fitted = img.copy()
+                fitted.thumbnail((width, height), Image.LANCZOS)
+                canvas.paste(
+                    fitted,
+                    ((width - fitted.width) // 2, (height - fitted.height) // 2),
+                )
+                img = canvas
+            dest = tmp_dir / f"seq_{index:03d}.png"
+            img.save(dest)
+            normalized.append(dest)
+        except Exception as exc:
+            logger.warning("Skipping unreadable visual %s: %s", source, exc)
+    return normalized
+
+
 def _build_with_ffmpeg(assets: VideoAssets, output_path: Path) -> Optional[float]:
     """
     Fallback builder using raw ffmpeg subprocess.
@@ -252,6 +285,17 @@ def _build_with_ffmpeg(assets: VideoAssets, output_path: Path) -> Optional[float
 
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
+        # Uniform canvas size is a hard requirement of the concat demuxer.
+        valid_charts = _normalize_for_concat(
+            valid_charts, tmp, settings.video_width, settings.video_height
+        )
+        if not valid_charts:
+            logger.error("No usable visuals after normalization")
+            return None
+        logger.info("Video sequence: %d visuals over %.0fs (~%.1fs each)",
+                    len(valid_charts), assets.duration_seconds,
+                    assets.duration_seconds / len(valid_charts))
+
         # Create concat file for images (each shown for equal duration)
         dur_per_img = assets.duration_seconds / len(valid_charts)
         concat_file = tmp / "imgs.txt"
