@@ -336,6 +336,44 @@ def _mean(entries: list, field: str) -> float:
     return sum(values) / len(values) if values else 0.0
 
 
+def _check_learning() -> tuple[str, str, str, list[str]]:
+    """
+    What the channel has learned about its own hooks and styles.
+
+    These were picked at random for the life of the project while a scoring
+    system sat wired to nothing. Showing the scores here is also the only
+    way to notice if the loop quietly stops feeding.
+    """
+    try:
+        from channel_manager.performance_tracker import (
+            PerformanceTracker, MIN_OBSERVATIONS)
+        tracker = PerformanceTracker()
+        styles = tracker.get_scores("styles")
+        hooks = tracker.get_scores("hooks")
+    except Exception as exc:
+        return _WARN, "Learning", f"performance scores unreadable: {exc}", []
+
+    if not styles and not hooks:
+        return (_OK, "Learning",
+                "no scores yet — selection is still random, which is correct "
+                "until videos have results to compare", [])
+
+    lines: list[str] = []
+    for label, rows in (("style", styles), ("hook", hooks)):
+        if not rows:
+            continue
+        best = rows[0]
+        confident = best["observations"] >= MIN_OBSERVATIONS
+        lines.append(
+            f"   best {label}: {best['label'][:44]} "
+            f"({best['score']:.2f} over {best['observations']} obs"
+            f"{'' if confident else ', still provisional'})")
+    total = sum(r["observations"] for r in styles + hooks)
+    return (_OK, "Learning",
+            f"{len(styles)} styles and {len(hooks)} hooks scored "
+            f"from {total} observations", lines)
+
+
 def _check_backups(stale_days: int = 10) -> tuple[str, str, str, list[str]]:
     """
     Is there a recent copy of the unrecoverable state, and is it anywhere
@@ -640,7 +678,7 @@ def run_health_report() -> int:
         _check_startup_error(), _check_registered_jobs(),
         _check_pipeline_states(), _check_uploads(),
         _check_claude_burn(), _check_optional_keys(), _check_backups(),
-        _check_performance(), _check_format_performance()
+        _check_performance(), _check_format_performance(), _check_learning()
     ):
         print(_line(status, label, detail))
         for line in lines:

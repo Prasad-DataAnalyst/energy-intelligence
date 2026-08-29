@@ -525,6 +525,8 @@ class WeekdayScheduler:
                         tags=tags,
                         publish_at=publish_at,
                         video_type="weekday",
+                        script_style=getattr(script, "style", ""),
+                        script_hook=getattr(script, "hook", ""),
                     )
 
                     # Preflight gate — never spend quota on broken artifacts

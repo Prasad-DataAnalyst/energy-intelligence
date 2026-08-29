@@ -45,6 +45,11 @@ class UploadConfig:
     language: str = "en"
     location: str = "United States"
     video_type: str = "weekday"   # "weekday" | "shorts" | "sunday" — used for playlist routing + manifest
+    # What produced this video. Recorded so performance can be attributed
+    # back to the choices that made it — otherwise the scoring system has
+    # views with nothing to attach them to.
+    script_style: str = ""
+    script_hook: str = ""
 
     def _compliance_description(self) -> str:
         """
@@ -542,6 +547,12 @@ def upload_full(
 _UPLOAD_MANIFEST_PATH = settings.logs_dir / "upload_manifest.jsonl"
 
 
+def _attribution(config, field: str) -> str:
+    """A string, or nothing. Never something json cannot serialise."""
+    value = getattr(config, field, "")
+    return value if isinstance(value, str) else ""
+
+
 def record_upload(result: "UploadResult", config: "UploadConfig") -> None:
     """
     Append a JSONL record to the upload archive manifest on successful upload.
@@ -553,6 +564,12 @@ def record_upload(result: "UploadResult", config: "UploadConfig") -> None:
         "video_id": result.video_id,
         "title": config.title,
         "video_type": config.video_type,
+        # Coerced, not just defaulted: a non-string here would make the whole
+        # record unserialisable and drop it. The manifest is what the
+        # dead-man switch reads, so losing an entry to an attribution field
+        # would be a bad trade.
+        "script_style": _attribution(config, "script_style"),
+        "script_hook": _attribution(config, "script_hook"),
         "uploaded_at": datetime.now().isoformat(),
         "url": f"https://youtu.be/{result.video_id}",
         "playlist_id": config.playlist_id,

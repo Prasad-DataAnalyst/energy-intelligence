@@ -68,6 +68,7 @@ class GeneratedScript:
     tokens_used: int
     generated_at: str = field(default_factory=lambda: datetime.now().isoformat())
     script_path: Optional[Path] = None
+    hook: str = ""                    # the opening line used, for scoring
 
     def save(self, output_dir: Path) -> Path:
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -118,8 +119,36 @@ def _estimate_duration(word_count: int, video_type: str) -> int:
     return int((word_count / wpm) * 60)
 
 
+def _pick_style() -> str:
+    """
+    The style that has been working, with room to keep testing the others.
+
+    These were chosen by random.choice while a scoring system sat wired to
+    nothing. Falls back to random on any failure: an unreadable score file
+    should cost the channel a little learning, not a video.
+    """
+    try:
+        from channel_manager.performance_tracker import PerformanceTracker
+        return PerformanceTracker().choose("styles", list(SCRIPT_STYLES),
+                                           default=random.choice(SCRIPT_STYLES))
+    except Exception as exc:
+        logger.warning("Style scoring unavailable (non-fatal): %s", exc)
+        return random.choice(SCRIPT_STYLES)
+
+
 def _random_style() -> str:
     return random.choice(SCRIPT_STYLES)
+
+
+def _pick_hook() -> str:
+    """Same as _pick_style, for the opening line."""
+    try:
+        from channel_manager.performance_tracker import PerformanceTracker
+        return PerformanceTracker().choose("hooks", list(HOOK_VARIATIONS),
+                                           default=random.choice(HOOK_VARIATIONS))
+    except Exception as exc:
+        logger.warning("Hook scoring unavailable (non-fatal): %s", exc)
+        return random.choice(HOOK_VARIATIONS)
 
 
 def _random_hook() -> str:
@@ -215,8 +244,8 @@ def generate_weekday_script(
     """
     logger.info("Generating weekday script | tier=%s | model=%s", tier, CLAUDE_MODEL)
 
-    style = _random_style()
-    hook  = _random_hook()
+    style = _pick_style()
+    hook  = _pick_hook()
 
     # Compose context block from the data narratives, plus what the audience
     # is searching for today when Trends is reachable.
@@ -260,6 +289,7 @@ def generate_weekday_script(
         segments=segments,
         tier=tier,
         style=style,
+        hook=hook,
         raw_prompt=prompt,
         model=CLAUDE_MODEL,
         tokens_used=tokens,

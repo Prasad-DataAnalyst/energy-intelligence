@@ -117,6 +117,15 @@ def run_weekly_analytics() -> None:
     except Exception as exc:
         logger.error("Weekly analytics report failed: %s", exc)
 
+    # Feed the results back into the style and hook scores. Selection without
+    # feedback is a slower random choice; this is what closes the loop.
+    try:
+        from channel_manager.performance_tracker import apply_recent_performance
+        scored = apply_recent_performance()
+        logger.info("Performance feedback applied to %d video(s)", scored)
+    except Exception as exc:
+        logger.error("Performance feedback failed: %s", exc)
+
 
 def run_state_backup() -> None:
     """Weekly: archive the state that cannot be rebuilt and ship it off-box."""

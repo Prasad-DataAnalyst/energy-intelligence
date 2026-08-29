@@ -9,6 +9,7 @@ Called after analytics pulls to update EMA scores.
 Exposes get_best_* methods used by schedulers to pick optimal settings.
 """
 import json
+import random
 import logging
 import os
 from dataclasses import dataclass, field
@@ -22,6 +23,15 @@ logger = logging.getLogger(__name__)
 
 _STATE_PATH = settings.logs_dir / "performance_state.json"
 _EMA_ALPHA = 0.3  # weight for newest observation
+
+# How often to pick something other than the current leader. Without this
+# the first option to land on a good day wins forever and nothing else ever
+# gets a score — the channel would optimise itself into whatever it tried
+# first. A quarter keeps the alternatives alive at a small cost.
+EXPLORE_RATE = 0.25
+
+# Observations before a score is treated as signal rather than one lucky day.
+MIN_OBSERVATIONS = 3
 
 
 def _ema_update(current: float, new_value: float, alpha: float = _EMA_ALPHA) -> float:
@@ -57,6 +67,77 @@ class ScoreEntry:
             observations=int(d.get("observations", 0)),
             last_updated=d.get("last_updated", ""),
         )
+
+
+def apply_recent_performance(days: int = 30) -> int:
+    """
+    Feed observed results back into the scores. Returns videos scored.
+
+    This is the half of the loop that was missing. Selection without
+    feedback is just a slower random choice, and feedback without selection
+    is a spreadsheet nobody reads — the pieces existed separately and never
+    met. Joins the analytics files to the upload manifest, which is the only
+    place a video's style and hook are recorded.
+
+    Idempotent across runs: a video is scored once and remembered, so
+    re-running the weekly job does not stack the same result repeatedly and
+    inflate whatever ran most recently.
+    """
+    import json as _json
+    from datetime import date, timedelta
+
+    try:
+        from uploader.uploader import load_upload_manifest
+        manifest = {r["video_id"]: r for r in (load_upload_manifest() or [])
+                    if r.get("video_id")}
+    except Exception as exc:
+        logger.warning("Manifest unavailable for scoring: %s", exc)
+        return 0
+    if not manifest:
+        return 0
+
+    analytics_dir = settings.logs_dir / "analytics"
+    if not analytics_dir.exists():
+        return 0
+
+    cutoff = (date.today() - timedelta(days=days)).isoformat()
+    latest: dict = {}
+    for path in sorted(analytics_dir.glob("*.json")):
+        if path.name.startswith("weekly_report_") or path.stem < cutoff:
+            continue
+        try:
+            for entry in _json.loads(path.read_text(encoding="utf-8")):
+                if entry.get("video_id"):
+                    latest[entry["video_id"]] = entry
+        except Exception:
+            continue
+
+    tracker = PerformanceTracker()
+    scored = set(tracker._state.get("scored_videos", {}))
+    counted = 0
+    for video_id, stats in latest.items():
+        record = manifest.get(video_id)
+        if not record or video_id in scored:
+            continue
+        style, hook = record.get("script_style"), record.get("script_hook")
+        if not style and not hook:
+            continue          # published before attribution existed
+        tracker.record_performance(
+            style=style or None,
+            hook=hook or None,
+            time_slot=(record.get("uploaded_at") or "")[11:16] or None,
+            ctr=float(stats.get("ctr", 0) or 0),
+            views=int(stats.get("views", 0) or 0),
+            watch_time_minutes=float(stats.get("watch_time_minutes", 0) or 0),
+        )
+        scored.add(video_id)
+        counted += 1
+
+    if counted:
+        tracker._state["scored_videos"] = {v: ScoreEntry(label=v) for v in scored}
+        tracker._save()
+        logger.info("Performance applied for %d video(s)", counted)
+    return counted
 
 
 class PerformanceTracker:
@@ -183,6 +264,35 @@ class PerformanceTracker:
         )
 
     # ── Query methods ─────────────────────────────────────────────────────────
+
+    def choose(self, category: str, options: list, default: str = "") -> str:
+        """
+        Pick an option, balancing what has worked against what is untested.
+
+        Always taking the highest score would be wrong here twice over. With
+        a handful of videos the leader is noise, and an option that never
+        gets picked never earns a score — so whichever one happened to run on
+        a good day would win permanently and the rest would stay at zero
+        forever. So: try everything at least once, keep sampling
+        alternatives a quarter of the time, and only trust a score once it
+        has enough observations behind it to mean something.
+        """
+        if not options:
+            return default
+        entries = self._state.get(category, {})
+
+        untried = [o for o in options
+                   if o not in entries or entries[o].observations == 0]
+        if untried:
+            return random.choice(untried)
+
+        if random.random() < EXPLORE_RATE:
+            return random.choice(options)
+
+        known = [entries[o] for o in options if o in entries]
+        proven = [e for e in known if e.observations >= MIN_OBSERVATIONS]
+        pool = proven or known
+        return max(pool, key=lambda e: e.score).label if pool else default
 
     def get_best(self, category: str, default: str = "") -> str:
         """Return the highest-scoring label in a category, or default if empty."""
