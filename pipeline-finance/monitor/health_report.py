@@ -172,21 +172,39 @@ def _check_pipeline_states(days: int = 5) -> tuple[str, str, str, list[str]]:
 
 
 def _daemon_uptime_hours() -> "float | None":
-    """Hours since the scheduler process started, via the heartbeat file's age."""
+    """
+    Hours since the CURRENT scheduler process started.
+
+    heartbeat.log is append-only across restarts, so the newest line is only
+    ever minutes old. Taking that as "uptime" made the freshly-restarted
+    grace period permanent, which would suppress the very outage warning this
+    report exists to raise. Each beat records its PID, so the run of trailing
+    lines sharing the newest PID belongs to the live process — its first beat
+    is the real start time.
+    """
     hb = settings.logs_dir / "heartbeat.log"
     if not hb.exists():
         return None
     try:
-        # The startup heartbeat is the first line; its timestamp is the boot time.
-        first = hb.read_text(encoding="utf-8").splitlines()
-        for line in reversed(first):
-            if "] " in line and "|" in line:
-                stamp = line.split("] ")[1].split(" |")[0].strip()
-                started = datetime.strptime(stamp, "%Y-%m-%d %H:%M:%S")
-                return max((datetime.now() - started).total_seconds() / 3600, 0.0)
+        beats: list[tuple[datetime, str]] = []
+        for line in hb.read_text(encoding="utf-8").splitlines():
+            if "] " not in line or "PID=" not in line:
+                continue
+            stamp = line.split("] ")[1].split(" |")[0].strip()
+            pid = line.split("PID=")[1].split(" |")[0].strip()
+            beats.append((datetime.strptime(stamp, "%Y-%m-%d %H:%M:%S"), pid))
+        if not beats:
+            return None
+
+        current_pid = beats[-1][1]
+        started = beats[-1][0]
+        for stamp, pid in reversed(beats):
+            if pid != current_pid:
+                break
+            started = stamp
+        return max((datetime.now() - started).total_seconds() / 3600, 0.0)
     except Exception:
         return None
-    return None
 
 
 def _next_content_slots() -> list[str]:

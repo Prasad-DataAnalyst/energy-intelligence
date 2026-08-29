@@ -835,3 +835,63 @@ class TestNextContentRuns:
         pytest.importorskip("apscheduler")
         from scheduler.master_scheduler import CONTENT_SLOTS, CONTENT_SLOT_NAMES
         assert set(CONTENT_SLOTS) == set(CONTENT_SLOT_NAMES)
+
+
+class TestDaemonUptimeAcrossRestarts:
+    """
+    heartbeat.log is append-only across restarts. Measuring 'uptime' from the
+    newest line makes it permanently ~0, which would keep the freshly-started
+    grace period active forever and suppress real outage warnings.
+    """
+
+    def _write_beats(self, path, entries):
+        from datetime import datetime as dt, timedelta as td
+        now = dt.now()
+        lines = []
+        for minutes_ago, pid in entries:
+            stamp = (now - td(minutes=minutes_ago)).strftime("%Y-%m-%d %H:%M:%S")
+            lines.append(f"[HEARTBEAT] {stamp} | PID={pid} | scheduler alive")
+        path.write_text("\n".join(lines) + "\n")
+
+    def test_uptime_measures_current_process_not_last_beat(self, tmp_path):
+        from monitor import health_report as hr
+        # Old process ran for a day; current process started 20 minutes ago.
+        self._write_beats(tmp_path / "heartbeat.log", [
+            (1500, "111"), (1000, "111"), (500, "111"),   # previous run
+            (20, "222"), (0, "222"),                       # current run
+        ])
+        with patch.object(hr.settings, "logs_dir", tmp_path):
+            hours = hr._daemon_uptime_hours()
+        assert hours is not None
+        assert 0.2 < hours < 0.5, f"expected ~0.33 h for current process, got {hours}"
+
+    def test_long_running_daemon_does_not_get_grace_period(self, tmp_path):
+        """The regression that mattered: a daemon up for days must be able to
+        report 'no runs' as a FAILURE, not a 'just restarted' warning."""
+        from monitor import health_report as hr
+        import scheduler.pipeline_state as ps
+        self._write_beats(tmp_path / "heartbeat.log", [
+            (4320, "777"), (2000, "777"), (30, "777"), (0, "777"),
+        ])
+        original = ps.STATE_DIR
+        empty_states = tmp_path / "empty_states"
+        empty_states.mkdir()          # exists but holds no run files
+        ps.STATE_DIR = empty_states
+        try:
+            with patch.object(hr.settings, "logs_dir", tmp_path):
+                hours = hr._daemon_uptime_hours()
+                assert hours is not None and hours > 60, f"got {hours}"
+                status, _, detail, _ = hr._check_pipeline_states()
+            assert status == hr._FAIL, "a 3-day-old daemon with no runs must FAIL"
+            assert "NO runs attempted" in detail
+        finally:
+            ps.STATE_DIR = original
+
+    def test_malformed_heartbeat_lines_ignored(self, tmp_path):
+        from monitor import health_report as hr
+        (tmp_path / "heartbeat.log").write_text(
+            "garbage line\n"
+            "[HEARTBEAT] not-a-date | PID=1 | x\n"
+        )
+        with patch.object(hr.settings, "logs_dir", tmp_path):
+            assert hr._daemon_uptime_hours() is None
