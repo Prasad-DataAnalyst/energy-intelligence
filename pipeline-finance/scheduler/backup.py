@@ -43,6 +43,7 @@ BACKUP_SET = [
     "claude_usage.jsonl",         # spend history; the burn trend needs a past to compare to
     "failed_queue.json",          # work still owed
     "shorts_music_history.json",
+    "sunday_topic_state.json",    # which explainers have run; 12-week rotation
     "pipeline_daily.jsonl",       # per-day run reports
     "analytics",                  # directory: daily stats pulled from YouTube
     "pipeline_state",             # directory: per-slot checkpoints

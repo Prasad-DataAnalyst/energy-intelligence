@@ -5,6 +5,7 @@ Manages the Sunday educational topic pool: weighted random selection,
 """
 import json
 import logging
+import os
 import random
 from datetime import date, timedelta
 from pathlib import Path
@@ -13,7 +14,17 @@ from monitor.usage_ledger import record
 
 logger = logging.getLogger(__name__)
 
+# The topic pool: read-only, version-controlled, ships with the code.
 _LIBRARY_PATH = Path(__file__).parent / "sunday_topic_library.json"
+
+# Which topics have run and when. This has to live outside the repo.
+#
+# Rotation history used to be written back into the library JSON, which git
+# tracks — and deploy/update.sh does `git reset --hard`, so every deploy
+# silently wiped it and the 12-week cooldown restarted from nothing. Two
+# deploys in one afternoon reset it twice. Keeping it under logs/ means it
+# survives deploys and is picked up by the weekly state backup.
+_STATE_NAME = "sunday_topic_state.json"
 
 
 # ── Data helpers ─────────────────────────────────────────────────────────────
@@ -22,8 +33,41 @@ def _load() -> dict:
     return json.loads(_LIBRARY_PATH.read_text(encoding="utf-8"))
 
 
-def _save(data: dict) -> None:
-    _LIBRARY_PATH.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+def _state_path() -> Path:
+    from config.settings import settings
+    return settings.logs_dir / _STATE_NAME
+
+
+def _load_state() -> dict:
+    """
+    {topic_id: iso date last used}.
+
+    Falls back to any history still sitting in the library file, so a machine
+    upgrading from the old layout keeps whatever rotation survived.
+    """
+    path = _state_path()
+    if path.exists():
+        try:
+            return json.loads(path.read_text(encoding="utf-8")).get("last_used", {})
+        except Exception as exc:
+            logger.warning("Topic state unreadable (%s) — starting fresh", exc)
+            return {}
+    try:
+        return _load().get("last_used", {}) or {}
+    except Exception:
+        return {}
+
+
+def _save_state(last_used: dict) -> None:
+    """Never raises: losing a cooldown entry must not fail a publish."""
+    try:
+        path = _state_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps({"last_used": last_used}, indent=2), encoding="utf-8")
+        os.replace(tmp, path)
+    except Exception as exc:
+        logger.warning("Could not record topic rotation (non-fatal): %s", exc)
 
 
 # ── Topic selection ──────────────────────────────────────────────────────────
@@ -32,7 +76,7 @@ def get_available_topics(cooldown_weeks: int = 12) -> list[dict]:
     """Return topics not used within the cooldown window."""
     library = _load()
     cutoff = (date.today() - timedelta(weeks=cooldown_weeks)).isoformat()
-    last_used: dict = library.get("last_used", {})
+    last_used: dict = _load_state()
     available = [
         t for t in library["topics"]
         if last_used.get(t["id"], "1970-01-01") < cutoff
@@ -72,11 +116,9 @@ def pick_topic(week_market_summary: str = "", use_ai: bool = False) -> dict:
             pool.extend([topic] * weight)
         chosen = random.choice(pool)
 
-    # Mark used
-    library.setdefault("last_used", {})[chosen["id"]] = date.today().isoformat()
-    _save(library)
-
-    logger.info("Sunday topic selected: %s", chosen["title"])
+    mark_used(chosen["id"])
+    logger.info("Sunday topic selected: %s (%d of %d eligible)",
+                chosen["title"], len(available), len(library["topics"]))
     return chosen
 
 
@@ -130,31 +172,50 @@ def get_topics_for_theme(theme: str) -> list[dict]:
     Themes: investment_banking, insurance_protection, savings_wealth, rotating_bonus
     """
     theme_keywords = {
-        "investment_banking": ["options", "short", "bond", "sp500", "etf", "fed", "earnings"],
-        "insurance_protection": ["recession", "inflation", "risk", "portfolio"],
-        "savings_wealth": ["dividend", "roth", "savings", "compound", "passive"],
-        "rotating_bonus": ["crypto", "bitcoin", "ai_stocks", "real_estate"],
+        "investment_banking": [
+            "options", "short", "bond", "sp500", "etf", "fed", "earnings",
+            "ipo", "buyback", "split", "index", "market_cap", "algo", "hft",
+            "quant", "factor", "dark_pool", "order", "arbitrage", "yield",
+            "rate", "bid_ask", "market_open", "payment_order",
+        ],
+        "insurance_protection": [
+            "recession", "inflation", "risk", "portfolio", "crash", "margin",
+            "bank_failure", "bank_run", "systemic", "black_swan", "circuit",
+            "drawdown", "stagflation", "sovereign", "everyone_sells",
+        ],
+        "savings_wealth": [
+            "dividend", "roth", "savings", "compound", "passive", "expense",
+            "target_date", "dollar_cost", "diversification", "reit",
+            "index_vs_active", "credit_score", "ladder",
+        ],
+        "rotating_bonus": [
+            "crypto", "bitcoin", "ai_", "real_estate", "token", "stablecoin",
+            "cbdc", "defi", "programmable", "cash", "settlement", "gold",
+            "oil", "dollar", "currency", "commodity", "capital_flows",
+        ],
     }
     keywords = theme_keywords.get(theme, [])
     library = _load()
     if not keywords:
         return library["topics"]
-    return [
+    # Match the id or any tag: ids are terse, tags carry the searchable words.
+    matched = [
         t for t in library["topics"]
         if any(kw in t["id"] for kw in keywords)
-    ] or library["topics"]
+        or any(kw.replace("_", " ") in tag.lower()
+               for kw in keywords for tag in t.get("tags", []))
+    ]
+    return matched or library["topics"]
 
 
 def mark_used(topic_id: str) -> None:
-    """Manually mark a topic as used today (for testing / manual overrides)."""
-    library = _load()
-    library.setdefault("last_used", {})[topic_id] = date.today().isoformat()
-    _save(library)
+    """Record that a topic ran today, starting its cooldown."""
+    last_used = _load_state()
+    last_used[topic_id] = date.today().isoformat()
+    _save_state(last_used)
 
 
 def reset_cooldowns() -> None:
-    """Clear all cooldown history — useful for development/testing."""
-    library = _load()
-    library["last_used"] = {}
-    _save(library)
+    """Clear all cooldown history — for development and manual overrides."""
+    _save_state({})
     logger.info("All Sunday topic cooldowns reset")

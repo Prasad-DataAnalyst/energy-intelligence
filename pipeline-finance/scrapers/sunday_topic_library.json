@@ -3,122 +3,2406 @@
     {
       "id": "options_basics",
       "title": "Options Trading 101: Calls, Puts, and How Wall Street Really Bets",
-      "subtopics": ["call options", "put options", "strike price", "expiration dates", "premium"],
-      "key_concepts": ["intrinsic vs extrinsic value", "in-the-money vs out-of-the-money", "leverage risk"],
+      "subtopics": [
+        "call options",
+        "put options",
+        "strike price",
+        "expiration dates",
+        "premium"
+      ],
+      "key_concepts": [
+        "intrinsic vs extrinsic value",
+        "in-the-money vs out-of-the-money",
+        "leverage risk"
+      ],
       "current_relevance": "Options volume hit record highs in 2025; Gen Z traders driving 0DTE boom",
       "target_audience": "beginners",
       "estimated_views": "high",
-      "tags": ["options trading", "investing for beginners", "stock market education"]
+      "tags": [
+        "options trading",
+        "investing for beginners",
+        "stock market education"
+      ]
     },
     {
       "id": "fed_explained",
       "title": "The Federal Reserve Explained: How 12 People Control Every Dollar You Own",
-      "subtopics": ["FOMC", "interest rates", "quantitative easing", "inflation targeting", "federal funds rate"],
-      "key_concepts": ["monetary policy", "dual mandate", "yield curve", "rate hike vs cut impact"],
+      "subtopics": [
+        "FOMC",
+        "interest rates",
+        "quantitative easing",
+        "inflation targeting",
+        "federal funds rate"
+      ],
+      "key_concepts": [
+        "monetary policy",
+        "dual mandate",
+        "yield curve",
+        "rate hike vs cut impact"
+      ],
       "current_relevance": "Fed pivoting in 2026 — rate cuts reshaping investment strategies",
       "target_audience": "beginner-intermediate",
       "estimated_views": "very_high",
-      "tags": ["federal reserve", "interest rates", "monetary policy", "economics explained"]
+      "tags": [
+        "federal reserve",
+        "interest rates",
+        "monetary policy",
+        "economics explained"
+      ]
     },
     {
       "id": "etf_vs_stocks",
       "title": "ETFs vs Stocks: Which One Actually Makes You More Money?",
-      "subtopics": ["expense ratios", "diversification", "index funds", "active vs passive", "tax efficiency"],
-      "key_concepts": ["total return", "tracking error", "dividend reinvestment", "portfolio construction"],
+      "subtopics": [
+        "expense ratios",
+        "diversification",
+        "index funds",
+        "active vs passive",
+        "tax efficiency"
+      ],
+      "key_concepts": [
+        "total return",
+        "tracking error",
+        "dividend reinvestment",
+        "portfolio construction"
+      ],
       "current_relevance": "ETF inflows hit $1T in 2025; S&P 500 ETFs outperform 90% of active funds",
       "target_audience": "beginner-intermediate",
       "estimated_views": "very_high",
-      "tags": ["ETF investing", "index funds", "stock picking", "passive investing"]
+      "tags": [
+        "ETF investing",
+        "index funds",
+        "stock picking",
+        "passive investing"
+      ]
     },
     {
       "id": "inflation_investing",
       "title": "How to Beat Inflation: The Assets That Actually Protect Your Money",
-      "subtopics": ["TIPS", "real assets", "commodities", "REITs", "I-bonds", "gold vs bitcoin"],
-      "key_concepts": ["real vs nominal returns", "inflation hedge", "purchasing power", "CPI explained"],
+      "subtopics": [
+        "TIPS",
+        "real assets",
+        "commodities",
+        "REITs",
+        "I-bonds",
+        "gold vs bitcoin"
+      ],
+      "key_concepts": [
+        "real vs nominal returns",
+        "inflation hedge",
+        "purchasing power",
+        "CPI explained"
+      ],
       "current_relevance": "Inflation remains sticky in 2026; real returns matter more than ever",
       "target_audience": "beginner-intermediate",
       "estimated_views": "high",
-      "tags": ["inflation hedge", "protect your money", "investing 2026", "real assets"]
+      "tags": [
+        "inflation hedge",
+        "protect your money",
+        "investing 2026",
+        "real assets"
+      ]
     },
     {
       "id": "recession_signals",
       "title": "7 Warning Signs a Recession Is Coming (And How to Prepare)",
-      "subtopics": ["yield curve inversion", "leading indicators", "consumer confidence", "PMI", "unemployment claims"],
-      "key_concepts": ["recession definition", "bear market vs recession", "defensive sectors", "cash positioning"],
+      "subtopics": [
+        "yield curve inversion",
+        "leading indicators",
+        "consumer confidence",
+        "PMI",
+        "unemployment claims"
+      ],
+      "key_concepts": [
+        "recession definition",
+        "bear market vs recession",
+        "defensive sectors",
+        "cash positioning"
+      ],
       "current_relevance": "Recession probability models at 35% for 2026H2 — critical topic",
       "target_audience": "intermediate",
       "estimated_views": "very_high",
-      "tags": ["recession 2026", "market crash", "economic indicators", "bear market"]
+      "tags": [
+        "recession 2026",
+        "market crash",
+        "economic indicators",
+        "bear market"
+      ]
     },
     {
       "id": "sp500_explained",
       "title": "The S&P 500 Explained: Why This Index Controls Your Financial Future",
-      "subtopics": ["index composition", "market cap weighting", "rebalancing", "S&P 500 history", "concentration risk"],
-      "key_concepts": ["passive investing", "market returns", "Mag-7 dominance", "equal-weight vs cap-weight"],
+      "subtopics": [
+        "index composition",
+        "market cap weighting",
+        "rebalancing",
+        "S&P 500 history",
+        "concentration risk"
+      ],
+      "key_concepts": [
+        "passive investing",
+        "market returns",
+        "Mag-7 dominance",
+        "equal-weight vs cap-weight"
+      ],
       "current_relevance": "Top 7 stocks = 35% of S&P 500 — highest concentration ever",
       "target_audience": "beginner",
       "estimated_views": "high",
-      "tags": ["S&P 500", "index investing", "market basics", "investing for beginners"]
+      "tags": [
+        "S&P 500",
+        "index investing",
+        "market basics",
+        "investing for beginners"
+      ]
     },
     {
       "id": "short_selling",
       "title": "Short Selling Explained: How Traders Profit When Stocks Crash",
-      "subtopics": ["short interest", "short squeeze", "margin calls", "borrow fees", "GameStop saga"],
-      "key_concepts": ["mechanics of shorting", "unlimited risk", "short interest ratio", "days to cover"],
+      "subtopics": [
+        "short interest",
+        "short squeeze",
+        "margin calls",
+        "borrow fees",
+        "GameStop saga"
+      ],
+      "key_concepts": [
+        "mechanics of shorting",
+        "unlimited risk",
+        "short interest ratio",
+        "days to cover"
+      ],
       "current_relevance": "Short sellers made $300B in 2025 bear run; meme stocks still squeezing",
       "target_audience": "intermediate",
       "estimated_views": "high",
-      "tags": ["short selling", "short squeeze", "GameStop", "stock market explained"]
+      "tags": [
+        "short selling",
+        "short squeeze",
+        "GameStop",
+        "stock market explained"
+      ]
     },
     {
       "id": "dividend_investing",
       "title": "Dividend Investing: How to Build a Passive Income Machine",
-      "subtopics": ["dividend yield", "payout ratio", "dividend growth", "DRIP", "ex-dividend date"],
-      "key_concepts": ["total return vs income", "dividend traps", "aristocrats vs kings", "tax on dividends"],
+      "subtopics": [
+        "dividend yield",
+        "payout ratio",
+        "dividend growth",
+        "DRIP",
+        "ex-dividend date"
+      ],
+      "key_concepts": [
+        "total return vs income",
+        "dividend traps",
+        "aristocrats vs kings",
+        "tax on dividends"
+      ],
       "current_relevance": "High-yield dividend stocks surging as rates stabilize in 2026",
       "target_audience": "beginner-intermediate",
       "estimated_views": "very_high",
-      "tags": ["dividend investing", "passive income", "income stocks", "dividend growth"]
+      "tags": [
+        "dividend investing",
+        "passive income",
+        "income stocks",
+        "dividend growth"
+      ]
     },
     {
       "id": "crypto_market_cycles",
       "title": "Bitcoin Market Cycles: The 4-Year Halving Pattern Explained",
-      "subtopics": ["halving events", "bull vs bear cycles", "institutional adoption", "Bitcoin ETFs", "alt season"],
-      "key_concepts": ["supply shock", "halving mechanics", "on-chain metrics", "correlation with stocks"],
+      "subtopics": [
+        "halving events",
+        "bull vs bear cycles",
+        "institutional adoption",
+        "Bitcoin ETFs",
+        "alt season"
+      ],
+      "key_concepts": [
+        "supply shock",
+        "halving mechanics",
+        "on-chain metrics",
+        "correlation with stocks"
+      ],
       "current_relevance": "Post-halving cycle in progress; Bitcoin ETF AUM surpassed gold ETFs",
       "target_audience": "intermediate",
       "estimated_views": "very_high",
-      "tags": ["bitcoin halving", "crypto investing", "BTC price prediction", "crypto market cycle"]
+      "tags": [
+        "bitcoin halving",
+        "crypto investing",
+        "BTC price prediction",
+        "crypto market cycle"
+      ]
     },
     {
       "id": "ai_stocks_investing",
       "title": "AI Stocks in 2026: Who's Actually Making Money (And Who's Hype)",
-      "subtopics": ["NVIDIA moat", "AI infrastructure plays", "software vs hardware", "AI revenue models", "valuation concerns"],
-      "key_concepts": ["CAPEX cycles", "GPU demand", "inference vs training", "winner-take-most dynamics"],
+      "subtopics": [
+        "NVIDIA moat",
+        "AI infrastructure plays",
+        "software vs hardware",
+        "AI revenue models",
+        "valuation concerns"
+      ],
+      "key_concepts": [
+        "CAPEX cycles",
+        "GPU demand",
+        "inference vs training",
+        "winner-take-most dynamics"
+      ],
       "current_relevance": "AI CAPEX spending reaches $1T annually; NVIDIA revenue surpasses $200B",
       "target_audience": "intermediate-advanced",
       "estimated_views": "very_high",
-      "tags": ["AI stocks", "NVIDIA", "artificial intelligence investing", "tech stocks 2026"]
+      "tags": [
+        "AI stocks",
+        "NVIDIA",
+        "artificial intelligence investing",
+        "tech stocks 2026"
+      ]
     },
     {
       "id": "bond_market_basics",
       "title": "The Bond Market: The $130 Trillion Giant That Controls Everything",
-      "subtopics": ["Treasury bonds", "yield curve", "duration", "credit ratings", "bond vs stock correlation"],
-      "key_concepts": ["price-yield relationship", "term premium", "flight to safety", "junk bonds"],
+      "subtopics": [
+        "Treasury bonds",
+        "yield curve",
+        "duration",
+        "credit ratings",
+        "bond vs stock correlation"
+      ],
+      "key_concepts": [
+        "price-yield relationship",
+        "term premium",
+        "flight to safety",
+        "junk bonds"
+      ],
       "current_relevance": "Bond vigilantes back in 2026; 10-year yield movements moving stock markets",
       "target_audience": "intermediate",
       "estimated_views": "high",
-      "tags": ["bond market", "Treasury bonds", "interest rates", "fixed income investing"]
+      "tags": [
+        "bond market",
+        "Treasury bonds",
+        "interest rates",
+        "fixed income investing"
+      ]
     },
     {
       "id": "roth_ira_explained",
       "title": "Roth IRA in 2026: The Best Tax-Free Wealth Building Account Explained",
-      "subtopics": ["contribution limits", "income limits", "backdoor Roth", "Roth conversion", "withdrawal rules"],
-      "key_concepts": ["tax-free growth", "tax diversification", "5-year rule", "estate planning benefits"],
+      "subtopics": [
+        "contribution limits",
+        "income limits",
+        "backdoor Roth",
+        "Roth conversion",
+        "withdrawal rules"
+      ],
+      "key_concepts": [
+        "tax-free growth",
+        "tax diversification",
+        "5-year rule",
+        "estate planning benefits"
+      ],
       "current_relevance": "2026 contribution limits raised; high earners using backdoor Roth more than ever",
       "target_audience": "beginner-intermediate",
       "estimated_views": "very_high",
-      "tags": ["Roth IRA", "retirement investing", "tax-free investing", "401k vs Roth IRA"]
+      "tags": [
+        "Roth IRA",
+        "retirement investing",
+        "tax-free investing",
+        "401k vs Roth IRA"
+      ]
+    },
+    {
+      "id": "sp500_ownership",
+      "title": "Who Actually Owns the Stock Market?",
+      "subtopics": [
+        "index funds",
+        "pension funds",
+        "retail share",
+        "insiders"
+      ],
+      "key_concepts": [
+        "beneficial ownership",
+        "concentration",
+        "passive share of float"
+      ],
+      "current_relevance": "Passive funds now own a record share of US equities",
+      "target_audience": "beginners",
+      "estimated_views": "very_high",
+      "tags": [
+        "who owns stocks",
+        "index funds",
+        "stock market explained"
+      ]
+    },
+    {
+      "id": "market_open_close",
+      "title": "What Really Happens at the Opening and Closing Bell",
+      "subtopics": [
+        "auctions",
+        "price discovery",
+        "closing cross",
+        "volume spikes"
+      ],
+      "key_concepts": [
+        "order imbalance",
+        "auction matching",
+        "liquidity at the close"
+      ],
+      "current_relevance": "Closing auctions keep growing as passive rebalancing concentrates there",
+      "target_audience": "beginners",
+      "estimated_views": "high",
+      "tags": [
+        "opening bell",
+        "closing auction",
+        "how stock market works"
+      ]
+    },
+    {
+      "id": "bid_ask_spread",
+      "title": "The Hidden Fee in Every Trade You Make",
+      "subtopics": [
+        "bid-ask spread",
+        "market makers",
+        "slippage",
+        "payment for order flow"
+      ],
+      "key_concepts": [
+        "spread as cost",
+        "liquidity provision",
+        "execution quality"
+      ],
+      "current_relevance": "Zero-commission brokers monetise flow instead of charging fees",
+      "target_audience": "beginners",
+      "estimated_views": "high",
+      "tags": [
+        "bid ask spread",
+        "trading costs",
+        "market makers"
+      ]
+    },
+    {
+      "id": "short_selling_explained",
+      "title": "Short Selling: How You Make Money When Stocks Fall",
+      "subtopics": [
+        "borrowing shares",
+        "short interest",
+        "squeezes",
+        "margin"
+      ],
+      "key_concepts": [
+        "unlimited downside",
+        "borrow cost",
+        "forced buy-in"
+      ],
+      "current_relevance": "Short squeezes remain a recurring retail phenomenon",
+      "target_audience": "intermediate",
+      "estimated_views": "very_high",
+      "tags": [
+        "short selling",
+        "short squeeze",
+        "how shorting works"
+      ]
+    },
+    {
+      "id": "stock_buybacks",
+      "title": "Why Companies Buy Their Own Stock",
+      "subtopics": [
+        "buybacks",
+        "EPS effect",
+        "dividends vs buybacks",
+        "dilution"
+      ],
+      "key_concepts": [
+        "share count reduction",
+        "capital return",
+        "signalling"
+      ],
+      "current_relevance": "Buybacks remain the largest source of US equity demand",
+      "target_audience": "intermediate",
+      "estimated_views": "high",
+      "tags": [
+        "stock buybacks",
+        "share repurchase",
+        "EPS"
+      ]
+    },
+    {
+      "id": "ipo_process",
+      "title": "What Actually Happens When a Company Goes Public",
+      "subtopics": [
+        "IPO",
+        "underwriters",
+        "lockup",
+        "direct listing"
+      ],
+      "key_concepts": [
+        "price discovery",
+        "allocation",
+        "first-day pop"
+      ],
+      "current_relevance": "Direct listings and SPACs changed the traditional IPO path",
+      "target_audience": "beginners",
+      "estimated_views": "high",
+      "tags": [
+        "IPO explained",
+        "going public",
+        "stock market"
+      ]
+    },
+    {
+      "id": "market_cap_explained",
+      "title": "Market Cap: Why a $3 Trillion Company Isn't Worth $3 Trillion",
+      "subtopics": [
+        "market cap",
+        "enterprise value",
+        "float",
+        "valuation"
+      ],
+      "key_concepts": [
+        "price times shares",
+        "net debt",
+        "free float vs total"
+      ],
+      "current_relevance": "Mega-cap concentration makes this widely misunderstood",
+      "target_audience": "beginners",
+      "estimated_views": "high",
+      "tags": [
+        "market cap",
+        "valuation",
+        "company worth"
+      ]
+    },
+    {
+      "id": "stock_splits",
+      "title": "Do Stock Splits Actually Make You Money?",
+      "subtopics": [
+        "splits",
+        "reverse splits",
+        "psychology",
+        "index eligibility"
+      ],
+      "key_concepts": [
+        "no change in value",
+        "accessibility",
+        "signalling"
+      ],
+      "current_relevance": "High-priced mega-caps periodically revive split interest",
+      "target_audience": "beginners",
+      "estimated_views": "medium",
+      "tags": [
+        "stock split",
+        "share price",
+        "investing basics"
+      ]
+    },
+    {
+      "id": "earnings_reports_read",
+      "title": "How to Read an Earnings Report in 5 Minutes",
+      "subtopics": [
+        "revenue",
+        "EPS",
+        "guidance",
+        "margins"
+      ],
+      "key_concepts": [
+        "beat vs miss",
+        "forward guidance dominance",
+        "one-off items"
+      ],
+      "current_relevance": "Guidance moves stocks more than the reported quarter",
+      "target_audience": "intermediate",
+      "estimated_views": "high",
+      "tags": [
+        "earnings report",
+        "EPS",
+        "fundamental analysis"
+      ]
+    },
+    {
+      "id": "etf_creation",
+      "title": "How ETFs Are Actually Created and Destroyed",
+      "subtopics": [
+        "creation units",
+        "authorised participants",
+        "arbitrage",
+        "NAV"
+      ],
+      "key_concepts": [
+        "in-kind creation",
+        "premium/discount",
+        "tracking error"
+      ],
+      "current_relevance": "ETF assets keep setting records",
+      "target_audience": "intermediate",
+      "estimated_views": "medium",
+      "tags": [
+        "ETF explained",
+        "how ETFs work",
+        "index investing"
+      ]
+    },
+    {
+      "id": "index_inclusion",
+      "title": "What Happens When a Stock Joins the S&P 500",
+      "subtopics": [
+        "index inclusion",
+        "forced buying",
+        "rebalancing",
+        "criteria"
+      ],
+      "key_concepts": [
+        "passive demand shock",
+        "announcement effect",
+        "float adjustment"
+      ],
+      "current_relevance": "Index inclusion moves have grown with passive share",
+      "target_audience": "intermediate",
+      "estimated_views": "high",
+      "tags": [
+        "S&P 500",
+        "index inclusion",
+        "stock market"
+      ]
+    },
+    {
+      "id": "dark_pools",
+      "title": "Dark Pools: The Stock Market You Never See",
+      "subtopics": [
+        "dark pools",
+        "off-exchange",
+        "block trades",
+        "transparency"
+      ],
+      "key_concepts": [
+        "price impact",
+        "institutional execution",
+        "lit vs dark"
+      ],
+      "current_relevance": "Off-exchange volume is a persistent share of US trading",
+      "target_audience": "intermediate",
+      "estimated_views": "very_high",
+      "tags": [
+        "dark pools",
+        "hidden trading",
+        "market structure"
+      ]
+    },
+    {
+      "id": "fed_rate_cut_effect",
+      "title": "What Actually Happens to Stocks When Interest Rates Fall",
+      "subtopics": [
+        "rate cuts",
+        "discount rates",
+        "sector rotation",
+        "bonds"
+      ],
+      "key_concepts": [
+        "present value of cashflows",
+        "duration",
+        "why cuts can mean trouble"
+      ],
+      "current_relevance": "Rate-cut cycles dominate market narratives",
+      "target_audience": "beginners",
+      "estimated_views": "very_high",
+      "tags": [
+        "interest rates",
+        "fed rate cut",
+        "stock market"
+      ]
+    },
+    {
+      "id": "inflation_mechanics",
+      "title": "Where Inflation Actually Comes From",
+      "subtopics": [
+        "money supply",
+        "demand pull",
+        "cost push",
+        "expectations"
+      ],
+      "key_concepts": [
+        "velocity",
+        "supply shocks",
+        "anchored expectations"
+      ],
+      "current_relevance": "Post-2021 inflation reshaped policy debate",
+      "target_audience": "beginners",
+      "estimated_views": "high",
+      "tags": [
+        "inflation explained",
+        "CPI",
+        "economics"
+      ]
+    },
+    {
+      "id": "yield_curve_inversion",
+      "title": "The Yield Curve: Wall Street's Favourite Recession Signal",
+      "subtopics": [
+        "yield curve",
+        "inversion",
+        "term premium",
+        "recession lead time"
+      ],
+      "key_concepts": [
+        "short vs long rates",
+        "why inversion signals slowdown",
+        "false positives"
+      ],
+      "current_relevance": "Inversions remain the most-watched recession indicator",
+      "target_audience": "intermediate",
+      "estimated_views": "very_high",
+      "tags": [
+        "yield curve",
+        "recession indicator",
+        "bonds"
+      ]
+    },
+    {
+      "id": "bond_prices_rates",
+      "title": "Why Bond Prices Fall When Interest Rates Rise",
+      "subtopics": [
+        "bond pricing",
+        "duration",
+        "coupon",
+        "yield"
+      ],
+      "key_concepts": [
+        "inverse relationship",
+        "duration risk",
+        "reinvestment"
+      ],
+      "current_relevance": "2022 taught a generation that bonds can lose money",
+      "target_audience": "beginners",
+      "estimated_views": "high",
+      "tags": [
+        "bonds explained",
+        "interest rates",
+        "fixed income"
+      ]
+    },
+    {
+      "id": "quantitative_easing",
+      "title": "Quantitative Easing: How Central Banks Create Money",
+      "subtopics": [
+        "QE",
+        "QT",
+        "balance sheet",
+        "reserves"
+      ],
+      "key_concepts": [
+        "asset purchases",
+        "portfolio balance",
+        "not literally printing"
+      ],
+      "current_relevance": "Balance-sheet policy is now a standard tool",
+      "target_audience": "intermediate",
+      "estimated_views": "high",
+      "tags": [
+        "quantitative easing",
+        "money printing",
+        "federal reserve"
+      ]
+    },
+    {
+      "id": "fed_dot_plot",
+      "title": "The Fed's Dot Plot Explained",
+      "subtopics": [
+        "dot plot",
+        "FOMC",
+        "projections",
+        "forward guidance"
+      ],
+      "key_concepts": [
+        "median dot",
+        "dispersion",
+        "not a promise"
+      ],
+      "current_relevance": "Every FOMC meeting is parsed for dot movement",
+      "target_audience": "intermediate",
+      "estimated_views": "medium",
+      "tags": [
+        "dot plot",
+        "FOMC",
+        "fed meeting"
+      ]
+    },
+    {
+      "id": "real_vs_nominal",
+      "title": "Real vs Nominal Returns: Why Your Gains Might Be Losses",
+      "subtopics": [
+        "real returns",
+        "nominal",
+        "inflation adjustment",
+        "purchasing power"
+      ],
+      "key_concepts": [
+        "subtracting inflation",
+        "real rate",
+        "money illusion"
+      ],
+      "current_relevance": "High inflation made real returns central again",
+      "target_audience": "beginners",
+      "estimated_views": "high",
+      "tags": [
+        "real returns",
+        "inflation",
+        "investing"
+      ]
+    },
+    {
+      "id": "recession_definition",
+      "title": "What Actually Counts as a Recession?",
+      "subtopics": [
+        "GDP",
+        "NBER",
+        "labour market",
+        "technical recession"
+      ],
+      "key_concepts": [
+        "two quarters myth",
+        "NBER committee",
+        "breadth of decline"
+      ],
+      "current_relevance": "Recession calls are perennially contested",
+      "target_audience": "beginners",
+      "estimated_views": "high",
+      "tags": [
+        "recession explained",
+        "GDP",
+        "economy"
+      ]
+    },
+    {
+      "id": "stagflation_explained",
+      "title": "Stagflation: The Scenario Central Banks Fear Most",
+      "subtopics": [
+        "stagflation",
+        "supply shocks",
+        "policy trap",
+        "1970s"
+      ],
+      "key_concepts": [
+        "inflation plus stagnation",
+        "no good policy lever",
+        "wage-price spiral"
+      ],
+      "current_relevance": "Supply shocks keep the scenario in discussion",
+      "target_audience": "intermediate",
+      "estimated_views": "high",
+      "tags": [
+        "stagflation",
+        "inflation",
+        "recession"
+      ]
+    },
+    {
+      "id": "inflation_asset_protection",
+      "title": "Which Assets Actually Protect You From Inflation",
+      "subtopics": [
+        "TIPS",
+        "commodities",
+        "real assets",
+        "equities"
+      ],
+      "key_concepts": [
+        "real yield",
+        "pass-through pricing",
+        "duration risk"
+      ],
+      "current_relevance": "Investors keep testing inflation hedges",
+      "target_audience": "intermediate",
+      "estimated_views": "high",
+      "tags": [
+        "inflation hedge",
+        "TIPS",
+        "commodities"
+      ]
+    },
+    {
+      "id": "index_vs_active",
+      "title": "Index Funds vs Active Managers: What the Data Says",
+      "subtopics": [
+        "index funds",
+        "active management",
+        "SPIVA",
+        "fees"
+      ],
+      "key_concepts": [
+        "fee drag",
+        "persistence of outperformance",
+        "survivorship bias"
+      ],
+      "current_relevance": "Passive share keeps rising",
+      "target_audience": "beginners",
+      "estimated_views": "very_high",
+      "tags": [
+        "index funds",
+        "active vs passive",
+        "investing"
+      ]
+    },
+    {
+      "id": "compound_interest_math",
+      "title": "The Compound Interest Math That Changes Everything",
+      "subtopics": [
+        "compounding",
+        "time horizon",
+        "rule of 72",
+        "contributions"
+      ],
+      "key_concepts": [
+        "exponential growth",
+        "cost of delay",
+        "reinvestment"
+      ],
+      "current_relevance": "Evergreen and heavily searched",
+      "target_audience": "beginners",
+      "estimated_views": "very_high",
+      "tags": [
+        "compound interest",
+        "investing basics",
+        "wealth building"
+      ]
+    },
+    {
+      "id": "dollar_cost_averaging",
+      "title": "Dollar-Cost Averaging vs Lump Sum: Which Actually Wins?",
+      "subtopics": [
+        "DCA",
+        "lump sum",
+        "volatility",
+        "regret"
+      ],
+      "key_concepts": [
+        "expected value vs comfort",
+        "time in market",
+        "behavioural benefit"
+      ],
+      "current_relevance": "One of the most-searched investing questions",
+      "target_audience": "beginners",
+      "estimated_views": "high",
+      "tags": [
+        "dollar cost averaging",
+        "lump sum",
+        "investing strategy"
+      ]
+    },
+    {
+      "id": "portfolio_diversification",
+      "title": "Why Diversification Is the Only Free Lunch in Investing",
+      "subtopics": [
+        "correlation",
+        "asset classes",
+        "concentration risk",
+        "rebalancing"
+      ],
+      "key_concepts": [
+        "variance reduction",
+        "uncorrelated returns",
+        "limits of diversification"
+      ],
+      "current_relevance": "Concentration in mega-caps raises the question",
+      "target_audience": "beginners",
+      "estimated_views": "high",
+      "tags": [
+        "diversification",
+        "portfolio",
+        "risk management"
+      ]
+    },
+    {
+      "id": "risk_tolerance",
+      "title": "How Much Risk Should You Actually Take?",
+      "subtopics": [
+        "risk tolerance",
+        "time horizon",
+        "drawdown",
+        "volatility"
+      ],
+      "key_concepts": [
+        "capacity vs willingness",
+        "sequence risk",
+        "sleep test"
+      ],
+      "current_relevance": "Evergreen personal-finance question",
+      "target_audience": "beginners",
+      "estimated_views": "medium",
+      "tags": [
+        "risk tolerance",
+        "investing",
+        "portfolio"
+      ]
+    },
+    {
+      "id": "bond_ladder_strategy",
+      "title": "Bond Ladders: The Boring Strategy That Works",
+      "subtopics": [
+        "laddering",
+        "maturity",
+        "reinvestment",
+        "treasuries"
+      ],
+      "key_concepts": [
+        "rate risk spreading",
+        "predictable cashflow",
+        "rolling maturities"
+      ],
+      "current_relevance": "Higher yields renewed interest in bonds",
+      "target_audience": "intermediate",
+      "estimated_views": "medium",
+      "tags": [
+        "bond ladder",
+        "treasuries",
+        "fixed income"
+      ]
+    },
+    {
+      "id": "reit_investing",
+      "title": "Real Estate Without Buying Property: REITs Explained",
+      "subtopics": [
+        "REITs",
+        "FFO",
+        "property sectors",
+        "dividends"
+      ],
+      "key_concepts": [
+        "pass-through structure",
+        "rate sensitivity",
+        "liquidity vs direct"
+      ],
+      "current_relevance": "Rate moves drive REIT performance",
+      "target_audience": "beginners",
+      "estimated_views": "high",
+      "tags": [
+        "REITs",
+        "real estate investing",
+        "dividends"
+      ]
+    },
+    {
+      "id": "target_date_funds",
+      "title": "Target-Date Funds: Set It and Forget It?",
+      "subtopics": [
+        "glide path",
+        "age-based allocation",
+        "fees",
+        "to vs through"
+      ],
+      "key_concepts": [
+        "automatic derisking",
+        "one-size-fits-all",
+        "hidden costs"
+      ],
+      "current_relevance": "Default option in most retirement plans",
+      "target_audience": "beginners",
+      "estimated_views": "medium",
+      "tags": [
+        "target date funds",
+        "retirement",
+        "401k"
+      ]
+    },
+    {
+      "id": "expense_ratio_impact",
+      "title": "How a 1% Fee Costs You a Third of Your Retirement",
+      "subtopics": [
+        "expense ratio",
+        "fee drag",
+        "compounding costs",
+        "index vs active"
+      ],
+      "key_concepts": [
+        "cumulative fee effect",
+        "basis points",
+        "net vs gross return"
+      ],
+      "current_relevance": "Fee compression is a long-running trend",
+      "target_audience": "beginners",
+      "estimated_views": "very_high",
+      "tags": [
+        "expense ratio",
+        "investment fees",
+        "index funds"
+      ]
+    },
+    {
+      "id": "roth_vs_traditional",
+      "title": "Roth vs Traditional: The Tax Decision Most People Get Wrong",
+      "subtopics": [
+        "Roth",
+        "traditional",
+        "tax brackets",
+        "RMDs"
+      ],
+      "key_concepts": [
+        "pay tax now vs later",
+        "bracket arbitrage",
+        "withdrawal rules"
+      ],
+      "current_relevance": "Perennial retirement-planning question",
+      "target_audience": "beginners",
+      "estimated_views": "high",
+      "tags": [
+        "roth ira",
+        "401k",
+        "retirement planning"
+      ]
+    },
+    {
+      "id": "passive_income_reality",
+      "title": "Passive Income: What Actually Works and What Doesn't",
+      "subtopics": [
+        "dividends",
+        "bonds",
+        "rental",
+        "royalties"
+      ],
+      "key_concepts": [
+        "yield vs total return",
+        "capital at risk",
+        "effort vs passive"
+      ],
+      "current_relevance": "Heavily searched and heavily oversold",
+      "target_audience": "beginners",
+      "estimated_views": "very_high",
+      "tags": [
+        "passive income",
+        "dividends",
+        "investing"
+      ]
+    },
+    {
+      "id": "market_crash_mechanics",
+      "title": "Why Markets Crash in Minutes",
+      "subtopics": [
+        "liquidity",
+        "leverage",
+        "circuit breakers",
+        "flash crashes"
+      ],
+      "key_concepts": [
+        "liquidity evaporation",
+        "forced selling",
+        "feedback loops"
+      ],
+      "current_relevance": "Flash events recur across asset classes",
+      "target_audience": "intermediate",
+      "estimated_views": "very_high",
+      "tags": [
+        "market crash",
+        "flash crash",
+        "stock market"
+      ]
+    },
+    {
+      "id": "everyone_sells",
+      "title": "What Happens If Everyone Tries to Sell at the Same Time",
+      "subtopics": [
+        "liquidity",
+        "market makers",
+        "circuit breakers",
+        "gap down"
+      ],
+      "key_concepts": [
+        "no buyers at any price",
+        "halt mechanics",
+        "reflexivity"
+      ],
+      "current_relevance": "A question every investor eventually asks",
+      "target_audience": "beginners",
+      "estimated_views": "very_high",
+      "tags": [
+        "market crash",
+        "selling",
+        "stock market"
+      ]
+    },
+    {
+      "id": "margin_calls",
+      "title": "Margin Calls: How Leverage Destroys Portfolios",
+      "subtopics": [
+        "margin",
+        "maintenance requirement",
+        "forced liquidation",
+        "leverage"
+      ],
+      "key_concepts": [
+        "amplified losses",
+        "cascade selling",
+        "broker discretion"
+      ],
+      "current_relevance": "Leverage unwinds drive many sharp selloffs",
+      "target_audience": "intermediate",
+      "estimated_views": "high",
+      "tags": [
+        "margin call",
+        "leverage",
+        "trading risk"
+      ]
+    },
+    {
+      "id": "bank_failure_money",
+      "title": "What Actually Happens to Your Money When a Bank Fails",
+      "subtopics": [
+        "FDIC",
+        "deposit insurance",
+        "resolution",
+        "bank runs"
+      ],
+      "key_concepts": [
+        "insured limits",
+        "receivership",
+        "uninsured deposits"
+      ],
+      "current_relevance": "2023 bank failures made this urgent again",
+      "target_audience": "beginners",
+      "estimated_views": "very_high",
+      "tags": [
+        "bank failure",
+        "FDIC",
+        "deposit insurance"
+      ]
+    },
+    {
+      "id": "bank_run_mechanics",
+      "title": "How a Bank Run Actually Starts",
+      "subtopics": [
+        "bank runs",
+        "fractional reserve",
+        "liquidity mismatch",
+        "confidence"
+      ],
+      "key_concepts": [
+        "maturity transformation",
+        "self-fulfilling panic",
+        "speed of digital runs"
+      ],
+      "current_relevance": "Digital banking made runs faster than ever",
+      "target_audience": "beginners",
+      "estimated_views": "very_high",
+      "tags": [
+        "bank run",
+        "banking crisis",
+        "how banks work"
+      ]
+    },
+    {
+      "id": "systemic_risk",
+      "title": "Too Big to Fail: How One Bank Can Break the System",
+      "subtopics": [
+        "systemic risk",
+        "interconnection",
+        "contagion",
+        "bailouts"
+      ],
+      "key_concepts": [
+        "counterparty webs",
+        "moral hazard",
+        "capital requirements"
+      ],
+      "current_relevance": "Post-2008 rules are periodically retested",
+      "target_audience": "intermediate",
+      "estimated_views": "high",
+      "tags": [
+        "systemic risk",
+        "too big to fail",
+        "financial crisis"
+      ]
+    },
+    {
+      "id": "black_swan_events",
+      "title": "Black Swans: Why Nobody Sees Crashes Coming",
+      "subtopics": [
+        "tail risk",
+        "fat tails",
+        "normal distribution",
+        "hindsight"
+      ],
+      "key_concepts": [
+        "model failure",
+        "unknown unknowns",
+        "narrative fallacy"
+      ],
+      "current_relevance": "Every crisis renews the debate",
+      "target_audience": "intermediate",
+      "estimated_views": "high",
+      "tags": [
+        "black swan",
+        "tail risk",
+        "market crash"
+      ]
+    },
+    {
+      "id": "circuit_breakers",
+      "title": "The Emergency Brakes Built Into the Stock Market",
+      "subtopics": [
+        "circuit breakers",
+        "limit up/down",
+        "halts",
+        "volatility"
+      ],
+      "key_concepts": [
+        "trading pauses",
+        "cooling off",
+        "cascade prevention"
+      ],
+      "current_relevance": "Triggered during every major volatility event",
+      "target_audience": "beginners",
+      "estimated_views": "medium",
+      "tags": [
+        "circuit breaker",
+        "trading halt",
+        "stock market"
+      ]
+    },
+    {
+      "id": "recession_warning_signs",
+      "title": "The Indicators That Actually Predict Recessions",
+      "subtopics": [
+        "yield curve",
+        "claims",
+        "PMI",
+        "credit spreads"
+      ],
+      "key_concepts": [
+        "leading vs lagging",
+        "false signals",
+        "composite indicators"
+      ],
+      "current_relevance": "Recession watching is permanent",
+      "target_audience": "intermediate",
+      "estimated_views": "very_high",
+      "tags": [
+        "recession indicators",
+        "economic data",
+        "investing"
+      ]
+    },
+    {
+      "id": "portfolio_drawdown",
+      "title": "Why a 50% Loss Needs a 100% Gain to Recover",
+      "subtopics": [
+        "drawdown",
+        "recovery math",
+        "sequence risk",
+        "volatility drag"
+      ],
+      "key_concepts": [
+        "asymmetry of losses",
+        "compounding downside",
+        "capital preservation"
+      ],
+      "current_relevance": "Underappreciated and evergreen",
+      "target_audience": "beginners",
+      "estimated_views": "high",
+      "tags": [
+        "drawdown",
+        "risk management",
+        "investing math"
+      ]
+    },
+    {
+      "id": "algos_control_market",
+      "title": "Who Really Moves the Stock Market: Humans or Algorithms?",
+      "subtopics": [
+        "algorithmic trading",
+        "execution algos",
+        "market share",
+        "human discretion"
+      ],
+      "key_concepts": [
+        "order flow automation",
+        "liquidity provision",
+        "human decisions upstream"
+      ],
+      "current_relevance": "Most US equity volume is algorithmically executed",
+      "target_audience": "beginners",
+      "estimated_views": "very_high",
+      "tags": [
+        "algorithmic trading",
+        "wall street",
+        "stock market"
+      ]
+    },
+    {
+      "id": "hft_explained",
+      "title": "High-Frequency Trading: What Happens in a Microsecond",
+      "subtopics": [
+        "HFT",
+        "latency",
+        "colocation",
+        "arbitrage"
+      ],
+      "key_concepts": [
+        "speed advantage",
+        "market making",
+        "latency arbitrage"
+      ],
+      "current_relevance": "HFT remains a persistent share of volume",
+      "target_audience": "intermediate",
+      "estimated_views": "very_high",
+      "tags": [
+        "high frequency trading",
+        "HFT",
+        "wall street"
+      ]
+    },
+    {
+      "id": "how_algo_thinks",
+      "title": "How a Trading Algorithm Actually Thinks",
+      "subtopics": [
+        "signals",
+        "features",
+        "execution logic",
+        "risk limits"
+      ],
+      "key_concepts": [
+        "rules not intuition",
+        "backtest vs live",
+        "position sizing"
+      ],
+      "current_relevance": "Algorithmic strategy is widely misunderstood",
+      "target_audience": "intermediate",
+      "estimated_views": "very_high",
+      "tags": [
+        "trading algorithm",
+        "quant trading",
+        "how algos work"
+      ]
+    },
+    {
+      "id": "quant_funds",
+      "title": "Quant Funds: The Mathematicians Who Beat Wall Street",
+      "subtopics": [
+        "quant funds",
+        "factors",
+        "statistical arbitrage",
+        "models"
+      ],
+      "key_concepts": [
+        "systematic process",
+        "factor exposure",
+        "capacity limits"
+      ],
+      "current_relevance": "Quant strategies are a large share of institutional AUM",
+      "target_audience": "intermediate",
+      "estimated_views": "high",
+      "tags": [
+        "quant fund",
+        "quantitative trading",
+        "hedge funds"
+      ]
+    },
+    {
+      "id": "factor_investing",
+      "title": "Factor Investing: The Patterns That Actually Repeat",
+      "subtopics": [
+        "value",
+        "momentum",
+        "quality",
+        "size"
+      ],
+      "key_concepts": [
+        "risk premia",
+        "factor decay",
+        "crowding"
+      ],
+      "current_relevance": "Factor products keep expanding",
+      "target_audience": "intermediate",
+      "estimated_views": "medium",
+      "tags": [
+        "factor investing",
+        "smart beta",
+        "quant"
+      ]
+    },
+    {
+      "id": "ai_market_manipulation",
+      "title": "Can AI Manipulate Financial Markets?",
+      "subtopics": [
+        "spoofing",
+        "layering",
+        "surveillance",
+        "regulation"
+      ],
+      "key_concepts": [
+        "intent vs emergence",
+        "detection systems",
+        "legal boundaries"
+      ],
+      "current_relevance": "Regulators are actively studying algorithmic manipulation",
+      "target_audience": "intermediate",
+      "estimated_views": "very_high",
+      "tags": [
+        "market manipulation",
+        "AI trading",
+        "regulation"
+      ]
+    },
+    {
+      "id": "algos_fight",
+      "title": "What Happens When Two Trading Algorithms Fight Each Other",
+      "subtopics": [
+        "feedback loops",
+        "flash crashes",
+        "adversarial dynamics",
+        "liquidity"
+      ],
+      "key_concepts": [
+        "reflexive interaction",
+        "cascade risk",
+        "circuit breakers"
+      ],
+      "current_relevance": "Algorithmic feedback drove several flash events",
+      "target_audience": "intermediate",
+      "estimated_views": "very_high",
+      "tags": [
+        "algorithmic trading",
+        "flash crash",
+        "AI"
+      ]
+    },
+    {
+      "id": "payment_order_flow",
+      "title": "Payment for Order Flow: Why Your Trades Are Free",
+      "subtopics": [
+        "PFOF",
+        "wholesalers",
+        "price improvement",
+        "conflicts"
+      ],
+      "key_concepts": [
+        "retail flow value",
+        "execution quality debate",
+        "zero commission economics"
+      ],
+      "current_relevance": "Subject of ongoing regulatory scrutiny",
+      "target_audience": "intermediate",
+      "estimated_views": "high",
+      "tags": [
+        "payment for order flow",
+        "free trading",
+        "brokers"
+      ]
+    },
+    {
+      "id": "backtest_overfitting",
+      "title": "Why Most Trading Strategies Work Until You Use Them",
+      "subtopics": [
+        "backtesting",
+        "overfitting",
+        "data mining",
+        "look-ahead bias"
+      ],
+      "key_concepts": [
+        "multiple testing",
+        "survivorship",
+        "out-of-sample failure"
+      ],
+      "current_relevance": "Central to evaluating any systematic claim",
+      "target_audience": "intermediate",
+      "estimated_views": "high",
+      "tags": [
+        "backtesting",
+        "overfitting",
+        "quant trading"
+      ]
+    },
+    {
+      "id": "sentiment_analysis",
+      "title": "How Wall Street Reads the Internet",
+      "subtopics": [
+        "NLP",
+        "sentiment",
+        "alternative data",
+        "signals"
+      ],
+      "key_concepts": [
+        "text as data",
+        "signal decay",
+        "crowding"
+      ],
+      "current_relevance": "Alternative data is now standard at large funds",
+      "target_audience": "intermediate",
+      "estimated_views": "high",
+      "tags": [
+        "alternative data",
+        "sentiment analysis",
+        "quant"
+      ]
+    },
+    {
+      "id": "index_arbitrage",
+      "title": "The Arbitrage That Keeps ETFs Honest",
+      "subtopics": [
+        "arbitrage",
+        "NAV",
+        "creation redemption",
+        "spreads"
+      ],
+      "key_concepts": [
+        "no-arbitrage bound",
+        "authorised participants",
+        "tracking"
+      ],
+      "current_relevance": "Explains why ETFs rarely diverge from value",
+      "target_audience": "intermediate",
+      "estimated_views": "medium",
+      "tags": [
+        "arbitrage",
+        "ETF",
+        "market structure"
+      ]
+    },
+    {
+      "id": "order_types",
+      "title": "Market, Limit, Stop: The Order Types That Cost People Money",
+      "subtopics": [
+        "market order",
+        "limit order",
+        "stop loss",
+        "slippage"
+      ],
+      "key_concepts": [
+        "execution certainty vs price",
+        "gap risk",
+        "stop hunting"
+      ],
+      "current_relevance": "A common source of avoidable retail losses",
+      "target_audience": "beginners",
+      "estimated_views": "high",
+      "tags": [
+        "order types",
+        "stop loss",
+        "trading basics"
+      ]
+    },
+    {
+      "id": "where_bank_keeps_money",
+      "title": "Where Does Your Bank Actually Keep Your Money?",
+      "subtopics": [
+        "reserves",
+        "loans",
+        "deposits",
+        "central bank"
+      ],
+      "key_concepts": [
+        "money is lent out",
+        "fractional reserve",
+        "reserve accounts"
+      ],
+      "current_relevance": "Widely misunderstood and heavily searched",
+      "target_audience": "beginners",
+      "estimated_views": "very_high",
+      "tags": [
+        "how banks work",
+        "deposits",
+        "banking explained"
+      ]
+    },
+    {
+      "id": "banks_create_money",
+      "title": "How Banks Create Money Out of Nothing",
+      "subtopics": [
+        "credit creation",
+        "deposits",
+        "reserves",
+        "money multiplier"
+      ],
+      "key_concepts": [
+        "lending creates deposits",
+        "not just intermediaries",
+        "constraints"
+      ],
+      "current_relevance": "Central to understanding modern money",
+      "target_audience": "beginners",
+      "estimated_views": "very_high",
+      "tags": [
+        "money creation",
+        "banking",
+        "how banks work"
+      ]
+    },
+    {
+      "id": "central_bank_role",
+      "title": "What a Central Bank Actually Does All Day",
+      "subtopics": [
+        "monetary policy",
+        "lender of last resort",
+        "payments",
+        "supervision"
+      ],
+      "key_concepts": [
+        "rate setting",
+        "liquidity provision",
+        "financial stability"
+      ],
+      "current_relevance": "Central banks are permanently in the news",
+      "target_audience": "beginners",
+      "estimated_views": "high",
+      "tags": [
+        "central bank",
+        "federal reserve",
+        "monetary policy"
+      ]
+    },
+    {
+      "id": "payment_rails",
+      "title": "The Invisible Plumbing That Moves Your Money",
+      "subtopics": [
+        "ACH",
+        "wires",
+        "card networks",
+        "settlement"
+      ],
+      "key_concepts": [
+        "clearing vs settlement",
+        "batch vs real time",
+        "intermediaries"
+      ],
+      "current_relevance": "Instant payment systems are expanding globally",
+      "target_audience": "beginners",
+      "estimated_views": "high",
+      "tags": [
+        "payment systems",
+        "how payments work",
+        "banking"
+      ]
+    },
+    {
+      "id": "credit_scores",
+      "title": "How Credit Scores Actually Work",
+      "subtopics": [
+        "credit score",
+        "utilisation",
+        "history",
+        "inquiries"
+      ],
+      "key_concepts": [
+        "scoring factors",
+        "reporting agencies",
+        "common myths"
+      ],
+      "current_relevance": "Evergreen personal-finance search",
+      "target_audience": "beginners",
+      "estimated_views": "very_high",
+      "tags": [
+        "credit score",
+        "credit report",
+        "personal finance"
+      ]
+    },
+    {
+      "id": "shadow_banking",
+      "title": "Shadow Banking: The Financial System Nobody Regulates",
+      "subtopics": [
+        "non-bank lenders",
+        "money market funds",
+        "repo",
+        "private credit"
+      ],
+      "key_concepts": [
+        "bank-like risk",
+        "regulatory gaps",
+        "run dynamics"
+      ],
+      "current_relevance": "Private credit growth renewed attention",
+      "target_audience": "intermediate",
+      "estimated_views": "high",
+      "tags": [
+        "shadow banking",
+        "private credit",
+        "financial system"
+      ]
+    },
+    {
+      "id": "bank_profit_model",
+      "title": "How Banks Actually Make Money",
+      "subtopics": [
+        "net interest margin",
+        "fees",
+        "trading",
+        "spread"
+      ],
+      "key_concepts": [
+        "borrow short lend long",
+        "fee income",
+        "rate sensitivity"
+      ],
+      "current_relevance": "Rate cycles reshape bank earnings",
+      "target_audience": "beginners",
+      "estimated_views": "medium",
+      "tags": [
+        "how banks make money",
+        "net interest margin",
+        "banking"
+      ]
+    },
+    {
+      "id": "deposit_insurance_limits",
+      "title": "Deposit Insurance: What's Actually Covered",
+      "subtopics": [
+        "FDIC limits",
+        "account titling",
+        "joint accounts",
+        "coverage"
+      ],
+      "key_concepts": [
+        "per depositor per bank",
+        "category rules",
+        "uninsured exposure"
+      ],
+      "current_relevance": "Directly actionable for viewers",
+      "target_audience": "beginners",
+      "estimated_views": "high",
+      "tags": [
+        "FDIC",
+        "deposit insurance",
+        "bank safety"
+      ]
+    },
+    {
+      "id": "interbank_lending",
+      "title": "Why Banks Lend Money to Each Other Overnight",
+      "subtopics": [
+        "interbank market",
+        "fed funds",
+        "repo",
+        "liquidity"
+      ],
+      "key_concepts": [
+        "reserve balancing",
+        "overnight rates",
+        "stress signals"
+      ],
+      "current_relevance": "Repo stress is an early warning indicator",
+      "target_audience": "intermediate",
+      "estimated_views": "medium",
+      "tags": [
+        "interbank lending",
+        "repo market",
+        "banking"
+      ]
+    },
+    {
+      "id": "bank_capital_requirements",
+      "title": "The Rules That Stop Banks Gambling With Your Money",
+      "subtopics": [
+        "capital ratios",
+        "Basel",
+        "stress tests",
+        "leverage"
+      ],
+      "key_concepts": [
+        "loss absorption",
+        "risk weighting",
+        "regulatory arbitrage"
+      ],
+      "current_relevance": "Capital rules are periodically renegotiated",
+      "target_audience": "intermediate",
+      "estimated_views": "medium",
+      "tags": [
+        "bank capital",
+        "basel",
+        "regulation"
+      ]
+    },
+    {
+      "id": "gold_fear_asset",
+      "title": "Why Gold Rises When People Are Afraid",
+      "subtopics": [
+        "safe haven",
+        "real rates",
+        "currency debasement",
+        "central bank buying"
+      ],
+      "key_concepts": [
+        "no yield but no default",
+        "inverse real-rate link",
+        "store of value"
+      ],
+      "current_relevance": "Central bank gold buying remains elevated",
+      "target_audience": "beginners",
+      "estimated_views": "very_high",
+      "tags": [
+        "gold price",
+        "safe haven",
+        "investing"
+      ]
+    },
+    {
+      "id": "oil_price_drivers",
+      "title": "What Actually Sets the Price of Oil",
+      "subtopics": [
+        "OPEC",
+        "supply demand",
+        "inventories",
+        "futures"
+      ],
+      "key_concepts": [
+        "marginal barrel",
+        "spare capacity",
+        "contango vs backwardation"
+      ],
+      "current_relevance": "Oil moves drive inflation expectations",
+      "target_audience": "beginners",
+      "estimated_views": "high",
+      "tags": [
+        "oil prices",
+        "OPEC",
+        "commodities"
+      ]
+    },
+    {
+      "id": "dollar_reserve_currency",
+      "title": "Why the World Runs on US Dollars",
+      "subtopics": [
+        "reserve currency",
+        "petrodollar",
+        "trade invoicing",
+        "treasuries"
+      ],
+      "key_concepts": [
+        "network effects",
+        "deep markets",
+        "exorbitant privilege"
+      ],
+      "current_relevance": "De-dollarisation is a recurring debate",
+      "target_audience": "intermediate",
+      "estimated_views": "very_high",
+      "tags": [
+        "reserve currency",
+        "us dollar",
+        "global economy"
+      ]
+    },
+    {
+      "id": "currency_exchange_rates",
+      "title": "What Actually Moves Exchange Rates",
+      "subtopics": [
+        "interest differentials",
+        "trade balance",
+        "capital flows",
+        "intervention"
+      ],
+      "key_concepts": [
+        "carry trade",
+        "purchasing power parity",
+        "policy divergence"
+      ],
+      "current_relevance": "Rate divergence drives FX volatility",
+      "target_audience": "intermediate",
+      "estimated_views": "high",
+      "tags": [
+        "exchange rates",
+        "forex",
+        "currency"
+      ]
+    },
+    {
+      "id": "global_capital_flows",
+      "title": "Where the World's Money Actually Moves",
+      "subtopics": [
+        "capital flows",
+        "emerging markets",
+        "safe havens",
+        "carry"
+      ],
+      "key_concepts": [
+        "risk-on risk-off",
+        "yield chasing",
+        "flight to quality"
+      ],
+      "current_relevance": "Flow data explains cross-market moves",
+      "target_audience": "intermediate",
+      "estimated_views": "high",
+      "tags": [
+        "capital flows",
+        "global markets",
+        "investing"
+      ]
+    },
+    {
+      "id": "commodity_supercycle",
+      "title": "Commodity Supercycles: The 20-Year Pattern",
+      "subtopics": [
+        "supercycle",
+        "capex",
+        "supply lags",
+        "demand shifts"
+      ],
+      "key_concepts": [
+        "investment cycles",
+        "long lead times",
+        "structural demand"
+      ],
+      "current_relevance": "Energy transition demand is reshaping metals",
+      "target_audience": "intermediate",
+      "estimated_views": "medium",
+      "tags": [
+        "commodities",
+        "supercycle",
+        "investing"
+      ]
+    },
+    {
+      "id": "sovereign_debt",
+      "title": "What Happens When a Country Can't Pay Its Debts",
+      "subtopics": [
+        "sovereign default",
+        "restructuring",
+        "IMF",
+        "bond holders"
+      ],
+      "key_concepts": [
+        "no bankruptcy court",
+        "haircuts",
+        "currency vs foreign debt"
+      ],
+      "current_relevance": "Sovereign stress recurs across emerging markets",
+      "target_audience": "intermediate",
+      "estimated_views": "high",
+      "tags": [
+        "sovereign debt",
+        "default",
+        "economics"
+      ]
+    },
+    {
+      "id": "trade_deficit_myth",
+      "title": "Is a Trade Deficit Actually Bad?",
+      "subtopics": [
+        "trade balance",
+        "capital account",
+        "currency",
+        "manufacturing"
+      ],
+      "key_concepts": [
+        "accounting identity",
+        "offsetting flows",
+        "political framing"
+      ],
+      "current_relevance": "Trade policy is persistently contested",
+      "target_audience": "intermediate",
+      "estimated_views": "medium",
+      "tags": [
+        "trade deficit",
+        "economics",
+        "global trade"
+      ]
+    },
+    {
+      "id": "loss_aversion",
+      "title": "Why Losing $100 Hurts More Than Winning $100 Feels Good",
+      "subtopics": [
+        "loss aversion",
+        "prospect theory",
+        "disposition effect",
+        "framing"
+      ],
+      "key_concepts": [
+        "asymmetric utility",
+        "holding losers",
+        "selling winners"
+      ],
+      "current_relevance": "Explains most common investing mistakes",
+      "target_audience": "beginners",
+      "estimated_views": "high",
+      "tags": [
+        "behavioral finance",
+        "loss aversion",
+        "psychology"
+      ]
+    },
+    {
+      "id": "market_timing_cost",
+      "title": "The Real Cost of Trying to Time the Market",
+      "subtopics": [
+        "market timing",
+        "missed days",
+        "volatility clustering",
+        "opportunity cost"
+      ],
+      "key_concepts": [
+        "best days cluster near worst",
+        "time in market",
+        "behaviour gap"
+      ],
+      "current_relevance": "Perennially searched and misunderstood",
+      "target_audience": "beginners",
+      "estimated_views": "very_high",
+      "tags": [
+        "market timing",
+        "investing",
+        "stock market"
+      ]
+    },
+    {
+      "id": "herd_behaviour",
+      "title": "Why Smart People Buy at the Top",
+      "subtopics": [
+        "herding",
+        "FOMO",
+        "narrative",
+        "momentum"
+      ],
+      "key_concepts": [
+        "social proof",
+        "reflexivity",
+        "bubble dynamics"
+      ],
+      "current_relevance": "Every cycle produces new examples",
+      "target_audience": "beginners",
+      "estimated_views": "high",
+      "tags": [
+        "investor psychology",
+        "FOMO",
+        "bubbles"
+      ]
+    },
+    {
+      "id": "confirmation_bias_investing",
+      "title": "The Bias That Costs Investors the Most Money",
+      "subtopics": [
+        "confirmation bias",
+        "echo chambers",
+        "thesis drift",
+        "disconfirming evidence"
+      ],
+      "key_concepts": [
+        "seeking agreement",
+        "ignoring contradiction",
+        "pre-mortem"
+      ],
+      "current_relevance": "Amplified by algorithmic feeds",
+      "target_audience": "beginners",
+      "estimated_views": "medium",
+      "tags": [
+        "confirmation bias",
+        "behavioral finance",
+        "investing"
+      ]
+    },
+    {
+      "id": "survivorship_bias",
+      "title": "The Success Stories You Never Hear About",
+      "subtopics": [
+        "survivorship bias",
+        "index reconstitution",
+        "fund closures",
+        "backtests"
+      ],
+      "key_concepts": [
+        "dead funds vanish",
+        "selection effects",
+        "distorted averages"
+      ],
+      "current_relevance": "Distorts nearly all performance claims",
+      "target_audience": "intermediate",
+      "estimated_views": "high",
+      "tags": [
+        "survivorship bias",
+        "statistics",
+        "investing"
+      ]
+    },
+    {
+      "id": "anchoring_price",
+      "title": "Why Your Purchase Price Shouldn't Matter (But Does)",
+      "subtopics": [
+        "anchoring",
+        "sunk cost",
+        "break-even thinking",
+        "reference points"
+      ],
+      "key_concepts": [
+        "irrelevant history",
+        "forward-looking valuation",
+        "disposition effect"
+      ],
+      "current_relevance": "Underlies the most common holding mistake",
+      "target_audience": "beginners",
+      "estimated_views": "medium",
+      "tags": [
+        "anchoring bias",
+        "investing psychology",
+        "behavioral finance"
+      ]
+    },
+    {
+      "id": "overconfidence_trading",
+      "title": "Why Most Active Traders Underperform",
+      "subtopics": [
+        "overconfidence",
+        "turnover",
+        "costs",
+        "attribution"
+      ],
+      "key_concepts": [
+        "trading costs",
+        "luck vs skill",
+        "frequency and returns"
+      ],
+      "current_relevance": "Retail trading data consistently shows this",
+      "target_audience": "beginners",
+      "estimated_views": "high",
+      "tags": [
+        "day trading",
+        "active trading",
+        "investing"
+      ]
+    },
+    {
+      "id": "narrative_economics",
+      "title": "How Stories Move Markets More Than Numbers",
+      "subtopics": [
+        "narrative",
+        "contagion",
+        "sentiment",
+        "valuation"
+      ],
+      "key_concepts": [
+        "stories spread like epidemics",
+        "narrative drives flows",
+        "numbers follow"
+      ],
+      "current_relevance": "Narrative-driven moves are increasingly visible",
+      "target_audience": "intermediate",
+      "estimated_views": "medium",
+      "tags": [
+        "narrative economics",
+        "market psychology",
+        "investing"
+      ]
+    },
+    {
+      "id": "tokenized_assets",
+      "title": "Your House Could Trade Like a Stock: Tokenization Explained",
+      "subtopics": [
+        "tokenization",
+        "fractional ownership",
+        "settlement",
+        "custody"
+      ],
+      "key_concepts": [
+        "on-chain representation",
+        "fractionalisation",
+        "legal wrapper"
+      ],
+      "current_relevance": "Regulated finance is actively exploring tokenized securities",
+      "target_audience": "intermediate",
+      "estimated_views": "very_high",
+      "tags": [
+        "tokenization",
+        "digital assets",
+        "future of finance"
+      ]
+    },
+    {
+      "id": "stablecoins_explained",
+      "title": "Stablecoins: Digital Dollars Without a Bank",
+      "subtopics": [
+        "stablecoins",
+        "reserves",
+        "pegs",
+        "redemption"
+      ],
+      "key_concepts": [
+        "backing quality",
+        "de-peg risk",
+        "payment use"
+      ],
+      "current_relevance": "Stablecoin regulation is advancing in major markets",
+      "target_audience": "beginners",
+      "estimated_views": "very_high",
+      "tags": [
+        "stablecoins",
+        "crypto",
+        "digital money"
+      ]
+    },
+    {
+      "id": "cbdc_explained",
+      "title": "Central Bank Digital Currencies: Money With Rules Built In",
+      "subtopics": [
+        "CBDC",
+        "programmability",
+        "privacy",
+        "disintermediation"
+      ],
+      "key_concepts": [
+        "direct central bank liability",
+        "policy tooling",
+        "bank funding impact"
+      ],
+      "current_relevance": "Dozens of central banks are researching CBDCs",
+      "target_audience": "intermediate",
+      "estimated_views": "very_high",
+      "tags": [
+        "CBDC",
+        "digital currency",
+        "central banks"
+      ]
+    },
+    {
+      "id": "programmable_money",
+      "title": "What Happens When Money Becomes Programmable",
+      "subtopics": [
+        "smart contracts",
+        "conditional payments",
+        "escrow",
+        "automation"
+      ],
+      "key_concepts": [
+        "money with logic attached",
+        "atomic settlement",
+        "new risks"
+      ],
+      "current_relevance": "Programmability is central to tokenization research",
+      "target_audience": "intermediate",
+      "estimated_views": "high",
+      "tags": [
+        "programmable money",
+        "smart contracts",
+        "fintech"
+      ]
+    },
+    {
+      "id": "instant_settlement",
+      "title": "What Breaks When Everything Settles Instantly",
+      "subtopics": [
+        "T+0",
+        "settlement risk",
+        "netting",
+        "liquidity"
+      ],
+      "key_concepts": [
+        "netting benefits lost",
+        "prefunding needs",
+        "counterparty risk removal"
+      ],
+      "current_relevance": "Settlement cycles keep shortening",
+      "target_audience": "intermediate",
+      "estimated_views": "high",
+      "tags": [
+        "settlement",
+        "T+0",
+        "market structure"
+      ]
+    },
+    {
+      "id": "crypto_vs_traditional",
+      "title": "Crypto vs Traditional Finance: What Actually Differs",
+      "subtopics": [
+        "custody",
+        "settlement",
+        "intermediaries",
+        "regulation"
+      ],
+      "key_concepts": [
+        "bearer assets",
+        "24/7 markets",
+        "recourse and reversibility"
+      ],
+      "current_relevance": "The two systems keep converging",
+      "target_audience": "beginners",
+      "estimated_views": "high",
+      "tags": [
+        "crypto",
+        "traditional finance",
+        "blockchain"
+      ]
+    },
+    {
+      "id": "bitcoin_scarcity",
+      "title": "Bitcoin's 21 Million Limit: Why It Matters",
+      "subtopics": [
+        "supply cap",
+        "halving",
+        "issuance",
+        "scarcity"
+      ],
+      "key_concepts": [
+        "fixed supply schedule",
+        "stock to flow critiques",
+        "demand dependence"
+      ],
+      "current_relevance": "Halving cycles drive recurring attention",
+      "target_audience": "beginners",
+      "estimated_views": "very_high",
+      "tags": [
+        "bitcoin",
+        "crypto",
+        "digital gold"
+      ]
+    },
+    {
+      "id": "defi_explained",
+      "title": "DeFi: Banking Without Bankers",
+      "subtopics": [
+        "lending protocols",
+        "AMMs",
+        "collateral",
+        "liquidation"
+      ],
+      "key_concepts": [
+        "overcollateralisation",
+        "automated market making",
+        "smart contract risk"
+      ],
+      "current_relevance": "DeFi mechanisms increasingly inform TradFi design",
+      "target_audience": "intermediate",
+      "estimated_views": "high",
+      "tags": [
+        "DeFi",
+        "decentralized finance",
+        "crypto"
+      ]
+    },
+    {
+      "id": "death_of_cash",
+      "title": "The Slow Death of Cash",
+      "subtopics": [
+        "cashless payments",
+        "financial inclusion",
+        "privacy",
+        "resilience"
+      ],
+      "key_concepts": [
+        "digital displacement",
+        "offline access",
+        "surveillance tradeoffs"
+      ],
+      "current_relevance": "Several countries are approaching cashless",
+      "target_audience": "beginners",
+      "estimated_views": "high",
+      "tags": [
+        "cashless society",
+        "digital payments",
+        "future of money"
+      ]
+    },
+    {
+      "id": "ai_manages_money",
+      "title": "What Happens When AI Manages Trillions of Dollars",
+      "subtopics": [
+        "robo advisors",
+        "model concentration",
+        "herding",
+        "oversight"
+      ],
+      "key_concepts": [
+        "correlated models",
+        "homogenised decisions",
+        "accountability"
+      ],
+      "current_relevance": "AI adoption in asset management keeps growing",
+      "target_audience": "intermediate",
+      "estimated_views": "very_high",
+      "tags": [
+        "AI investing",
+        "robo advisor",
+        "future of finance"
+      ]
     }
   ],
   "rotation_schedule": {
