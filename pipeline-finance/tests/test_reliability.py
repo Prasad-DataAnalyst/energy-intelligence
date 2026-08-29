@@ -1162,3 +1162,118 @@ class TestHealthReportNeverGreenOverRed:
             assert status == health_report._WARN, detail
         finally:
             ps.STATE_DIR = original
+
+
+# ── The daemon's live job table ──────────────────────────────────────────────
+
+class TestRegisteredJobsCheck:
+    """
+    Everything else in "next scheduled content" is derived from CONTENT_SLOTS
+    — the same config the scheduler is built from — so it prints an identical
+    list whether the daemon holds those jobs or none at all. This check reads
+    what the process actually did.
+    """
+
+    @staticmethod
+    def _setup(tmp_path, jobs, pid="4242", heartbeat_pid="4242"):
+        import json as _json
+        from config.settings import settings
+        from scheduler.master_scheduler import REGISTERED_JOBS_FILE
+        settings.logs_dir = tmp_path
+        if jobs is not None:
+            (tmp_path / REGISTERED_JOBS_FILE).write_text(_json.dumps(
+                {"written_at": "2026-08-29T12:00:00", "pid": pid, "jobs": jobs}))
+        if heartbeat_pid:
+            (tmp_path / "heartbeat.log").write_text(
+                f"[2026-08-29 12:42:00] PID={heartbeat_pid} | alive\n")
+
+    @staticmethod
+    def _all_slots():
+        from scheduler.master_scheduler import CONTENT_SLOTS
+        return [{"id": slot, "name": slot, "args": [], "next_run": "2026-08-31T08:00:00"}
+                for slot in CONTENT_SLOTS]
+
+    def test_all_slots_registered_is_ok(self, tmp_path):
+        from monitor import health_report
+        self._setup(tmp_path, self._all_slots())
+        status, _, detail, lines = health_report._check_registered_jobs()
+        assert status == health_report._OK, detail
+        assert lines
+
+    def test_a_missing_content_slot_fails(self, tmp_path):
+        """
+        A job the daemon never registered will never fire, and nothing else in
+        this report would notice.
+        """
+        from monitor import health_report
+        jobs = [j for j in self._all_slots() if j["id"] != "weekday_postmarket"]
+        self._setup(tmp_path, jobs)
+        status, _, detail, _ = health_report._check_registered_jobs()
+        assert status == health_report._FAIL
+        assert "Post-market" in detail
+
+    def test_a_table_from_an_earlier_daemon_is_flagged(self, tmp_path):
+        """A restarted daemon leaves a stale file that would otherwise read as fine."""
+        from monitor import health_report
+        self._setup(tmp_path, self._all_slots(), pid="1111", heartbeat_pid="2222")
+        status, _, detail, _ = health_report._check_registered_jobs()
+        assert status == health_report._WARN
+        assert "earlier run" in detail
+
+    def test_no_table_at_all_is_flagged(self, tmp_path):
+        from monitor import health_report
+        self._setup(tmp_path, None)
+        status, _, detail, _ = health_report._check_registered_jobs()
+        assert status == health_report._WARN
+        assert "older build" in detail
+
+    def test_the_dump_survives_a_real_scheduler_start(self, tmp_path):
+        """
+        Fire times are only real once start() has run, and start() blocks.
+        The dump rides an EVENT_SCHEDULER_STARTED listener, which fires
+        before the blocking loop.
+        """
+        pytest.importorskip("apscheduler")
+        import json as _json
+        import threading
+        from apscheduler.schedulers.blocking import BlockingScheduler
+        from apscheduler.triggers.cron import CronTrigger
+        from apscheduler.events import EVENT_SCHEDULER_STARTED
+        from config.settings import settings
+        from scheduler.master_scheduler import (
+            _write_registered_jobs, REGISTERED_JOBS_FILE, run_weekday_pipeline)
+
+        settings.logs_dir = tmp_path
+        sched = BlockingScheduler()
+        sched.add_job(run_weekday_pipeline,
+                      CronTrigger(day_of_week="mon-fri", hour=17, minute=15),
+                      id="weekday_postmarket", args=["postmarket"], name="Post")
+        sched.add_listener(
+            lambda e: (_write_registered_jobs(sched),
+                       threading.Timer(0.2, sched.shutdown).start()),
+            EVENT_SCHEDULER_STARTED)
+        sched.start()
+
+        data = _json.loads((tmp_path / REGISTERED_JOBS_FILE).read_text())
+        job = data["jobs"][0]
+        assert job["id"] == "weekday_postmarket"
+        assert job["args"] == ["postmarket"]
+        assert job["next_run"], "fire time should be assigned once started"
+
+    def test_apscheduler_accepts_the_slot_argument(self):
+        """
+        add_job validates args against the callable's signature and raises at
+        registration — which would kill the daemon at startup, the same
+        failure class as the 39-day outage.
+        """
+        pytest.importorskip("apscheduler")
+        from apscheduler.schedulers.background import BackgroundScheduler
+        from apscheduler.triggers.cron import CronTrigger
+        from scheduler.master_scheduler import run_weekday_pipeline, CONTENT_SLOTS
+        sched = BackgroundScheduler()
+        for slot, name in (("weekday_premarket", "premarket"),
+                           ("weekday_postmarket", "postmarket")):
+            sched.add_job(run_weekday_pipeline,
+                          CronTrigger(**CONTENT_SLOTS[slot]),
+                          id=slot, args=[name], name=slot)
+        assert len(sched.get_jobs()) == 2

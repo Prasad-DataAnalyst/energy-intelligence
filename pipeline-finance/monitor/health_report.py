@@ -228,12 +228,82 @@ def _next_content_slots() -> list[str]:
     """Human-readable 'when is the next video due' lines."""
     try:
         from scheduler.master_scheduler import next_content_runs
+        # Five, not three: the weekday post-market slot is the fourth entry on
+        # a Saturday, and a slot you cannot see is a slot you cannot confirm.
         return [
             f"   {label}: {fire.strftime('%a %b %d, %-I:%M %p %Z')}"
-            for label, fire in next_content_runs(limit=3)
+            for label, fire in next_content_runs(limit=5)
         ]
     except Exception:
         return []
+
+
+def _read_registered_jobs() -> "dict | None":
+    """The job table the running scheduler dumped when it started."""
+    from scheduler.master_scheduler import REGISTERED_JOBS_FILE
+    path = settings.logs_dir / REGISTERED_JOBS_FILE
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _check_registered_jobs() -> tuple[str, str, str, list[str]]:
+    """
+    Compare the jobs the daemon actually registered against the content slots
+    it is supposed to run.
+
+    Everything else about "next scheduled content" is derived from
+    CONTENT_SLOTS — the same config the scheduler was built from — so it
+    prints an identical list whether the daemon holds those jobs or none at
+    all. This is the one check that reads what the process actually did.
+    """
+    from scheduler.master_scheduler import CONTENT_SLOTS, CONTENT_SLOT_NAMES
+
+    data = _read_registered_jobs()
+    if data is None:
+        return (_WARN, "Registered jobs",
+                "daemon has not reported a job table — running an older build, "
+                "or it has not started since this check was added", [])
+
+    live_pid = _current_daemon_pid()
+    if live_pid and str(data.get("pid")) != str(live_pid):
+        return (_WARN, "Registered jobs",
+                f"job table was written by PID {data.get('pid')} but the live "
+                f"daemon is PID {live_pid} — the table is from an earlier run", [])
+
+    registered = {job.get("id"): job for job in data.get("jobs", [])}
+    missing = [slot for slot in CONTENT_SLOTS if slot not in registered]
+    if missing:
+        names = ", ".join(CONTENT_SLOT_NAMES.get(slot, slot) for slot in missing)
+        return (_FAIL, "Registered jobs",
+                f"the daemon is NOT running {len(missing)} content slot(s): {names}",
+                [])
+
+    lines = [
+        f"   {job['id']}: next {job.get('next_run') or 'unscheduled'}"
+        + (f"  args={job['args']}" if job.get("args") else "")
+        for slot, job in ((s, registered[s]) for s in CONTENT_SLOTS)
+    ]
+    return (_OK, "Registered jobs",
+            f"{len(registered)} live in the daemon, all {len(CONTENT_SLOTS)} "
+            "content slots covered", lines)
+
+
+def _current_daemon_pid() -> "str | None":
+    """PID of the process writing heartbeats right now."""
+    hb = settings.logs_dir / "heartbeat.log"
+    if not hb.exists():
+        return None
+    try:
+        for line in reversed(hb.read_text(encoding="utf-8").splitlines()):
+            if "PID=" in line:
+                return line.split("PID=")[1].split(" |")[0].strip()
+    except Exception:
+        return None
+    return None
 
 
 def _check_uploads() -> tuple[str, str, str, list[str]]:
@@ -326,7 +396,8 @@ def run_health_report() -> int:
 
     print()
     for status, label, detail, lines in (
-        _check_startup_error(), _check_pipeline_states(), _check_uploads()
+        _check_startup_error(), _check_registered_jobs(),
+        _check_pipeline_states(), _check_uploads()
     ):
         print(_line(status, label, detail))
         for line in lines:

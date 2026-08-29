@@ -224,6 +224,45 @@ CONTENT_SLOT_NAMES: dict[str, str] = {
 }
 
 
+REGISTERED_JOBS_FILE = "registered_jobs.json"
+
+
+def _write_registered_jobs(scheduler) -> None:
+    """
+    Dump the live job table once the scheduler has started.
+
+    Runs from an EVENT_SCHEDULER_STARTED listener rather than inline: before
+    start() a job's next_run_time slot is unassigned, so the fire times are
+    only real once the scheduler is up. The listener fires before the
+    blocking loop begins, verified against APScheduler 3.11.
+    """
+    import json
+    try:
+        payload = {
+            "written_at": datetime.now().isoformat(),
+            "pid": os.getpid(),
+            "jobs": [
+                {
+                    "id": job.id,
+                    "name": job.name,
+                    "args": list(job.args or ()),
+                    "next_run": (lambda run: run.isoformat() if run else None)(
+                        getattr(job, "next_run_time", None)),
+                }
+                for job in scheduler.get_jobs()
+            ],
+        }
+        settings.logs_dir.mkdir(parents=True, exist_ok=True)
+        path = settings.logs_dir / REGISTERED_JOBS_FILE
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        os.replace(tmp, path)
+        logger.info("Registered %d jobs → %s", len(payload["jobs"]), path.name)
+    except Exception as exc:
+        # Never let bookkeeping take down a scheduler that is otherwise fine.
+        logger.warning("Could not record registered jobs (non-fatal): %s", exc)
+
+
 def next_content_runs(limit: int = 3) -> list[tuple[str, "datetime"]]:
     """
     Upcoming content slots as (label, fire time), soonest first.
@@ -424,6 +463,21 @@ def start_scheduler() -> None:
         max_instances=1,
         coalesce=True,
     )
+
+    # Record what the daemon actually registered, so the health report can
+    # check the running scheduler instead of re-deriving the same config it
+    # was built from. A report that only reads CONTENT_SLOTS prints an
+    # identical "next scheduled content" list whether the daemon holds those
+    # jobs or none at all — which is the gap the 39-day outage lived in.
+    # Guarded: this is bookkeeping, and bookkeeping must never be the reason
+    # the scheduler fails to start. An import error here would do exactly what
+    # the outage did — kill the daemon one line before it begins.
+    try:
+        from apscheduler.events import EVENT_SCHEDULER_STARTED
+        scheduler.add_listener(
+            lambda event: _write_registered_jobs(scheduler), EVENT_SCHEDULER_STARTED)
+    except Exception as exc:
+        logger.warning("Job-table listener unavailable (non-fatal): %s", exc)
 
     logger.info("DriftWire326 Scheduler starting — %d jobs registered", len(scheduler.get_jobs()))
     for job in scheduler.get_jobs():
