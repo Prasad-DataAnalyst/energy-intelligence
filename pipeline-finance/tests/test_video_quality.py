@@ -692,7 +692,15 @@ class TestColdOpenSequencing:
             self._visuals(tmp_path), 240.0, self.SEGMENTS,
             _timed(self.SEGMENTS), tmp_path, 640, 360)
         assert sequence[0][0].name == "hook.png"
-        assert sequence[0][1] == HOOK_SECONDS
+        # The hook holds, then spends its last fraction dissolving into the
+        # first slide; both belong to its time on screen.
+        lead = 0.0
+        for frame, seconds in sequence:
+            if frame.name == "hook.png" or frame.name.startswith("fade_000"):
+                lead += seconds
+            else:
+                break
+        assert lead == pytest.approx(HOOK_SECONDS)
 
     def test_the_hook_does_not_stretch_the_video(self, tmp_path):
         """
@@ -731,3 +739,98 @@ class TestColdOpenSequencing:
             _timed(segments), tmp_path, 640, 360)
         assert sequence[0][0].name != "hook.png"
         assert sum(d for _, d in sequence) == pytest.approx(240.0, abs=0.05)
+
+
+# ── Phase 6: motion ───────────────────────────────────────────────────────────
+
+class TestDissolves:
+    """
+    Crossfades are baked into the stills rather than done with ffmpeg's
+    xfade filter. Measured on the production shape (35 beats, 1080p): xfade
+    costs 1.25x the CPU, which is affordable, but peaks at 2.5GB of RSS
+    because it buffers each input stream until its transition offset — and
+    the instance this runs on has 1GB. Blended stills cost the encoder
+    nothing. Ken Burns via zoompan was measured at 75x baseline (over five
+    hours for one video) and is not viable at any memory budget.
+    """
+
+    @staticmethod
+    def _frame(path, shade):
+        Image = pytest.importorskip("PIL.Image")
+        Image.new("RGB", (64, 36), shade).save(path)
+        return path
+
+    def _entries(self, tmp_path):
+        return [
+            (self._frame(tmp_path / "a.png", (0, 0, 0)), 4.0, "bg-a"),
+            (self._frame(tmp_path / "b.png", (255, 255, 255)), 4.0, "bg-b"),
+        ]
+
+    def test_background_change_gets_a_dissolve(self, tmp_path):
+        from builders.beat_planner import _add_dissolves, DISSOLVE_STEPS
+        out = _add_dissolves(self._entries(tmp_path), tmp_path)
+        assert len(out) == 2 + DISSOLVE_STEPS
+
+    def test_dissolve_frames_are_between_the_two_slides(self, tmp_path):
+        from builders.beat_planner import _add_dissolves
+        Image = pytest.importorskip("PIL.Image")
+        ImageStat = pytest.importorskip("PIL.ImageStat")
+        out = _add_dissolves(self._entries(tmp_path), tmp_path)
+        luma = [ImageStat.Stat(Image.open(f).convert("L")).mean[0] for f, _ in out]
+        assert luma == sorted(luma), luma
+        assert luma[0] == 0 and luma[-1] == 255
+        assert all(0 < value < 255 for value in luma[1:-1])
+
+    def test_an_overlay_change_stays_a_hard_cut(self, tmp_path):
+        """
+        A stat card appearing over a slide already on screen should snap.
+        Fading it in would triple the frames for nothing visible.
+        """
+        from builders.beat_planner import _add_dissolves
+        same = [
+            (self._frame(tmp_path / "a.png", (0, 0, 0)), 4.0, "bg-a"),
+            (self._frame(tmp_path / "b.png", (255, 255, 255)), 4.0, "bg-a"),
+        ]
+        assert len(_add_dissolves(same, tmp_path)) == 2
+
+    def test_dissolves_do_not_stretch_the_video(self, tmp_path):
+        """Fade time is paid for by the outgoing frame, not added on top."""
+        from builders.beat_planner import _add_dissolves
+        entries = self._entries(tmp_path)
+        before = sum(d for _, d, _ in entries)
+        assert sum(d for _, d in _add_dissolves(entries, tmp_path)) == \
+            pytest.approx(before)
+
+    def test_a_frame_too_short_to_pay_keeps_its_cut(self, tmp_path):
+        from builders.beat_planner import _add_dissolves, DISSOLVE_SECONDS
+        brief = [
+            (self._frame(tmp_path / "a.png", (0, 0, 0)),
+             DISSOLVE_SECONDS, "bg-a"),
+            (self._frame(tmp_path / "b.png", (255, 255, 255)), 4.0, "bg-b"),
+        ]
+        assert len(_add_dissolves(brief, tmp_path)) == 2
+
+    def test_mismatched_sizes_fall_back_to_a_cut(self, tmp_path):
+        from builders.beat_planner import _add_dissolves
+        Image = pytest.importorskip("PIL.Image")
+        odd = tmp_path / "odd.png"
+        Image.new("RGB", (100, 50), (255, 255, 255)).save(odd)
+        entries = [(self._frame(tmp_path / "a.png", (0, 0, 0)), 4.0, "bg-a"),
+                   (odd, 4.0, "bg-b")]
+        out = _add_dissolves(entries, tmp_path)
+        assert len(out) == 2
+        assert sum(d for _, d in out) == pytest.approx(8.0)
+
+    def test_the_cold_open_dissolves_into_the_video(self, tmp_path):
+        from builders.beat_planner import build_beat_sequence
+        Image = pytest.importorskip("PIL.Image")
+        visuals = []
+        for i in range(6):
+            path = tmp_path / f"v{i}.png"
+            Image.new("RGB", (640, 360), (10 + i * 5, 10, 15)).save(path)
+            visuals.append(path)
+        segments = {"HOOK": "NVIDIA added $400 billion in value today.",
+                    "MARKET RECAP": "The S&P 500 rose 0.66% at the close."}
+        sequence = build_beat_sequence(visuals, 240.0, segments,
+                                       _timed(segments), tmp_path, 640, 360)
+        assert any(f.name.startswith("fade_000") for f, _ in sequence)

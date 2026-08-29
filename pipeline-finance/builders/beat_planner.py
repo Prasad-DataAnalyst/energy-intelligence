@@ -44,6 +44,15 @@ MIN_STAT_GAP_SECONDS = 4.5
 # and a logo animation spends that budget saying nothing.
 HOOK_SECONDS = 2.5
 
+# Dissolve between background changes, baked into the stills as a short run
+# of blended frames. ffmpeg's own xfade filter was measured and rejected: it
+# buffers each input stream until its transition offset arrives, so peak RSS
+# grows about 63MB per clip in the chain — 2.5GB for a real 35-beat video,
+# against 1GB on the target instance. Blended stills cost the encoder nothing
+# because the concat demuxer just sees more images.
+DISSOLVE_SECONDS = 0.28
+DISSOLVE_STEPS = 7
+
 # Palette shared with slide_renderer so beats look native to the slides.
 SURFACE = (20, 21, 30)
 TEXT    = (240, 242, 245)
@@ -577,6 +586,48 @@ def render_hook(figure: dict, dest: Path, width: int, height: int) -> Path:
     return dest
 
 
+def _add_dissolves(entries: list, tmp_dir: Path,
+                   seconds: float = DISSOLVE_SECONDS,
+                   steps: int = DISSOLVE_STEPS) -> list:
+    """
+    Insert a short dissolve wherever the background changes.
+
+    Only on background changes: an overlay appearing over a slide that is
+    already on screen wants to snap, not to fade, and fading every beat
+    would triple the frames for no visible gain.
+
+    The dissolve is paid for out of the outgoing frame, so the sequence still
+    totals exactly the narration length. A frame with no time to spare keeps
+    its hard cut.
+    """
+    from PIL import Image
+
+    output: list[tuple[Path, float]] = []
+    for position, (frame, duration, background) in enumerate(entries):
+        following = entries[position + 1] if position + 1 < len(entries) else None
+        changes = following is not None and following[2] != background
+        if not changes or duration <= seconds * 2:
+            output.append((frame, duration))
+            continue
+        try:
+            start = Image.open(frame).convert("RGB")
+            end = Image.open(following[0]).convert("RGB")
+            if start.size != end.size:
+                raise ValueError(f"size mismatch {start.size} vs {end.size}")
+            blended = []
+            for step in range(1, steps + 1):
+                dest = tmp_dir / f"fade_{position:03d}_{step}.png"
+                Image.blend(start, end, step / (steps + 1)).save(dest)
+                blended.append((dest, seconds / steps))
+        except Exception as exc:
+            logger.warning("Dissolve at %d skipped (non-fatal): %s", position, exc)
+            output.append((frame, duration))
+            continue
+        output.append((frame, duration - seconds))
+        output.extend(blended)
+    return output
+
+
 def build_beat_sequence(visuals: list, duration_seconds: float, segments: dict,
                         words: list, tmp_dir: Path,
                         width: Optional[int] = None,
@@ -593,7 +644,7 @@ def build_beat_sequence(visuals: list, duration_seconds: float, segments: dict,
     height = height or settings.video_height
 
     # Cold open: the day's loudest number, full screen, before any branding.
-    head: list[tuple[Path, float]] = []
+    head: list[tuple[Path, float, str]] = []
     reserved = 0.0
     if duration_seconds > HOOK_SECONDS * 3:
         try:
@@ -601,7 +652,7 @@ def build_beat_sequence(visuals: list, duration_seconds: float, segments: dict,
             if figure:
                 frame = render_hook(figure, Path(tmp_dir) / "hook.png",
                                     width, height)
-                head = [(frame, HOOK_SECONDS)]
+                head = [(frame, HOOK_SECONDS, "hook")]
                 reserved = HOOK_SECONDS
                 logger.info("Cold open: %s %s", figure["label"], figure["value"])
         except Exception as exc:
@@ -614,9 +665,11 @@ def build_beat_sequence(visuals: list, duration_seconds: float, segments: dict,
         logger.warning("Beat planning failed (non-fatal): %s", exc)
         return []
     if not beats:
-        return head or []
+        return [(frame, seconds) for frame, seconds, _ in head]
 
-    sequence: list[tuple[Path, float]] = list(head)
+    # Carries the background each frame came from, so dissolves can be placed
+    # on background changes only.
+    entries: list[tuple[Path, float, str]] = list(head)
     overlaid = 0
     for index, beat in enumerate(beats):
         frame = beat.image
@@ -630,9 +683,19 @@ def build_beat_sequence(visuals: list, duration_seconds: float, segments: dict,
                 logger.warning("Beat %d overlay failed, using plain slide: %s",
                                index, exc)
                 frame = beat.image
-        sequence.append((Path(frame), beat.duration))
+        entries.append((Path(frame), beat.duration, str(beat.image)))
 
-    logger.info("Beat track: %d beats over %.0fs (~%.1fs each, %d with graphics)",
-                len(sequence), duration_seconds,
-                duration_seconds / max(len(sequence), 1), overlaid)
+    beat_count = len(entries)
+    try:
+        sequence = _add_dissolves(entries, Path(tmp_dir))
+    except Exception as exc:
+        logger.warning("Dissolves unavailable (non-fatal): %s", exc)
+        sequence = [(frame, seconds) for frame, seconds, _ in entries]
+
+    logger.info(
+        "Beat track: %d beats over %.0fs (~%.1fs each, %d with graphics, "
+        "%d dissolve frames)",
+        beat_count, duration_seconds, duration_seconds / max(beat_count, 1),
+        overlaid, len(sequence) - beat_count,
+    )
     return sequence
