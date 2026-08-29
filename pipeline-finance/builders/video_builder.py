@@ -331,6 +331,22 @@ def _build_with_ffmpeg(assets: VideoAssets, output_path: Path) -> Optional[float
             f"fps={settings.video_fps}"
         )
 
+        # Burned-in captions synced to real speech timings. Rendered as one
+        # ASS file (cheap) rather than hundreds of chained drawtext filters.
+        captions = None
+        try:
+            from builders.caption_renderer import captions_for_audio
+            captions = captions_for_audio(assets.audio_path, tmp)
+        except Exception as exc:
+            logger.warning("Captions unavailable (non-fatal): %s", exc)
+
+        caption_filter = ""
+        if captions:
+            # Escape for ffmpeg's filter parser: colons and backslashes in the
+            # path would otherwise be read as argument separators.
+            safe = str(captions).replace("\\", "/").replace(":", "\\:")
+            caption_filter = f",subtitles='{safe}'"
+
         # Build video from images
         raw_video = tmp / "raw_video.mp4"
         cmd_video = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat_file)]
@@ -338,10 +354,11 @@ def _build_with_ffmpeg(assets: VideoAssets, output_path: Path) -> Optional[float
             cmd_video += [
                 "-i", str(logo_png),
                 "-filter_complex",
-                f"[0:v]{base_filter}[bg];[bg][1:v]overlay=main_w-overlay_w-24:24",
+                f"[0:v]{base_filter}[bg];"
+                f"[bg][1:v]overlay=main_w-overlay_w-24:24{caption_filter}",
             ]
         else:
-            cmd_video += ["-vf", base_filter]
+            cmd_video += ["-vf", base_filter + caption_filter]
         cmd_video += [
             # veryfast + modest bitrate: a shared-core free-tier VM cannot
             # sustain "-preset medium -b:v 8000k" — it times out.

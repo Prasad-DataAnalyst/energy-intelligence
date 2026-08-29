@@ -175,3 +175,116 @@ class TestWordTimings:
                 words = asyncio.run(_edge_tts_async("Nasdaq", "v", out, use_ssml=False))
 
         assert words == [{"word": "Nasdaq", "start": 0.5, "end": 0.75}]
+
+
+# ── Phase 3: burned-in synced captions ───────────────────────────────────────
+
+def _words(pairs):
+    """[(word, start, end), ...] → timing dicts."""
+    return [{"word": w, "start": s, "end": e} for w, s, e in pairs]
+
+
+class TestCaptionGrouping:
+    def test_groups_into_short_phrases(self):
+        from builders.caption_renderer import group_words_into_cues, MAX_WORDS_PER_CUE
+        words = _words([(f"w{i}", i * 0.3, i * 0.3 + 0.25) for i in range(12)])
+        cues = group_words_into_cues(words)
+        assert cues, "must produce cues"
+        for cue in cues:
+            assert len(cue["text"].split()) <= MAX_WORDS_PER_CUE
+
+    def test_breaks_on_sentence_end(self):
+        from builders.caption_renderer import group_words_into_cues
+        cues = group_words_into_cues(_words([
+            ("Nasdaq", 0.0, 0.4), ("rose.", 0.4, 0.8),
+            ("Tech", 0.9, 1.2), ("fell.", 1.2, 1.6),
+        ]))
+        assert len(cues) == 2
+        assert cues[0]["text"] == "Nasdaq rose."
+
+    def test_breaks_on_speech_pause(self):
+        from builders.caption_renderer import group_words_into_cues
+        # A one-second silence is a natural phrase boundary
+        cues = group_words_into_cues(_words([
+            ("first", 0.0, 0.4), ("part", 0.4, 0.8),
+            ("second", 1.8, 2.2), ("part", 2.2, 2.6),
+        ]))
+        assert len(cues) == 2
+
+    def test_cue_times_follow_the_words(self):
+        from builders.caption_renderer import group_words_into_cues
+        cues = group_words_into_cues(_words([("hello", 5.0, 5.5), ("there.", 5.5, 6.0)]))
+        assert cues[0]["start"] == 5.0
+        assert cues[0]["end"] >= 6.0
+
+    def test_empty_input_yields_no_cues(self):
+        from builders.caption_renderer import group_words_into_cues
+        assert group_words_into_cues([]) == []
+
+    def test_blank_words_ignored(self):
+        from builders.caption_renderer import group_words_into_cues
+        cues = group_words_into_cues(_words([("", 0.0, 0.1), ("real.", 0.1, 0.5)]))
+        assert len(cues) == 1 and cues[0]["text"] == "real."
+
+
+class TestAssOutput:
+    def test_writes_valid_ass_structure(self, tmp_path):
+        from builders.caption_renderer import build_ass_captions
+        out = build_ass_captions(
+            _words([("Nasdaq", 0.0, 0.5), ("jumped.", 0.5, 1.0)]),
+            tmp_path / "c.ass", width=1280, height=720,
+        )
+        assert out is not None
+        text = out.read_text()
+        assert "[Script Info]" in text and "[V4+ Styles]" in text and "[Events]" in text
+        assert "PlayResX: 1280" in text
+        assert "Dialogue: 0,0:00:00.00," in text
+        assert "Nasdaq jumped." in text
+
+    def test_timestamp_format_handles_minutes(self, tmp_path):
+        from builders.caption_renderer import build_ass_captions
+        out = build_ass_captions(
+            _words([("late", 125.0, 125.5)]), tmp_path / "c.ass",
+        )
+        assert "0:02:05.00" in out.read_text()
+
+    def test_font_scales_with_canvas(self, tmp_path):
+        from builders.caption_renderer import build_ass_captions
+        small = build_ass_captions(_words([("x", 0.0, 0.5)]), tmp_path / "s.ass",
+                                   width=1280, height=720).read_text()
+        large = build_ass_captions(_words([("x", 0.0, 0.5)]), tmp_path / "l.ass",
+                                   width=1920, height=1080).read_text()
+
+        def size(t):
+            line = [l for l in t.splitlines() if l.startswith("Style: DW")][0]
+            return int(line.split(",")[2])
+
+        assert size(large) > size(small)
+
+    def test_no_timings_returns_none(self, tmp_path):
+        from builders.caption_renderer import build_ass_captions
+        assert build_ass_captions([], tmp_path / "c.ass") is None
+
+    def test_braces_escaped_not_treated_as_ass_override(self, tmp_path):
+        """Curly braces are override-tag syntax in ASS — they must not survive."""
+        from builders.caption_renderer import build_ass_captions
+        out = build_ass_captions(
+            _words([("{\\an8}hack", 0.0, 0.5)]), tmp_path / "c.ass",
+        )
+        body = out.read_text().split("[Events]")[1]
+        assert "{" not in body and "}" not in body
+
+    def test_captions_for_audio_uses_saved_timings(self, tmp_path):
+        from generators.audio_gen import save_word_timings
+        from builders.caption_renderer import captions_for_audio
+        audio = tmp_path / "a.mp3"
+        audio.write_bytes(b"\xff\xfb")
+        save_word_timings(audio, _words([("hello", 0.0, 0.5)]))
+        out = captions_for_audio(audio, tmp_path)
+        assert out is not None and out.exists()
+
+    def test_captions_for_audio_without_timings(self, tmp_path):
+        from builders.caption_renderer import captions_for_audio
+        audio = tmp_path / "a.mp3"
+        audio.write_bytes(b"\xff\xfb")
+        assert captions_for_audio(audio, tmp_path) is None
