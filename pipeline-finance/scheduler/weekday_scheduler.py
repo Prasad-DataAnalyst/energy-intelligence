@@ -47,6 +47,78 @@ class WeekdayScheduler:
         # "postmarket" (5:15pm). Each keeps its own checkpoint so both
         # produce a video.
         self.slot = slot
+        # Populated by _premarket_narrative when the morning slot runs; stays
+        # None on a resumed run that skipped the scrape, which the title
+        # builder treats as "no futures, use the recap framing".
+        self._premarket = None
+
+    def _headline_stat(self, market) -> str:
+        """
+        The number the title hangs on: futures for the morning, the close
+        for the evening. Falls back to the close whenever futures were not
+        fetched — a resumed run, or a morning where the feed was down.
+        """
+        futures = (self._premarket or {}).get("futures") or {}
+        if self.slot == "premarket" and futures:
+            try:
+                lead = max(futures.values(),
+                           key=lambda f: abs(float(f.get("change_pct", 0) or 0)))
+                return f"{lead.get('name', 'Futures')} {float(lead['change_pct']):+.2f}%"
+            except (TypeError, ValueError, KeyError) as exc:
+                logger.warning("Futures headline unavailable: %s", exc)
+        try:
+            return f"S&P {market.sp500.change_pct:+.2f}%"
+        except Exception:
+            return "market move"
+
+    def _premarket_narrative(self) -> str:
+        """
+        Futures and overnight movers, for the video that publishes before
+        the bell.
+
+        The scraper for this has always existed and nothing ever called it,
+        so the 8am video was built from regular-session data — the same
+        numbers the 5:15pm video uses. Two videos a day telling the same
+        story is not two videos, and under YouTube's inauthentic-content
+        policy it is a liability rather than twice the output.
+
+        Returns "" on any failure: futures at 8am are worth having, not
+        worth missing a publish over.
+        """
+        try:
+            from scrapers.market_scraper import MarketScraper
+            data = MarketScraper().get_premarket_data()
+        except Exception as exc:
+            logger.warning("Pre-market data unavailable (non-fatal): %s", exc)
+            return ""
+
+        self._premarket = data
+        lines: list[str] = []
+        futures = data.get("futures") or {}
+        if futures:
+            moves = ", ".join(
+                f"{f.get('name', sym)} {f.get('change_pct', 0):+.2f}%"
+                for sym, f in futures.items())
+            lines.append(
+                f"FUTURES BEFORE THE OPEN: {moves}. "
+                f"Overall direction: {data.get('futures_direction', 'mixed')}.")
+        movers = data.get("top_movers") or []
+        if movers:
+            listed = ", ".join(
+                f"{m.get('symbol')} {m.get('change_pct', 0):+.2f}%" for m in movers)
+            lines.append(f"PRE-MARKET MOVERS: {listed}.")
+        if not lines:
+            return ""
+
+        lines.append(
+            "This is the PRE-MARKET video, published before the opening bell. "
+            "Write it forward: what is at stake today, what these futures imply, "
+            "what to watch at the open. Yesterday's close is context, not the "
+            "story — do not write a recap of it."
+        )
+        logger.info("Pre-market context: futures %s, %d movers",
+                    data.get("futures_direction"), len(movers))
+        return "\n".join(lines)
 
     def _resolve_state(self):
         """
@@ -240,6 +312,13 @@ class WeekdayScheduler:
                     logger.info("VIX pre-check: %s", vix)
             except Exception as exc:
                 logger.warning("VIX pre-check skipped: %s", exc)
+
+            # The morning video is about the day ahead, the evening one about
+            # the day that happened. Same pipeline, deliberately different story.
+            if self.slot == "premarket":
+                premarket = self._premarket_narrative()
+                if premarket:
+                    market_narrative += "\n\n" + premarket
             state.mark_done("scrape_market")
 
             # ── Step 2: Scrape earnings ────────────────────────────────────
@@ -336,8 +415,12 @@ class WeekdayScheduler:
             from generators.title_gen import generate_title_set
             title_set = generate_title_set(
                 topic=script.title_draft,
-                key_stat=f"S&P {market.sp500.change_pct:+.2f}%",
-                video_type="weekday_recap",
+                # A pre-market video headlined with yesterday's close is the
+                # duplicate-video problem wearing a different hat. Lead the
+                # morning on futures when they were fetched.
+                key_stat=self._headline_stat(market),
+                video_type=("weekday_premarket" if self.slot == "premarket"
+                            else "weekday_recap"),
                 script_summary=script.script[:500],
             )
             title = title_set.winner.title

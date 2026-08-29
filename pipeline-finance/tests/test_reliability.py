@@ -1277,3 +1277,165 @@ class TestRegisteredJobsCheck:
                           CronTrigger(**CONTENT_SLOTS[slot]),
                           id=slot, args=[name], name=slot)
         assert len(sched.get_jobs()) == 2
+
+
+# ── Pre-market slot uses pre-market data ─────────────────────────────────────
+
+_PREMARKET = {
+    "futures": {
+        "ES=F": {"name": "S&P 500 E-mini", "change_pct": 0.42, "direction": "up"},
+        "NQ=F": {"name": "Nasdaq 100 E-mini", "change_pct": 0.91, "direction": "up"},
+        "YM=F": {"name": "Dow Jones E-mini", "change_pct": 0.11, "direction": "up"},
+    },
+    "futures_direction": "up",
+    "top_movers": [{"symbol": "NVDA", "change_pct": 4.2},
+                   {"symbol": "TSLA", "change_pct": -2.1}],
+}
+
+
+def _fake_market(change_pct=0.66):
+    from types import SimpleNamespace
+    return SimpleNamespace(sp500=SimpleNamespace(change_pct=change_pct))
+
+
+class TestPreMarketNarrative:
+    """
+    MarketScraper.get_premarket_data() existed from the start with no
+    callers, so the 8am video was built from regular-session data — the same
+    numbers the 5:15pm video uses. Two videos a day telling one story is not
+    two videos, and under YouTube's inauthentic-content policy it is a
+    liability rather than twice the output.
+    """
+
+    @staticmethod
+    def _scheduler(slot, premarket=_PREMARKET, error=None):
+        from scheduler.weekday_scheduler import WeekdayScheduler
+        scheduler = WeekdayScheduler(slot=slot)
+        patcher = patch("scrapers.market_scraper.MarketScraper")
+        mock = patcher.start()
+        if error:
+            mock.return_value.get_premarket_data.side_effect = error
+        else:
+            mock.return_value.get_premarket_data.return_value = premarket
+        return scheduler, patcher
+
+    def test_futures_reach_the_script_context(self):
+        scheduler, patcher = self._scheduler("premarket")
+        try:
+            narrative = scheduler._premarket_narrative()
+            assert "S&P 500 E-mini +0.42%" in narrative
+            assert "Nasdaq 100 E-mini +0.91%" in narrative
+        finally:
+            patcher.stop()
+
+    def test_overnight_movers_reach_the_script_context(self):
+        scheduler, patcher = self._scheduler("premarket")
+        try:
+            narrative = scheduler._premarket_narrative()
+            assert "NVDA +4.20%" in narrative and "TSLA -2.10%" in narrative
+        finally:
+            patcher.stop()
+
+    def test_the_script_is_told_not_to_write_a_recap(self):
+        """Without this it produces yesterday's recap over futures numbers."""
+        scheduler, patcher = self._scheduler("premarket")
+        try:
+            narrative = scheduler._premarket_narrative()
+            assert "PRE-MARKET video" in narrative
+            assert "do not write a recap" in narrative.lower()
+        finally:
+            patcher.stop()
+
+    def test_a_dead_futures_feed_does_not_stop_the_publish(self):
+        """Futures at 8am are worth having, not worth missing a publish over."""
+        scheduler, patcher = self._scheduler("premarket", error=RuntimeError("feed down"))
+        try:
+            assert scheduler._premarket_narrative() == ""
+        finally:
+            patcher.stop()
+
+    def test_empty_futures_and_movers_yield_nothing(self):
+        scheduler, patcher = self._scheduler(
+            "premarket", premarket={"futures": {}, "top_movers": []})
+        try:
+            assert scheduler._premarket_narrative() == ""
+        finally:
+            patcher.stop()
+
+
+class TestHeadlineStatBySlot:
+    def test_the_morning_title_leads_on_futures(self):
+        """
+        A pre-market video headlined with yesterday's close is the
+        duplicate-video problem wearing a different hat.
+        """
+        from scheduler.weekday_scheduler import WeekdayScheduler
+        scheduler = WeekdayScheduler(slot="premarket")
+        with patch("scrapers.market_scraper.MarketScraper") as mock:
+            mock.return_value.get_premarket_data.return_value = _PREMARKET
+            scheduler._premarket_narrative()
+        # The largest futures move, not the S&P close.
+        assert scheduler._headline_stat(_fake_market()) == "Nasdaq 100 E-mini +0.91%"
+
+    def test_the_evening_title_leads_on_the_close(self):
+        from scheduler.weekday_scheduler import WeekdayScheduler
+        scheduler = WeekdayScheduler(slot="postmarket")
+        assert scheduler._headline_stat(_fake_market()) == "S&P +0.66%"
+
+    def test_the_evening_slot_never_fetches_futures(self):
+        """Futures are meaningless in a video published after the close."""
+        from scheduler.weekday_scheduler import WeekdayScheduler
+        scheduler = WeekdayScheduler(slot="postmarket")
+        with patch("scrapers.market_scraper.MarketScraper") as mock:
+            mock.return_value.get_premarket_data.side_effect = AssertionError("called")
+            scheduler._headline_stat(_fake_market())
+
+    def test_a_resumed_run_falls_back_to_the_close(self):
+        """A resumed run skips the scrape, so there are no futures to lead on."""
+        from scheduler.weekday_scheduler import WeekdayScheduler
+        scheduler = WeekdayScheduler(slot="premarket")
+        assert scheduler._headline_stat(_fake_market()) == "S&P +0.66%"
+
+    def test_unusable_futures_fall_back_to_the_close(self):
+        from scheduler.weekday_scheduler import WeekdayScheduler
+        scheduler = WeekdayScheduler(slot="premarket")
+        scheduler._premarket = {"futures": {"ES=F": {"change_pct": "not a number"}}}
+        assert scheduler._headline_stat(_fake_market()) == "S&P +0.66%"
+
+    def test_a_broken_market_object_still_yields_a_stat(self):
+        from scheduler.weekday_scheduler import WeekdayScheduler
+        scheduler = WeekdayScheduler(slot="postmarket")
+        assert scheduler._headline_stat(object()) == "market move"
+
+
+class TestSlotsProduceDifferentVideos:
+    def test_only_the_morning_slot_adds_pre_market_context(self):
+        import inspect
+        from scheduler.weekday_scheduler import WeekdayScheduler
+        source = inspect.getsource(WeekdayScheduler.run)
+        assert 'self.slot == "premarket"' in source
+        assert "_premarket_narrative()" in source
+
+    def test_the_title_type_differs_by_slot(self):
+        import inspect
+        from scheduler.weekday_scheduler import WeekdayScheduler
+        source = inspect.getsource(WeekdayScheduler.run)
+        assert "weekday_premarket" in source and "weekday_recap" in source
+
+    def test_the_new_slot_name_routes_to_the_main_title_prompt(self):
+        """
+        title_gen routes on substrings with an else fallback. Passing a new
+        video_type is only safe while that name matches none of the special
+        branches — otherwise the pre-market video would be titled as a Short.
+        """
+        import inspect as _inspect
+        from generators import title_gen
+        router = _inspect.getsource(title_gen._generate_title_candidates) \
+            if hasattr(title_gen, "_generate_title_candidates") else ""
+        vtype = "weekday_premarket".lower()
+        assert "short" not in vtype, "would route to the Shorts prompt"
+        assert "sunday" not in vtype and "education" not in vtype, \
+            "would route to the Sunday prompt"
+        if router:
+            assert 'if "short" in vtype' in router, \
+                "title routing changed — recheck that weekday_premarket still falls through"
