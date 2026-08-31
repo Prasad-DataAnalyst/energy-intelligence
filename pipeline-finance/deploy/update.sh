@@ -37,6 +37,9 @@ BRANCH="${BRANCH:-claude/driftwire326-youtube-automation-h8zkx8}"
 INSTALL_DIR="${INSTALL_DIR:-/opt/driftwire326}"
 APP_DIR="$INSTALL_DIR/pipeline-finance"
 SERVICE_USER="${SERVICE_USER:-driftwire}"
+# How long to wait for an in-flight video build before giving up on
+# restarting. A long-form build takes a few minutes on this instance.
+BUILD_WAIT_MINUTES="${BUILD_WAIT_MINUTES:-15}"
 BACKUP_DIR="$INSTALL_DIR/.credentials-backup"
 
 echo "── Backing up credentials ─────────────────────────────────────────────"
@@ -119,10 +122,35 @@ AFTER_SHA="$("${GIT[@]}" rev-parse HEAD 2>/dev/null || echo none)"
 # pipeline is running, which makes this both simpler and accurate.
 SCHED_PID="$(systemctl show -p MainPID --value driftwire326 2>/dev/null || echo 0)"
 if [ "${SCHED_PID:-0}" -gt 0 ] 2>/dev/null && pgrep -P "$SCHED_PID" >/dev/null 2>&1; then
-    echo "   ⚠️  a pipeline is building right now — restarting would kill it"
-    echo "      the code is updated and takes effect on the next scheduled run."
-    echo "      to apply it immediately once the build finishes:"
-    echo "        sudo systemctl restart driftwire326"
+    # Wait it out rather than refusing and handing back a restart command.
+    # Printing "run systemctl restart yourself" invites exactly the thing the
+    # guard exists to prevent: the operator runs it immediately and kills the
+    # build anyway. Waiting is what they actually wanted.
+    echo "   a pipeline is building — waiting for it to finish (up to ${BUILD_WAIT_MINUTES}m)"
+    waited=0
+    while [ "$waited" -lt "$((BUILD_WAIT_MINUTES * 2))" ]; do
+        sleep 30
+        waited=$((waited + 1))
+        if ! pgrep -P "$SCHED_PID" >/dev/null 2>&1; then
+            break
+        fi
+        if [ $((waited % 4)) -eq 0 ]; then
+            echo "      still building… ${waited}0s elapsed"
+        fi
+    done
+    if pgrep -P "$SCHED_PID" >/dev/null 2>&1; then
+        echo "   ⚠️  still building after ${BUILD_WAIT_MINUTES}m — leaving the daemon alone."
+        echo "      The code is updated and takes effect on the next scheduled run."
+        echo "      Do NOT run 'systemctl restart' until the build finishes or you"
+        echo "      will lose that video."
+    else
+        echo "   build finished — restarting now"
+        systemctl restart driftwire326 2>/dev/null || true
+        sleep 8
+        state=$(systemctl is-active driftwire326 2>/dev/null || true)
+        [ "$state" = "active" ] && echo "   ✅ scheduler active" \
+            || echo "   ❌ scheduler is '$state' after restart"
+    fi
 elif [ "$BEFORE_SHA" = "$AFTER_SHA" ]; then
     echo "   already at $AFTER_SHA — nothing changed, leaving the scheduler alone"
 elif ! systemctl restart driftwire326 2>/dev/null; then
