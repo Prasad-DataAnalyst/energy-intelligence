@@ -1500,3 +1500,67 @@ class TestJobTableStaysCurrent:
                           side_effect=RuntimeError("boom")):
             master_scheduler.run_heartbeat()      # must not raise
         assert (settings.logs_dir / "heartbeat.log").exists()
+
+
+class TestHeadlineStatIsWorthSaying:
+    """
+    The first pre-market video published with the title "Stocks Rotate Hard
+    Into Comms | S&P 500 E-mini +0.00%". It took the largest futures move
+    without checking it was a move at all, so the headline advertised that
+    nothing had happened.
+    """
+
+    @staticmethod
+    def _scheduler(premarket, slot="premarket"):
+        from scheduler.weekday_scheduler import WeekdayScheduler
+        scheduler = WeekdayScheduler(slot=slot)
+        scheduler._premarket = premarket
+        return scheduler
+
+    @staticmethod
+    def _market(change_pct=0.66):
+        from types import SimpleNamespace
+        return SimpleNamespace(sp500=SimpleNamespace(change_pct=change_pct))
+
+    def test_flat_futures_never_become_the_headline(self):
+        stat = self._scheduler({
+            "futures": {"ES=F": {"name": "S&P 500 E-mini", "change_pct": 0.004}},
+            "top_movers": [{"symbol": "NVDA", "change_pct": 3.8}],
+        })._headline_stat(self._market())
+        assert "0.00%" not in stat
+        assert stat == "NVDA +3.80%"
+
+    def test_moving_futures_are_used(self):
+        stat = self._scheduler({
+            "futures": {"ES=F": {"name": "S&P 500 E-mini", "change_pct": 0.42},
+                        "NQ=F": {"name": "Nasdaq 100 E-mini", "change_pct": 0.91}},
+            "top_movers": [{"symbol": "NVDA", "change_pct": 3.8}],
+        })._headline_stat(self._market())
+        assert stat == "Nasdaq 100 E-mini +0.91%"
+
+    def test_a_genuinely_flat_session_says_so(self):
+        """Better than a number that reads as broken."""
+        stat = self._scheduler({
+            "futures": {"ES=F": {"name": "S&P 500 E-mini", "change_pct": 0.01}},
+            "top_movers": [{"symbol": "AAPL", "change_pct": 0.05}],
+        })._headline_stat(self._market(0.02))
+        assert stat == "S&P flat"
+
+    def test_the_evening_slot_also_refuses_a_zero(self):
+        stat = self._scheduler({}, slot="postmarket")._headline_stat(self._market(0.01))
+        assert "0.01%" not in stat and stat == "S&P flat"
+
+    def test_a_real_close_is_still_used(self):
+        stat = self._scheduler({}, slot="postmarket")._headline_stat(self._market(0.66))
+        assert stat == "S&P +0.66%"
+
+    def test_unparseable_data_falls_through_safely(self):
+        stat = self._scheduler({
+            "futures": {"ES=F": {"name": "x", "change_pct": "not a number"}},
+            "top_movers": [],
+        })._headline_stat(self._market())
+        assert stat == "S&P +0.66%"
+
+    def test_the_threshold_is_meaningful(self):
+        from scheduler.weekday_scheduler import MIN_HEADLINE_MOVE_PCT
+        assert 0 < MIN_HEADLINE_MOVE_PCT < 1

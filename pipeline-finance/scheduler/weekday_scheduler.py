@@ -52,24 +52,51 @@ class WeekdayScheduler:
         # builder treats as "no futures, use the recap framing".
         self._premarket = None
 
+    @staticmethod
+    def _biggest_move(entries, name_key: str):
+        """(label, percent) for the largest absolute move, or None."""
+        best = None
+        for entry in entries or []:
+            try:
+                pct = float(entry.get("change_pct", 0) or 0)
+            except (TypeError, ValueError):
+                continue
+            if best is None or abs(pct) > abs(best[1]):
+                best = (str(entry.get(name_key) or "Markets"), pct)
+        return best
+
     def _headline_stat(self, market) -> str:
         """
         The number the title hangs on: futures for the morning, the close
-        for the evening. Falls back to the close whenever futures were not
-        fetched — a resumed run, or a morning where the feed was down.
+        for the evening.
+
+        A move has to be big enough to be worth saying. The first
+        pre-market video went out titled "S&P 500 E-mini +0.00%" — taking
+        the largest futures move without checking it was a move at all, so
+        the headline advertised that nothing happened. When futures are
+        flat the story is whichever name is actually moving, and if nothing
+        is, the honest headline is that the session is flat rather than a
+        number that reads as broken.
         """
-        futures = (self._premarket or {}).get("futures") or {}
-        if self.slot == "premarket" and futures:
-            try:
-                lead = max(futures.values(),
-                           key=lambda f: abs(float(f.get("change_pct", 0) or 0)))
-                return f"{lead.get('name', 'Futures')} {float(lead['change_pct']):+.2f}%"
-            except (TypeError, ValueError, KeyError) as exc:
-                logger.warning("Futures headline unavailable: %s", exc)
+        premarket = self._premarket or {}
+        if self.slot == "premarket":
+            lead = self._biggest_move(premarket.get("futures", {}).values(), "name")
+            if lead and abs(lead[1]) >= MIN_HEADLINE_MOVE_PCT:
+                return f"{lead[0]} {lead[1]:+.2f}%"
+            # Futures going nowhere is not a headline; a name moving is.
+            mover = self._biggest_move(premarket.get("top_movers", []), "symbol")
+            if mover and abs(mover[1]) >= MIN_HEADLINE_MOVE_PCT:
+                return f"{mover[0]} {mover[1]:+.2f}%"
+            if lead:
+                logger.info("Futures flat (%+.2f%%) — headline falls back to the close",
+                            lead[1])
         try:
-            return f"S&P {market.sp500.change_pct:+.2f}%"
+            change = float(market.sp500.change_pct)
         except Exception:
             return "market move"
+        if abs(change) < MIN_HEADLINE_MOVE_PCT:
+            return "S&P flat"
+        return f"S&P {change:+.2f}%"
 
     def _premarket_narrative(self) -> str:
         """
@@ -601,6 +628,10 @@ class WeekdayScheduler:
 # cleanly with its thumbnail, short enough that it is still the news it
 # was written about.
 PUBLISH_DELAY_MINUTES = 5
+
+# Below this, a percentage is not news. A title reading "+0.00%" advertises
+# that nothing happened, which is worse than carrying no number at all.
+MIN_HEADLINE_MOVE_PCT = 0.15
 
 
 def _next_publish_time() -> datetime:
