@@ -298,3 +298,68 @@ class TestTodaysSlots:
             status, _, detail, _ = health_report._check_todays_slots()
         assert status == health_report._WARN
         assert "manifest unreadable" in detail
+
+
+class TestAnalyticsPullIsAccountable:
+    """
+    run_analytics_pull swallowed every exception into a warning nobody
+    reads, and Performance, Format performance and the learning loop are
+    all built on it. It could fail every night for a week and the only
+    symptom would be numbers that never appear — which reads as "no data
+    yet" rather than "this is broken".
+    """
+
+    @staticmethod
+    def _with_state(tmp_path, state):
+        import json as _json
+        from config.settings import settings
+        from scheduler.master_scheduler import ANALYTICS_PULL_STATE
+        settings.logs_dir = tmp_path
+        (tmp_path / "analytics").mkdir(exist_ok=True)
+        if state is not None:
+            (tmp_path / ANALYTICS_PULL_STATE).write_text(_json.dumps(state))
+        from monitor import health_report
+        with patch("uploader.uploader.load_upload_manifest",
+                   return_value=[{"video_id": "a", "video_type": "weekday",
+                                  "uploaded_at": "2026-08-31T12:42:00"}]):
+            return health_report._check_format_performance()
+
+    def test_never_having_run_says_so(self, tmp_path):
+        _, _, detail, _ = self._with_state(tmp_path, None)
+        assert "has not recorded a run" in detail
+
+    def test_a_failing_pull_surfaces_its_error(self, tmp_path):
+        _, _, detail, _ = self._with_state(tmp_path, {
+            "at": "2026-08-30T21:30:00", "status": "failed",
+            "error": "403 The caller does not have permission"})
+        assert "FAILED" in detail and "403" in detail
+
+    def test_a_successful_empty_pull_is_explained(self, tmp_path):
+        """A new channel genuinely has no analytics — that is not a fault."""
+        _, _, detail, _ = self._with_state(tmp_path, {
+            "at": "2026-08-30T21:30:00", "status": "ok", "videos": 0})
+        assert "ran at" in detail and "nothing yet" in detail
+
+    def test_the_pull_records_success(self, tmp_path):
+        import json as _json
+        from config.settings import settings
+        from scheduler import master_scheduler
+        settings.logs_dir = tmp_path
+        with patch("channel_manager.analytics_tracker.AnalyticsTracker") as mock:
+            mock.return_value.run_daily_pull.return_value = [1, 2, 3]
+            master_scheduler.run_analytics_pull()
+        state = _json.loads(
+            (tmp_path / master_scheduler.ANALYTICS_PULL_STATE).read_text())
+        assert state["status"] == "ok" and state["videos"] == 3
+
+    def test_the_pull_records_its_own_failure(self, tmp_path):
+        import json as _json
+        from config.settings import settings
+        from scheduler import master_scheduler
+        settings.logs_dir = tmp_path
+        with patch("channel_manager.analytics_tracker.AnalyticsTracker") as mock:
+            mock.return_value.run_daily_pull.side_effect = RuntimeError("403 denied")
+            master_scheduler.run_analytics_pull()      # must not raise
+        state = _json.loads(
+            (tmp_path / master_scheduler.ANALYTICS_PULL_STATE).read_text())
+        assert state["status"] == "failed" and "403" in state["error"]

@@ -263,6 +263,27 @@ def _check_performance() -> tuple[str, str, str, list[str]]:
     return _OK, "Performance", detail, lines
 
 
+def _analytics_pull_note() -> str:
+    """What the last analytics pull actually did, for the warning above."""
+    import json as _json
+    try:
+        from scheduler.master_scheduler import ANALYTICS_PULL_STATE
+        path = settings.logs_dir / ANALYTICS_PULL_STATE
+        if not path.exists():
+            return ("the daily pull has not recorded a run yet "
+                    "(it runs 21:30 ET; if it has already passed, it is failing "
+                    "before it can report)")
+        outcome = _json.loads(path.read_text(encoding="utf-8"))
+        when = (outcome.get("at") or "")[:16]
+        if outcome.get("status") == "failed":
+            return f"the pull FAILED at {when}: {outcome.get('error', '')[:120]}"
+        return (f"the pull ran at {when} and returned "
+                f"{outcome.get('videos', 0)} video(s) — YouTube Analytics has "
+                "nothing yet for a channel this new")
+    except Exception:
+        return "the pull's status could not be read"
+
+
 def _check_format_performance(days: int = 60) -> tuple[str, str, str, list[str]]:
     """
     Views per video by format, which is the question the publishing mix
@@ -309,8 +330,13 @@ def _check_format_performance(days: int = 60) -> tuple[str, str, str, list[str]]
             continue
 
     if not latest:
+        # Distinguish "the job has not run" from "it ran and found nothing".
+        # Everything downstream of this — performance, format comparison,
+        # the learning loop — reads as "no data yet" either way, which is
+        # how a job failing every night looks exactly like a young channel.
         return (_WARN, "Format performance",
-                f"no analytics in the last {days} days", [])
+                f"no analytics in the last {days} days — {_analytics_pull_note()}",
+                [])
 
     grouped: dict[str, list[dict]] = defaultdict(list)
     for video_id, entry in latest.items():

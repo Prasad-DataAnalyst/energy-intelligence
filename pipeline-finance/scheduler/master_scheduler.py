@@ -214,13 +214,35 @@ def run_deadman_check() -> None:
         logger.error("Dead-man check failed: %s", exc)
 
 
+ANALYTICS_PULL_STATE = "analytics_last_pull.json"
+
+
 def run_analytics_pull() -> None:
-    """21:30 ET daily — pull video stats via YouTube Analytics API."""
+    """
+    21:30 ET daily — pull video stats via YouTube Analytics API.
+
+    Records what happened. This job swallowed every exception into a
+    warning nobody reads, and it is what Performance, Format performance
+    and the whole learning loop are built on — so it could fail every night
+    for a week and the only symptom would be numbers that never appear,
+    which reads as "no data yet" rather than "this is broken".
+    """
+    import json as _json
+    outcome = {"at": datetime.now().isoformat(timespec="seconds")}
     try:
         from channel_manager.analytics_tracker import AnalyticsTracker
-        AnalyticsTracker().run_daily_pull()
+        stats = AnalyticsTracker().run_daily_pull()
+        outcome.update(status="ok", videos=len(stats or []))
+        logger.info("Analytics pull: %d video stats", outcome["videos"])
     except Exception as exc:
-        logger.warning("Analytics pull failed: %s", exc)
+        outcome.update(status="failed", error=str(exc)[:300])
+        logger.error("Analytics pull FAILED: %s", exc)
+    try:
+        settings.logs_dir.mkdir(parents=True, exist_ok=True)
+        (settings.logs_dir / ANALYTICS_PULL_STATE).write_text(
+            _json.dumps(outcome, indent=2), encoding="utf-8")
+    except Exception as exc:
+        logger.debug("Could not record analytics pull outcome: %s", exc)
 
 
 def run_comment_check() -> None:
