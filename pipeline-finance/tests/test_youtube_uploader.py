@@ -340,3 +340,84 @@ class TestReleasingStuckVideos:
         source = inspect.getsource(YouTubeUploader.publish_now)
         assert '"publishAt": None' in source
         assert '"privacyStatus": "public"' in source
+
+
+class TestVisibilityIsMonitored:
+    """
+    The health report said "healthy — publishing normally" for days while
+    four of six videos sat private. Every check upstream of this one asks
+    whether the machine ran, not whether anything reached an audience — and
+    an upload that never becomes visible is indistinguishable from no
+    upload at all.
+    """
+
+    MANIFEST = [
+        {"video_id": "a", "title": "public one", "uploaded_at": "2026-08-28T12:00:00"},
+        {"video_id": "b", "title": "stuck private", "uploaded_at": "2026-08-30T15:48:00"},
+    ]
+
+    @staticmethod
+    def _run(statuses, manifest=None):
+        from monitor import health_report
+        with patch("uploader.uploader.load_upload_manifest",
+                   return_value=manifest if manifest is not None
+                   else TestVisibilityIsMonitored.MANIFEST), \
+             patch("uploader.uploader.YouTubeUploader") as MockUploader, \
+             patch("uploader.quota_tracker.QuotaTracker"):
+            MockUploader.return_value.verify_upload_status.side_effect = \
+                lambda vid: {"video_id": vid, **statuses[vid]}
+            return health_report._check_video_visibility()
+
+    def test_a_private_video_fails_the_report(self):
+        from monitor import health_report
+        status, _, detail, lines = self._run(
+            {"a": {"privacy": "public"}, "b": {"privacy": "private"}})
+        assert status == health_report._FAIL
+        assert "NOT public" in detail
+        assert any("--publish-private" in line for line in lines)
+
+    def test_all_public_passes(self):
+        from monitor import health_report
+        status, _, _, _ = self._run(
+            {"a": {"privacy": "public"}, "b": {"privacy": "public"}})
+        assert status == health_report._OK
+
+    def test_a_deleted_video_warns_without_failing(self):
+        """Gone from YouTube is worth knowing, but not the same as invisible."""
+        from monitor import health_report
+        status, _, detail, _ = self._run(
+            {"a": {"privacy": "public"}, "b": {"status": "not_found"}})
+        assert status == health_report._WARN
+        assert "no longer exist" in detail
+
+    def test_youtube_being_unreachable_warns_rather_than_failing(self):
+        """A network blip is not the channel being empty."""
+        from monitor import health_report
+        status, _, detail, _ = self._run(
+            {"a": {"status": "error", "error": "quota exceeded"}, "b": {}})
+        assert status == health_report._WARN
+        assert "could not reach YouTube" in detail
+
+    def test_no_uploads_is_not_a_failure(self):
+        from monitor import health_report
+        status, _, _, _ = self._run({}, manifest=[])
+        assert status == health_report._OK
+
+    def test_the_check_is_part_of_the_report(self):
+        """Defined and actually called, not just present in the module."""
+        import inspect
+        from monitor import health_report
+        source = inspect.getsource(health_report)
+        assert source.count("_check_video_visibility") >= 2
+
+    def test_the_dead_man_switch_also_checks_visibility(self):
+        """
+        It confirmed an upload was recorded, not that anyone could see it —
+        the same blind spot that let four private videos look like a
+        healthy channel.
+        """
+        import inspect
+        from scheduler import deadman
+        source = inspect.getsource(deadman.check_todays_upload)
+        assert "_check_video_visibility" in source
+        assert "publish-private" in source

@@ -545,6 +545,67 @@ def verify_uploads(limit: int = 20) -> int:
     return hidden
 
 
+# How many recent uploads to confirm against YouTube. videos.list costs one
+# quota unit each, so five is free in practice against a 10,000/day budget.
+VISIBILITY_CHECK_COUNT = 5
+
+
+def _check_video_visibility() -> tuple[str, str, str, list[str]]:
+    """
+    Are the videos we uploaded actually visible to anyone?
+
+    This report said "healthy — publishing normally" for days while four of
+    six videos sat private, because every check upstream of this one asks
+    whether the machine ran, not whether anything reached an audience. An
+    upload that succeeds and never becomes visible is indistinguishable
+    from no upload at all, and it was the difference between a working
+    channel and an empty one.
+    """
+    try:
+        from uploader.uploader import load_upload_manifest, YouTubeUploader
+        from uploader.quota_tracker import QuotaTracker
+        records = list(reversed(load_upload_manifest() or []))[:VISIBILITY_CHECK_COUNT]
+    except Exception as exc:
+        return _WARN, "Video visibility", f"manifest unreadable: {exc}", []
+
+    if not records:
+        return _OK, "Video visibility", "no uploads recorded yet", []
+
+    try:
+        uploader = YouTubeUploader(QuotaTracker())
+    except Exception as exc:
+        return _WARN, "Video visibility", f"YouTube unavailable: {exc}", []
+
+    hidden, missing, checked = [], [], 0
+    for record in records:
+        video_id = record.get("video_id")
+        if not video_id:
+            continue
+        status = uploader.verify_upload_status(video_id)
+        privacy = status.get("privacy")
+        if privacy is None and status.get("status") == "error":
+            return (_WARN, "Video visibility",
+                    f"could not reach YouTube: {status.get('error', '')[:80]}", [])
+        checked += 1
+        title = (record.get("title") or "")[:40]
+        if status.get("status") == "not_found":
+            missing.append(f"   {video_id}  gone from YouTube — {title}")
+        elif privacy != "public":
+            hidden.append(f"   {video_id}  {privacy} — {title}")
+
+    if hidden:
+        return (_FAIL, "Video visibility",
+                f"{len(hidden)} of {checked} recent video(s) are NOT public — "
+                "nobody can see them",
+                hidden + missing + [
+                    "   fix: main.py --publish-private"])
+    if missing:
+        return (_WARN, "Video visibility",
+                f"{len(missing)} of {checked} recent video(s) no longer exist "
+                "on YouTube", missing)
+    return _OK, "Video visibility", f"all {checked} recent video(s) are public", []
+
+
 def _check_backups(stale_days: int = 10) -> tuple[str, str, str, list[str]]:
     """
     Is there a recent copy of the unrecoverable state, and is it anywhere
@@ -850,7 +911,7 @@ def run_health_report() -> int:
         _check_pipeline_states(), _check_uploads(),
         _check_claude_burn(), _check_optional_keys(), _check_backups(),
         _check_performance(), _check_format_performance(), _check_learning(),
-        _check_todays_slots()
+        _check_todays_slots(), _check_video_visibility()
     ):
         print(_line(status, label, detail))
         for line in lines:

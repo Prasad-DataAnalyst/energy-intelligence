@@ -77,10 +77,32 @@ def check_todays_upload(is_content_day: bool = True) -> bool:
 
     from scheduler.pipeline_state import todays_upload_recorded
     if todays_upload_recorded():
-        logger.info("Dead-man check OK — upload recorded for %s", date.today())
+        # An upload that never became visible is indistinguishable from no
+        # upload at all. The manifest only records that the API call
+        # succeeded, which is how four private videos passed this check for
+        # days while the channel stayed empty.
+        try:
+            from monitor.health_report import _check_video_visibility
+            status, _, detail, _ = _check_video_visibility()
+            from monitor.health_report import _FAIL as _VIS_FAIL
+            if status == _VIS_FAIL:
+                logger.error("Uploads recorded but not visible: %s", detail)
+                _send_email(
+                    f"[DriftWire326] UPLOADED BUT NOT PUBLIC — {date.today()}",
+                    f"An upload was recorded for {date.today()}, but the "
+                    f"video is not visible to anyone:\n\n{detail}\n\n"
+                    "This looks identical to a healthy day everywhere except "
+                    "here.\n\nFix:\n"
+                    "  main.py --publish-private\n")
+                return False
+        except Exception as exc:
+            logger.warning("Visibility check skipped in dead-man: %s", exc)
+
+        logger.info("Dead-man check OK — upload recorded and visible for %s",
+                    date.today())
         return True
 
-    # No upload today — gather diagnostic context for the alert
+    # Gather diagnostic context for the alert
     diagnostics: list[str] = []
     try:
         from scheduler.pipeline_state import PipelineState, state_files
