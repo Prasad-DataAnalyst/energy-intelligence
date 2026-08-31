@@ -1181,8 +1181,11 @@ class TestRegisteredJobsCheck:
         from scheduler.master_scheduler import REGISTERED_JOBS_FILE
         settings.logs_dir = tmp_path
         if jobs is not None:
+            # Current, not a fixed date: the check now flags a table that has
+            # not been refreshed recently, and a hardcoded stamp goes stale.
+            from datetime import datetime as _dt
             (tmp_path / REGISTERED_JOBS_FILE).write_text(_json.dumps(
-                {"written_at": "2026-08-29T12:00:00", "pid": pid, "jobs": jobs}))
+                {"written_at": _dt.now().isoformat(), "pid": pid, "jobs": jobs}))
         if heartbeat_pid:
             (tmp_path / "heartbeat.log").write_text(
                 f"[2026-08-29 12:42:00] PID={heartbeat_pid} | alive\n")
@@ -1439,3 +1442,61 @@ class TestSlotsProduceDifferentVideos:
         if router:
             assert 'if "short" in vtype' in router, \
                 "title routing changed — recheck that weekday_premarket still falls through"
+
+
+class TestJobTableStaysCurrent:
+    """
+    The table is a snapshot taken at daemon start. A daemon up since Friday
+    reported every fire time as of Friday, so the health report listed "next
+    run" times that had already passed and read as though nothing was
+    scheduled at all.
+    """
+
+    @staticmethod
+    def _write(tmp_path, age_minutes):
+        import json as _json
+        from datetime import datetime as _dt, timedelta as _td
+        from config.settings import settings
+        from scheduler.master_scheduler import CONTENT_SLOTS
+        settings.logs_dir = tmp_path
+        (tmp_path / "heartbeat.log").write_text(
+            "[HEARTBEAT] 2026-08-31 16:30:00 | PID=99 | alive\n")
+        (tmp_path / "registered_jobs.json").write_text(_json.dumps({
+            "written_at": (_dt.now() - _td(minutes=age_minutes)).isoformat(),
+            "pid": "99",
+            "jobs": [{"id": s, "name": s, "args": [],
+                      "next_run": "2026-09-01T08:00:00"} for s in CONTENT_SLOTS]}))
+
+    def test_a_recently_refreshed_table_is_ok(self, tmp_path):
+        from monitor import health_report
+        self._write(tmp_path, 12)
+        status, _, detail, _ = health_report._check_registered_jobs()
+        assert status == health_report._OK
+        assert "refreshed" in detail
+
+    def test_a_stale_table_is_flagged(self, tmp_path):
+        from monitor import health_report
+        self._write(tmp_path, 260)
+        status, _, detail, _ = health_report._check_registered_jobs()
+        assert status == health_report._WARN
+        assert "already passed" in detail
+
+    def test_the_heartbeat_refreshes_the_table(self):
+        import inspect
+        from scheduler import master_scheduler
+        source = inspect.getsource(master_scheduler.run_heartbeat)
+        assert "_write_registered_jobs" in source
+
+    def test_the_refresh_cannot_break_the_heartbeat(self):
+        """Liveness reporting must not depend on bookkeeping succeeding."""
+        from unittest.mock import patch
+        from config.settings import settings
+        from scheduler import master_scheduler
+        import tempfile
+        from pathlib import Path
+        settings.logs_dir = Path(tempfile.mkdtemp())
+        with patch.object(master_scheduler, "_LIVE_SCHEDULER", object()), \
+             patch.object(master_scheduler, "_write_registered_jobs",
+                          side_effect=RuntimeError("boom")):
+            master_scheduler.run_heartbeat()      # must not raise
+        assert (settings.logs_dir / "heartbeat.log").exists()

@@ -157,6 +157,16 @@ def run_heartbeat() -> None:
         f.write(f"[HEARTBEAT] {ts} | PID={os.getpid()} | scheduler alive\n")
     logger.debug("Heartbeat logged at %s", ts)
 
+    # Refresh the job table while we are here. Written once at startup it
+    # goes stale immediately — a daemon up since Friday reports every fire
+    # time as of Friday, so the health report shows "next run" times that
+    # have already passed and reads as though nothing is scheduled.
+    if _LIVE_SCHEDULER is not None:
+        try:
+            _write_registered_jobs(_LIVE_SCHEDULER)
+        except Exception as exc:
+            logger.debug("Job table refresh skipped: %s", exc)
+
 
 def run_monitor_check() -> None:
     """Hourly monitor check — performance alerts."""
@@ -262,6 +272,10 @@ CONTENT_SLOT_NAMES: dict[str, str] = {
 
 REGISTERED_JOBS_FILE = "registered_jobs.json"
 
+# The running scheduler, so periodic jobs can read the live job table. Set
+# once at startup; None in any other process.
+_LIVE_SCHEDULER = None
+
 
 def _write_registered_jobs(scheduler) -> None:
     """
@@ -355,6 +369,8 @@ def start_scheduler() -> None:
         logger.warning("Startup heartbeat failed: %s", exc)
 
     scheduler = BlockingScheduler(timezone=tz)
+    global _LIVE_SCHEDULER
+    _LIVE_SCHEDULER = scheduler
 
     # ── Weekday jobs ──────────────────────────────────────────────────────
     # Pre-market recap (8 AM ET, Mon–Fri)

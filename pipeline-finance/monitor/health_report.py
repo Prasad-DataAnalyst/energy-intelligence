@@ -798,9 +798,26 @@ def _check_registered_jobs() -> tuple[str, str, str, list[str]]:
         + (f"  args={job['args']}" if job.get("args") else "")
         for slot, job in ((s, registered[s]) for s in CONTENT_SLOTS)
     ]
+
+    # The table is a snapshot. The heartbeat refreshes it every 30 minutes,
+    # so anything much older than that means the refresh is not running and
+    # these fire times are history rather than schedule.
+    age_note = ""
+    try:
+        written = datetime.fromisoformat(data["written_at"])
+        age_minutes = (datetime.now() - written).total_seconds() / 60
+        if age_minutes > 90:
+            return (_WARN, "Registered jobs",
+                    f"{len(registered)} live, all content slots covered — but "
+                    f"the table was last refreshed {age_minutes / 60:.0f}h ago, "
+                    "so these fire times have already passed", lines)
+        age_note = f", refreshed {age_minutes:.0f}m ago"
+    except Exception:
+        pass
+
     return (_OK, "Registered jobs",
             f"{len(registered)} live in the daemon, all {len(CONTENT_SLOTS)} "
-            "content slots covered", lines)
+            f"content slots covered{age_note}", lines)
 
 
 def _current_daemon_pid() -> "str | None":
