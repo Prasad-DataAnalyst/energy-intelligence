@@ -151,3 +151,93 @@ class TestQuotaTrackerNewMethods:
         qt._state.remaining = 8000
         result = qt.alert_low_quota(threshold=2000)
         assert result is False
+
+
+# ── Videos have to actually become visible ───────────────────────────────────
+
+class TestUploadsBecomeVisible:
+    """
+    The manifest records that an upload call succeeded. It says nothing
+    about whether the video ever became visible — which is the difference
+    between "we published four videos" and "the channel is empty".
+    """
+
+    @staticmethod
+    def _status(**kwargs):
+        from uploader.uploader import UploadConfig
+        base = dict(title="t", description="d", tags=[], privacy="private")
+        base.update(kwargs)
+        return UploadConfig(**base).to_youtube_body()["status"]
+
+    def test_no_publish_time_means_private_forever(self):
+        """
+        This is what shipped: UploadConfig falls through to privacy
+        "private" and leaves it there, with nothing to ever flip it public.
+        """
+        status = self._status()
+        assert status["privacyStatus"] == "private"
+        assert "publishAt" not in status
+
+    def test_a_publish_time_schedules_the_video(self):
+        from datetime import datetime, timedelta, timezone
+        status = self._status(
+            publish_at=datetime.now(timezone.utc) + timedelta(minutes=2))
+        assert status["publishAt"]
+        # YouTube requires private at upload when publishAt is set.
+        assert status["privacyStatus"] == "private"
+
+    def test_shorts_are_uploaded_with_a_publish_time(self):
+        """
+        The Shorts pipeline called upload_short without one, so every Short
+        went up invisible and stayed that way.
+        """
+        import inspect
+        from scheduler import short_pipeline
+        source = inspect.getsource(short_pipeline.run_themed_short)
+        assert "upload_short(" in source
+        upload_call = source[source.index("upload_short("):]
+        assert "publish_at=" in upload_call[:400], \
+            "Shorts must be given a publish time or they stay private forever"
+
+
+class TestVerifyUploads:
+    def test_hidden_videos_are_counted_and_reported(self, capsys):
+        from monitor import health_report
+        manifest = [
+            {"video_id": "pub1", "title": "public one",
+             "uploaded_at": "2026-08-28T12:00:00"},
+            {"video_id": "priv1", "title": "stuck private",
+             "uploaded_at": "2026-08-28T18:00:00"},
+        ]
+        statuses = {
+            "pub1": {"video_id": "pub1", "privacy": "public",
+                     "processing_status": "succeeded"},
+            "priv1": {"video_id": "priv1", "privacy": "private",
+                      "processing_status": "succeeded"},
+        }
+        with patch("uploader.uploader.load_upload_manifest", return_value=manifest), \
+             patch("uploader.uploader.YouTubeUploader") as MockUploader, \
+             patch("uploader.quota_tracker.QuotaTracker"):
+            MockUploader.return_value.verify_upload_status.side_effect = \
+                lambda vid: statuses[vid]
+            hidden = health_report.verify_uploads()
+        assert hidden == 1
+        out = capsys.readouterr().out
+        assert "NOT publicly visible" in out
+        assert "priv1" in out
+
+    def test_all_public_reports_clean(self, capsys):
+        from monitor import health_report
+        manifest = [{"video_id": "a", "title": "t", "uploaded_at": "2026-08-28T12:00:00"}]
+        with patch("uploader.uploader.load_upload_manifest", return_value=manifest), \
+             patch("uploader.uploader.YouTubeUploader") as MockUploader, \
+             patch("uploader.quota_tracker.QuotaTracker"):
+            MockUploader.return_value.verify_upload_status.return_value = {
+                "video_id": "a", "privacy": "public", "processing_status": "succeeded"}
+            assert health_report.verify_uploads() == 0
+        assert "are public" in capsys.readouterr().out
+
+    def test_an_empty_manifest_is_not_an_error(self, capsys):
+        from monitor import health_report
+        with patch("uploader.uploader.load_upload_manifest", return_value=[]):
+            assert health_report.verify_uploads() == 0

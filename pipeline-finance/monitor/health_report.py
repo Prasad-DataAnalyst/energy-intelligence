@@ -451,6 +451,62 @@ def _check_todays_slots() -> tuple[str, str, str, list[str]]:
             f"all {len(due)} slot(s) due today published", [])
 
 
+def verify_uploads(limit: int = 20) -> int:
+    """
+    Ask YouTube what actually happened to each video we recorded uploading.
+
+    The manifest only records that an upload call succeeded. It says nothing
+    about whether the video went public, is still processing, was rejected,
+    or is sitting private forever — which is the difference between "we
+    published four videos" and "the channel is empty". verify_upload_status
+    has existed since the beginning and was never called by anything.
+
+    Returns the number of videos that are not publicly visible.
+    """
+    try:
+        from uploader.uploader import load_upload_manifest, YouTubeUploader
+        from uploader.quota_tracker import QuotaTracker
+    except Exception as exc:
+        print(f"{_FAIL} Cannot load the uploader: {exc}")
+        return 0
+
+    records = list(reversed(load_upload_manifest() or []))[:limit]
+    if not records:
+        print("No uploads recorded in the manifest.")
+        return 0
+
+    print("═" * 66)
+    print(f"  UPLOAD VERIFICATION — {len(records)} most recent")
+    print("═" * 66)
+    print()
+
+    uploader = YouTubeUploader(QuotaTracker())
+    hidden = 0
+    for record in records:
+        video_id = record.get("video_id")
+        if not video_id:
+            continue
+        status = uploader.verify_upload_status(video_id)
+        privacy = status.get("privacy")
+        mark = _OK if privacy == "public" else _FAIL
+        if privacy != "public":
+            hidden += 1
+        title = (record.get("title") or "")[:44]
+        print(f"{mark} {video_id}  {privacy or status.get('status', '?'):<10} "
+              f"{status.get('processing_status') or status.get('upload_status') or '':<12} {title}")
+        print(f"     https://youtu.be/{video_id}   uploaded {record.get('uploaded_at', '?')[:16]}")
+
+    print()
+    if hidden:
+        print(f"{_FAIL} {hidden} of {len(records)} video(s) are NOT publicly visible.")
+        print("     'private' with no scheduled publish time means it will stay")
+        print("     that way — nobody can see it and it earns nothing.")
+    else:
+        print(f"{_OK} All {len(records)} video(s) are public.")
+    print()
+    return hidden
+
+
 def _check_backups(stale_days: int = 10) -> tuple[str, str, str, list[str]]:
     """
     Is there a recent copy of the unrecoverable state, and is it anywhere

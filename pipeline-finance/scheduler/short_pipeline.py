@@ -14,7 +14,7 @@ Each Short: Claude script (5-card format, 75–110 words) → compliance filter 
 ShortsBuilder video → quota-gated upload → playlist routing + manifest.
 """
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from config.settings import settings
@@ -254,8 +254,14 @@ def run_themed_short(weekday: Optional[int] = None, upload: bool = True) -> Opti
             return None
 
         today = date.today().strftime("%b %d")
+        # Without a publish time UploadConfig falls through to privacy
+        # "private" and leaves it there — every Short uploaded before this
+        # went up invisible and stayed that way. Shorts are timely, so they
+        # publish immediately rather than being scheduled like the long-form
+        # videos.
         result = uploader.upload_short(
             video_path=video_path,
+            publish_at=datetime.now(timezone.utc) + timedelta(minutes=2),
             title=f"{theme['title']} — {today}",
             description=(
                 f"{theme['name']} | DriftWire326\n\n"
