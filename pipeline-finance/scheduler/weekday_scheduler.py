@@ -597,19 +597,24 @@ class WeekdayScheduler:
         )
 
 
+# Long enough for YouTube to finish processing so the video goes live
+# cleanly with its thumbnail, short enough that it is still the news it
+# was written about.
+PUBLISH_DELAY_MINUTES = 5
+
+
 def _next_publish_time() -> datetime:
-    """Return the next optimal publish slot (5 PM ET same day or next weekday)."""
-    from zoneinfo import ZoneInfo
-    now = datetime.now(ZoneInfo(settings.timezone))
-    target_hour = 17
-    candidate = now.replace(hour=target_hour, minute=0, second=0, microsecond=0)
-    if now.hour >= target_hour:
-        # Already past 5PM — push to 8AM next day
-        candidate = (candidate + timedelta(days=1)).replace(hour=8)
-        # Skip weekends
-        while candidate.weekday() >= 5:
-            candidate += timedelta(days=1)
-    return candidate.astimezone(timezone.utc)
+    """
+    Publish shortly after the build finishes.
+
+    This used to schedule everything for 5 PM ET, pushing to 8 AM the next
+    weekday if it was already past. That predates the current slots and had
+    stopped making sense: the slot times ARE the publishing schedule, so
+    scheduling a second time on top of them only moves the video away from
+    the moment it was written for. The pre-market video, built at 08:00 to
+    say what is at stake today, was going live at 17:00 after the close.
+    """
+    return datetime.now(timezone.utc) + timedelta(minutes=PUBLISH_DELAY_MINUTES)
 
 
 def _build_tags(market) -> list[str]:

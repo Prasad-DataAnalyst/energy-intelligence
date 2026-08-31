@@ -317,12 +317,17 @@ class SundayScheduler:
 
                 quota = QuotaTracker()
                 if quota.can_upload():
-                    # Publish Sunday at 11AM ET
-                    now = datetime.now(ZoneInfo(settings.timezone))
-                    publish_at = now.replace(hour=11, minute=0, second=0, microsecond=0)
-                    if now.hour >= 11:
-                        publish_at += timedelta(days=7)  # next Sunday
-                    publish_at_utc = publish_at.astimezone(timezone.utc)
+                    # Publish shortly after the build, not on a second schedule.
+                    #
+                    # This aimed at 11 AM ET and pushed a week out if it was
+                    # already past — but the job fires AT 11:00 and takes the
+                    # better part of an hour to build, so now.hour was always
+                    # >= 11 by the time it got here. Every Sunday video was
+                    # scheduled to appear the following Sunday, a week stale,
+                    # while the channel looked empty in between.
+                    from scheduler.weekday_scheduler import PUBLISH_DELAY_MINUTES
+                    publish_at_utc = (datetime.now(timezone.utc)
+                                      + timedelta(minutes=PUBLISH_DELAY_MINUTES))
 
                     tags = tags_base + [
                         "investing education", "financial literacy", "DriftWire326",

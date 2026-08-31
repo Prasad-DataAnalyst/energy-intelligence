@@ -423,6 +423,31 @@ class YouTubeUploader:
         """Set a custom thumbnail for an uploaded video."""
         return set_thumbnail(video_id, thumbnail_path)
 
+    def publish_now(self, video_id: str) -> bool:
+        """
+        Make a video public immediately, clearing any scheduled publish time.
+
+        Needed because a video scheduled for the wrong moment cannot be
+        rescued any other way: it sits private until whenever it was told
+        to appear. Clearing publishAt alongside privacyStatus matters —
+        YouTube rejects an update that sets a video public while a future
+        publishAt is still on it.
+        """
+        try:
+            if not self._youtube and not self.authenticate():
+                logger.error("publish_now: YouTube authentication failed")
+                return False
+            self._youtube.videos().update(
+                part="status",
+                body={"id": video_id,
+                      "status": {"privacyStatus": "public", "publishAt": None}},
+            ).execute()
+            logger.info("Video published: %s", video_id)
+            return True
+        except Exception as exc:
+            logger.error("publish_now failed for %s: %s", video_id, exc)
+            return False
+
     def verify_upload_status(self, video_id: str) -> dict:
         """Check the processing status of an uploaded video."""
         try:

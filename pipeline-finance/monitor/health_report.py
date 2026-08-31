@@ -451,6 +451,44 @@ def _check_todays_slots() -> tuple[str, str, str, list[str]]:
             f"all {len(due)} slot(s) due today published", [])
 
 
+def release_private_uploads(limit: int = 20) -> int:
+    """
+    Publish everything sitting private. Returns how many were released.
+
+    Videos scheduled for the wrong time cannot free themselves — they wait
+    until whenever they were told to appear, which for the Sunday videos
+    was a week out. Skips anything YouTube no longer has.
+    """
+    try:
+        from uploader.uploader import load_upload_manifest, YouTubeUploader
+        from uploader.quota_tracker import QuotaTracker
+    except Exception as exc:
+        print(f"{_FAIL} Cannot load the uploader: {exc}")
+        return 0
+
+    uploader = YouTubeUploader(QuotaTracker())
+    released = 0
+    recent = list(reversed(load_upload_manifest() or []))[:limit]
+    for record in recent:
+        video_id = record.get("video_id")
+        if not video_id:
+            continue
+        status = uploader.verify_upload_status(video_id)
+        if status.get("privacy") != "private":
+            continue
+        title = (record.get("title") or "")[:44]
+        if uploader.publish_now(video_id):
+            released += 1
+            print(f"{_OK} published  {video_id}  {title}")
+            print(f"     https://youtu.be/{video_id}")
+        else:
+            print(f"{_FAIL} failed     {video_id}  {title}")
+    print()
+    print(f"Released {released} video(s)." if released
+          else "Nothing was sitting private.")
+    return released
+
+
 def verify_uploads(limit: int = 20) -> int:
     """
     Ask YouTube what actually happened to each video we recorded uploading.

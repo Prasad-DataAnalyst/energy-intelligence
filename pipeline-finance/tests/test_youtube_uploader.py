@@ -241,3 +241,102 @@ class TestVerifyUploads:
         from monitor import health_report
         with patch("uploader.uploader.load_upload_manifest", return_value=[]):
             assert health_report.verify_uploads() == 0
+
+
+class TestPublishTiming:
+    """
+    Videos were built at the right moment and then scheduled for a different
+    one. The slot times ARE the publishing schedule; scheduling a second
+    time on top only moves each video away from the news it was written for.
+    """
+
+    def test_a_video_publishes_shortly_after_it_is_built(self):
+        from datetime import datetime, timezone
+        from scheduler.weekday_scheduler import (
+            _next_publish_time, PUBLISH_DELAY_MINUTES)
+        minutes = (_next_publish_time()
+                   - datetime.now(timezone.utc)).total_seconds() / 60
+        assert 0 < minutes <= PUBLISH_DELAY_MINUTES + 1
+
+    def test_the_delay_leaves_room_for_processing(self):
+        """Published before YouTube finishes processing, it goes live raw."""
+        from scheduler.weekday_scheduler import PUBLISH_DELAY_MINUTES
+        assert PUBLISH_DELAY_MINUTES >= 2
+
+    def test_the_premarket_video_no_longer_waits_for_the_close(self):
+        """
+        Built at 08:00 to say what is at stake today, it was going live at
+        17:00 — after the session it was previewing had ended.
+        """
+        from datetime import datetime, timezone
+        from zoneinfo import ZoneInfo
+        from config.settings import settings
+        from scheduler.weekday_scheduler import _next_publish_time
+        published = _next_publish_time().astimezone(ZoneInfo(settings.timezone))
+        built = datetime.now(ZoneInfo(settings.timezone))
+        assert published.date() == built.date()
+        assert (published - built).total_seconds() < 3600
+
+    def test_the_sunday_pipeline_does_not_schedule_a_week_out(self):
+        """
+        Its old logic aimed at 11:00 ET and pushed a week forward if it was
+        already past — but the job fires AT 11:00 and takes most of an hour
+        to build, so it was always past. Every Sunday video was scheduled to
+        appear the following Sunday.
+        """
+        import inspect
+        from scheduler import sunday_scheduler
+        source = inspect.getsource(sunday_scheduler)
+        assert "timedelta(days=7)" not in source
+
+
+class TestReleasingStuckVideos:
+    def test_private_videos_are_published(self, capsys):
+        from monitor import health_report
+        manifest = [{"video_id": "stuck", "title": "sunday deep dive",
+                     "uploaded_at": "2026-08-30T15:48:00"}]
+        with patch("uploader.uploader.load_upload_manifest", return_value=manifest), \
+             patch("uploader.uploader.YouTubeUploader") as MockUploader, \
+             patch("uploader.quota_tracker.QuotaTracker"):
+            MockUploader.return_value.verify_upload_status.return_value = {
+                "video_id": "stuck", "privacy": "private"}
+            MockUploader.return_value.publish_now.return_value = True
+            assert health_report.release_private_uploads() == 1
+            MockUploader.return_value.publish_now.assert_called_once_with("stuck")
+        assert "published" in capsys.readouterr().out
+
+    def test_public_videos_are_left_alone(self):
+        from monitor import health_report
+        manifest = [{"video_id": "live", "title": "t",
+                     "uploaded_at": "2026-08-28T12:00:00"}]
+        with patch("uploader.uploader.load_upload_manifest", return_value=manifest), \
+             patch("uploader.uploader.YouTubeUploader") as MockUploader, \
+             patch("uploader.quota_tracker.QuotaTracker"):
+            MockUploader.return_value.verify_upload_status.return_value = {
+                "video_id": "live", "privacy": "public"}
+            assert health_report.release_private_uploads() == 0
+            MockUploader.return_value.publish_now.assert_not_called()
+
+    def test_a_failed_publish_is_reported_not_counted(self, capsys):
+        from monitor import health_report
+        manifest = [{"video_id": "bad", "title": "t",
+                     "uploaded_at": "2026-08-28T12:00:00"}]
+        with patch("uploader.uploader.load_upload_manifest", return_value=manifest), \
+             patch("uploader.uploader.YouTubeUploader") as MockUploader, \
+             patch("uploader.quota_tracker.QuotaTracker"):
+            MockUploader.return_value.verify_upload_status.return_value = {
+                "video_id": "bad", "privacy": "private"}
+            MockUploader.return_value.publish_now.return_value = False
+            assert health_report.release_private_uploads() == 0
+        assert "failed" in capsys.readouterr().out
+
+    def test_publish_now_clears_the_scheduled_time(self):
+        """
+        YouTube rejects an update that sets a video public while a future
+        publishAt is still attached to it.
+        """
+        import inspect
+        from uploader.uploader import YouTubeUploader
+        source = inspect.getsource(YouTubeUploader.publish_now)
+        assert '"publishAt": None' in source
+        assert '"privacyStatus": "public"' in source

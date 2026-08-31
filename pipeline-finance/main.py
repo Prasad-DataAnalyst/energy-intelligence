@@ -272,6 +272,9 @@ def main() -> int:
     parser.add_argument("--verify-uploads", action="store_true",
                         dest="verify_uploads",
                         help="Ask YouTube whether each uploaded video is actually public")
+    parser.add_argument("--publish-private", action="store_true",
+                        dest="publish_private",
+                        help="Publish any uploaded video still sitting private")
     parser.add_argument("--health", action="store_true",
                         help="Full diagnosis: why is nothing publishing?")
     parser.add_argument("--test", action="store_true", help="Run test suite")
@@ -298,6 +301,11 @@ def main() -> int:
         return cmd_run_sunday(dry_run=args.dry_run)
 
     # ── Legacy --run/--quota/--test routing ───────────────────────────────
+    if args.publish_private:
+        from monitor.health_report import release_private_uploads
+        release_private_uploads()
+        return 0
+
     if args.verify_uploads:
         from monitor.health_report import verify_uploads
         return 1 if verify_uploads() else 0
