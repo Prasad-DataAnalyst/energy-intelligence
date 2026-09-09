@@ -180,11 +180,29 @@ class TestOptionalKeys:
         assert any("PEXELS_API_KEY" in line for line in lines)
         assert any("B-roll" in line for line in lines)
 
-    def test_all_present_is_ok(self, monkeypatch):
+    def test_all_present_with_a_stocked_cache_is_ok(self, monkeypatch, tmp_path):
         from monitor import health_report
+        from builders import broll_fetcher
         monkeypatch.setenv("PEXELS_API_KEY", "k")
         monkeypatch.setenv("MARKETSTACK_API_KEY", "k")
+        monkeypatch.setattr(broll_fetcher, "cached_photos",
+                            lambda limit=6: [tmp_path / "a.jpg"])
         assert health_report._check_optional_keys()[0] == health_report._OK
+
+    def test_a_present_key_with_an_empty_cache_still_warns(self, monkeypatch):
+        """
+        A key that is set is not a key that works. A failing fetch leaves the
+        cache empty and every background — long-form slides, Shorts cards,
+        thumbnails — silently goes back to flat colour.
+        """
+        from monitor import health_report
+        from builders import broll_fetcher
+        monkeypatch.setenv("PEXELS_API_KEY", "k")
+        monkeypatch.setenv("MARKETSTACK_API_KEY", "k")
+        monkeypatch.setattr(broll_fetcher, "cached_photos", lambda limit=6: [])
+        status, _, detail, lines = health_report._check_optional_keys()
+        assert status == health_report._WARN
+        assert "no b-roll photos cached" in detail
 
     def test_blank_counts_as_missing(self, monkeypatch):
         """.env files carry empty assignments; an empty key is not a key."""

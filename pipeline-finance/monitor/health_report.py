@@ -178,19 +178,40 @@ def _check_optional_keys() -> tuple[str, str, str, list[str]]:
     nothing says the video came out thinner than intended.
     """
     optional = [
+        # Three separate features read this one cache now, so the cost of a
+        # missing key is much larger than it was when it fed the long-form
+        # slides alone. Without photos everything falls back to flat colour,
+        # which is the sameness the redesign exists to fix.
         ("PEXELS_API_KEY", "B-roll photos",
-         "visual sequence loses its ~3 photo slides"),
+         "long-form slides, Shorts card backgrounds AND thumbnail "
+         "backgrounds all fall back to flat colour"),
         ("MARKETSTACK_API_KEY", "backup EOD prices",
          "no fallback if yfinance is down on a publishing day"),
     ]
     missing = [(name, feature, effect) for name, feature, effect in optional
                if not (os.getenv(name) or "").strip()]
-    if not missing:
-        return _OK, "Optional API keys", f"all {len(optional)} present", []
-    return (_WARN, "Optional API keys",
-            f"{len(missing)} unset — features silently disabled",
-            [f"   {name} missing → {feature}: {effect}"
-             for name, feature, effect in missing])
+    if missing:
+        return (_WARN, "Optional API keys",
+                f"{len(missing)} unset — features silently disabled",
+                [f"   {name} missing → {feature}: {effect}"
+                 for name, feature, effect in missing])
+
+    # A present key is not the same as a working one: a fetch that fails
+    # leaves the cache empty and every background silently goes flat.
+    try:
+        from builders.broll_fetcher import cached_photos
+        photos = cached_photos(8)
+    except Exception as exc:
+        return (_WARN, "Optional API keys",
+                f"all {len(optional)} present — photo cache unreadable",
+                [f"   {exc}"])
+    if not photos:
+        return (_WARN, "Optional API keys",
+                f"all {len(optional)} present, but no b-roll photos cached",
+                ["   Backgrounds are falling back to flat colour.",
+                 "   Check the Pexels key is valid and the fetch is reaching it."])
+    return (_OK, "Optional API keys",
+            f"all {len(optional)} present, {len(photos)} photos cached", [])
 
 
 # What YouTube's own guidance and the working benchmark for finance
