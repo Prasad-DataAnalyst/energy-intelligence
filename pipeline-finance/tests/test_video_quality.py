@@ -428,6 +428,43 @@ class TestBeatHighlights:
         assert find_highlights(segments, self._words(segments)) == []
 
 
+class TestFigureDirection:
+    """
+    A move and a level are different facts, and the sign is what says which
+    one is on screen.
+    """
+
+    def test_a_level_after_to_carries_no_sign(self):
+        """Yields "pushed to 4.31 percent" are AT 4.31%, not up BY it."""
+        from builders.beat_planner import figures_in_text
+        figure = figures_in_text(
+            "Ten-year yields pushed to 4.31 percent as traders priced out a cut."
+        )[0]
+        assert figure["value"] == "4.31%"
+        assert figure["label"] == "TEN-YEAR YIELDS"
+
+    def test_a_move_still_carries_its_sign(self):
+        from builders.beat_planner import figures_in_text
+        assert figures_in_text("The S&P 500 rose 0.8 percent.")[0]["value"] == "+0.8%"
+        assert figures_in_text("Nvidia slid 2.1 percent.")[0]["value"] == "-2.1%"
+
+    def test_the_move_and_the_level_in_one_sentence_are_told_apart(self):
+        from builders.beat_planner import figures_in_text
+        values = [f["value"] for f in
+                  figures_in_text("The index fell 1.2 percent to 5,930 points.")]
+        assert values == ["-1.2%", "5,930 pts"]
+
+    def test_a_movement_verb_is_never_part_of_the_label(self):
+        """"TEN-YEAR YIELDS PUSHED" names an action, not an instrument."""
+        from builders.beat_planner import figures_in_text
+        for sentence, label in [
+            ("Ten-year yields pushed to 4.31 percent.", "TEN-YEAR YIELDS"),
+            ("Crude eased 1.2 percent on the session.", "CRUDE"),
+            ("The dollar index firmed 0.4 percent.", "DOLLAR INDEX"),
+        ]:
+            assert figures_in_text(sentence)[0]["label"] == label
+
+
 class TestBeatChapters:
     def test_section_names_become_chapters(self):
         from builders.beat_planner import find_chapters

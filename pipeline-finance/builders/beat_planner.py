@@ -72,13 +72,16 @@ _UNIT_FOLLOW = set(_SCALE_WORDS) | {
 _UP_WORDS = {
     "up", "gain", "gained", "gains", "rose", "rising", "jumped", "jumps",
     "surged", "surge", "surges", "climbed", "rallied", "higher", "added",
-    "advanced", "soared", "popped", "rebounded",
+    "advanced", "soared", "popped", "rebounded", "pushed", "firmed",
+    "strengthened", "extended",
 }
 _DOWN_WORDS = {
     "down", "fell", "falls", "fall", "dropped", "drop", "slid", "slipped",
     "sank", "declined", "lower", "lost", "losses", "tumbled", "plunged",
-    "retreated", "slumped",
+    "retreated", "slumped", "eased", "softened", "weakened", "sagged",
 }
+
+_ARTICLES = {"the", "a", "an"}
 
 # Filler that must never end up as a stat card's label.
 _LABEL_STOP = _UP_WORDS | _DOWN_WORDS | {
@@ -179,6 +182,12 @@ def _direction(tokens: list, index: int) -> int:
     Apple added 0.8%" has both a fall and a rise within four tokens, and
     reading forwards paints Apple's gain red.
     """
+    # "to" immediately before the number marks a level, not a move: yields
+    # that "pushed to 4.31 percent" are at 4.31%, they did not rise by it,
+    # and "+4.31%" on screen would be a straightforwardly wrong number.
+    if index and _clean(tokens[index - 1]).lower() == "to":
+        return 0
+
     for back in range(index - 1, max(-1, index - 5), -1):
         word = _clean(tokens[back]).lower()
         if word in _UP_WORDS:
@@ -241,7 +250,11 @@ def _label_for(tokens: list, index: int) -> str:
         if word.lower() in _LABEL_STOP:
             if run:
                 break
-            pending = []
+            # An article does not end a phrase, it introduces one. Clearing
+            # pending on "the" threw away "dollar index" in "the dollar index
+            # firmed 0.4 percent" and left the card labelled MARKETS.
+            if word.lower() not in _ARTICLES:
+                pending = []
             continue
         if word[0].isdigit():
             # A digit belongs to a name only as its tail — "S&P 500", "Russell
@@ -267,16 +280,25 @@ def _label_for(tokens: list, index: int) -> str:
 
     if run:
         return " ".join(run)[:22].upper()
+    if len(pending) >= 2:
+        # No proper noun, but a two-word common-noun phrase names the
+        # instrument just as well: "dollar index", "jobless claims".
+        return " ".join(pending)[:22].upper()
     # No name found: a generic label beats putting a stray verb on screen.
     return "MARKETS"
 
 
-def _scan_figures(segments: dict, words: list) -> list[dict]:
-    """Every figure in the script, timed, labelled and colour-coded."""
-    tokens, _ = _tokenize(segments)
-    if not tokens:
-        return []
+def figures_in_text(text: str) -> list[dict]:
+    """
+    Every figure in a plain string, formatted and labelled but untimed.
 
+    The label rules here were worked out against real narration and are not
+    obvious — a preceding figure ends the phrase, a sentence boundary is a
+    hard stop, unit words are never labels — so anything that needs "the
+    number and what it measures" out of a script should come through this
+    rather than write its own regex.
+    """
+    tokens, _ = _tokenize({"BODY": text})
     found: list[dict] = []
     index = 0
     while index < len(tokens):
@@ -287,13 +309,25 @@ def _scan_figures(segments: dict, words: list) -> list[dict]:
         direction = _direction(tokens, index)
         found.append({
             "token": index,
-            "time": _token_time(index, len(tokens), words),
             "value": _format_value(tokens, index, direction),
             "label": _label_for(tokens, index),
+            "direction": direction,
             "color": GREEN if direction > 0 else RED if direction < 0 else ACCENT,
         })
         # Skip the unit word so "4.2 billion" cannot also fire on "billion".
         index += 2 if _clean(following).lower() in _UNIT_FOLLOW else 1
+    return found
+
+
+def _scan_figures(segments: dict, words: list) -> list[dict]:
+    """Every figure in the script, timed, labelled and colour-coded."""
+    tokens, _ = _tokenize(segments)
+    if not tokens:
+        return []
+
+    found = figures_in_text(" ".join(tokens))
+    for figure in found:
+        figure["time"] = _token_time(figure["token"], len(tokens), words)
 
     timed = [figure for figure in found if figure["time"] is not None]
     timed.sort(key=lambda figure: figure["time"])

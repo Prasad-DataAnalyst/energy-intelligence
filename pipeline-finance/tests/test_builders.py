@@ -214,14 +214,54 @@ class TestShortsCards:
 
     def test_nothing_readable_sits_under_youtube_chrome(self, tmp_path):
         """
-        The Shorts UI — title, channel, action buttons — covers roughly the
-        bottom fifth. Anything that has to be read cannot live there.
+        The Shorts UI — title, channel row, action buttons — is drawn over
+        the bottom of the frame, so caption text placed there is invisible in
+        the app however good the still looks. Checked by rendering and
+        finding the white type, not by reading the source: the constants can
+        be right and the layout still wrong.
         """
-        import inspect
-        from builders import shorts_cards
-        source = inspect.getsource(shorts_cards.render_card)
-        assert "0.775" in source          # handle sits above the chrome
-        assert "0.30" in source           # caption band starts in the safe zone
+        from builders.shorts_cards import render_card, SAFE_TOP, SAFE_BOTTOM
+        Image = pytest.importorskip("PIL.Image")
+
+        path = render_card(
+            "Ten-year yields pushed to 4.31 percent as traders priced out a cut.",
+            tmp_path / "c.png",
+        )
+        img = Image.Image.convert(Image.open(path), "L")
+        width, height = img.size
+        # Only the caption is near-white: the accent strip, the progress bar
+        # and the muted handle all sit well below this threshold.
+        rows = [y for y in range(height)
+                if max(img.crop((0, y, width, y + 1)).getdata()) > 200]
+
+        assert rows, "no caption text rendered"
+        assert min(rows) >= height * SAFE_TOP - 2
+        assert max(rows) <= height * SAFE_BOTTOM
+
+    def test_short_and_long_captions_both_stay_centred(self, tmp_path):
+        """
+        A one-line caption pinned to a fixed top leaves the lower half of the
+        frame dead. Both lengths should sit around the middle of the safe
+        zone, not both start at the same y.
+        """
+        from builders.shorts_cards import render_card, SAFE_TOP, SAFE_BOTTOM
+        Image = pytest.importorskip("PIL.Image")
+
+        def first_text_row(text, name):
+            img = Image.Image.convert(Image.open(render_card(text, tmp_path / name)), "L")
+            width, height = img.size
+            return next(y for y in range(height)
+                        if max(img.crop((0, y, width, y + 1)).getdata()) > 200), height
+
+        short_row, height = first_text_row("Yields jumped.", "short.png")
+        long_row, _ = first_text_row(
+            "Ten-year yields pushed to 4.31 percent as traders priced out a "
+            "December cut and the dollar firmed against every major peer.",
+            "long.png",
+        )
+        assert short_row > long_row, "short caption should sit lower than a long one"
+        middle = height * (SAFE_TOP + SAFE_BOTTOM) / 2
+        assert abs(short_row - middle) < height * 0.12
 
     def test_long_copy_wraps_rather_than_overflowing(self, tmp_path):
         from builders.shorts_cards import render_card
@@ -254,3 +294,134 @@ class TestShortsCards:
     def test_no_cards_returns_empty_for_the_caller_to_fall_back(self, tmp_path):
         from builders.shorts_cards import build_card_sequence
         assert build_card_sequence([], tmp_path, 45.0) == []
+
+
+# ── Shorts card plan ─────────────────────────────────────────────────────────
+
+class TestShortsCardPlan:
+    """
+    The plan decides the Short's rhythm. Five cards over fifty seconds is a
+    ten-second hold each, which reads as a slideshow no matter how good the
+    individual card is.
+    """
+
+    @staticmethod
+    def _assets(script="", key_stat="S&P 500 -0.55%", hook="Wall Street gave back gains"):
+        from builders.shorts_builder import ShortsAssets
+        return ShortsAssets(
+            audio_path=Path("/dev/null"), chart_paths=[], thumbnail_path=None,
+            script=script, title="Market Recap", hook_text=hook,
+            key_stat=key_stat, ticker="SPY", sentiment="bearish",
+        )
+
+    def test_card_count_follows_the_clip_length(self):
+        from builders.shorts_builder import _card_count, CARD_SECONDS, MAX_CARDS
+        assert _card_count(50) == round(50 / CARD_SECONDS)
+        assert _card_count(5) == 5, "never fewer than the five-beat structure"
+        assert _card_count(600) == MAX_CARDS, "capped so rendering stays cheap"
+
+    def test_a_fifty_second_short_cuts_every_few_seconds(self):
+        from builders.shorts_builder import _cards_from_assets, _card_count, CARD_SECONDS
+        script = " ".join(
+            f"Sector {n} climbed {n}.5 percent as buyers returned to the tape."
+            for n in range(1, 15)
+        )
+        cards = _cards_from_assets(self._assets(script), _card_count(50))
+        assert 50 / len(cards) <= CARD_SECONDS + 1.0
+
+    def test_key_stat_becomes_a_hero_number_with_its_label(self):
+        from builders.shorts_builder import _cards_from_assets
+        cards = _cards_from_assets(self._assets(), 5)
+        stat = next(c for c in cards if c["kind"] == "stat")
+        assert stat["stat"] == "-0.55%"
+        assert stat["text"] == "S&P 500"
+
+    def test_a_bare_index_level_is_not_mistaken_for_the_headline_figure(self):
+        """"500" in "S&P 500" is part of the name, not the number."""
+        from builders.shorts_builder import _split_stat
+        assert _split_stat("S&P 500 +0.26%") == ("S&P 500", "+0.26%")
+        assert _split_stat("Nasdaq 100 -1.2%") == ("Nasdaq 100", "-1.2%")
+
+    def test_long_sentences_are_cut_at_their_clause_joints(self):
+        from builders.shorts_builder import _script_phrases
+        phrases = _script_phrases(
+            "Ten-year yields pushed to 4.31 percent as traders priced out a "
+            "December cut, and the dollar firmed against every major peer.", 6
+        )
+        assert len(phrases) > 1
+        assert all(len(p) <= 90 for p in phrases)
+
+    def test_disclaimer_boilerplate_never_takes_a_card_slot(self):
+        from builders.shorts_builder import _script_phrases
+        script = (
+            "The index closed down half a percent. This content is for "
+            "informational purposes only and does not constitute financial "
+            "advice. Narration is AI-generated."
+        )
+        phrases = _script_phrases(script, 6)
+        joined = " ".join(phrases).lower()
+        assert "financial advice" not in joined
+        assert "ai-generated" not in joined
+
+    def test_the_last_card_still_carries_the_disclaimer(self):
+        from builders.shorts_builder import _cards_from_assets, SHORT_DISCLAIMER
+        cards = _cards_from_assets(self._assets("Markets rose today."), 5)
+        assert SHORT_DISCLAIMER in cards[-1]["text"]
+
+    def test_body_beats_alternate_between_caption_and_number(self):
+        """A run of identical text cards reads as one long card."""
+        from builders.shorts_builder import _cards_from_assets
+        script = " ".join(
+            f"The {n} sector index rose {n}.4 percent on the session."
+            for n in range(1, 10)
+        )
+        kinds = [c["kind"] for c in _cards_from_assets(self._assets(script), 12)]
+        assert kinds.count("stat") >= 2
+
+    def test_a_silent_placeholder_audio_path_is_not_offered_to_ffmpeg(self):
+        """/dev/null is the historic no-voiceover marker; ffmpeg rejects it."""
+        from builders.shorts_builder import _has_audio
+        assert _has_audio(Path("/dev/null")) is False
+        assert _has_audio(Path("/nonexistent/audio.mp3")) is False
+
+    def test_parsed_cards_are_accepted_in_either_shape(self):
+        from builders.shorts_builder import _normalise_card
+        assert _normalise_card({"type": "context", "text": "Hi"})["kind"] == "context"
+        promoted = _normalise_card({"type": "stat", "text": "Gold hit $2,410 an ounce"})
+        assert promoted["stat"]
+        assert len(promoted["text"]) < len("Gold hit $2,410 an ounce")
+
+    def test_the_hook_is_not_repeated_as_the_first_body_card(self):
+        """
+        The hook is usually a tightened version of the script's opening
+        sentence, so the two land back to back saying the same thing.
+        """
+        from builders.shorts_builder import _cards_from_assets
+        cards = _cards_from_assets(self._assets(
+            script=("Wall Street just gave back a week of gains. "
+                    "Energy was the only sector in the green today."),
+            hook="Wall Street gave back a week of gains",
+        ), 6)
+        texts = [c["text"].lower().rstrip(".") for c in cards]
+        assert "wall street just gave back a week of gains" not in texts
+
+    def test_the_headline_number_is_not_shown_twice(self):
+        from builders.shorts_builder import _cards_from_assets
+        cards = _cards_from_assets(self._assets(
+            script=" ".join(["The index closed down 0.55 percent on the session."] * 1
+                            + [f"Sector {n} rose {n}.4 percent in late trade."
+                               for n in range(1, 8)]),
+        ), 12)
+        stats = [c["stat"] for c in cards if c["kind"] == "stat"]
+        assert len(stats) == len(set(stats))
+
+    def test_near_duplicate_detection_still_allows_distinct_copy(self):
+        from builders.shorts_builder import _says_the_same_thing
+        assert _says_the_same_thing(
+            "Wall Street just gave back a week of gains.",
+            "Wall Street gave back a week of gains",
+        )
+        assert not _says_the_same_thing(
+            "Energy was the only sector in the green.",
+            "Wall Street gave back a week of gains",
+        )

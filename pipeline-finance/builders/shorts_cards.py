@@ -34,6 +34,12 @@ AMBER = (255, 196, 0)
 # being readable at a glance, which is the whole job of the caption.
 PHOTO_DIM = 0.42
 
+# The readable frame. Below SAFE_BOTTOM the Shorts player draws the title,
+# channel row and action buttons over the video, so anything placed there is
+# invisible in the app however good it looks in a still.
+SAFE_TOP = 0.22
+SAFE_BOTTOM = 0.72
+
 
 def _font(px: int, bold: bool = True):
     from PIL import ImageFont
@@ -156,22 +162,27 @@ def render_card(
         lines = []          # the label above is the caption
         caption_top = 0
     else:
-        # Centred in the safe zone. YouTube's Shorts chrome — title, channel,
-        # action buttons — covers roughly the bottom fifth and the right
-        # edge, so nothing that has to be read may live there.
-        caption_top = int(height * 0.30)
-
-    # Caption band — a dark strip behind the words so they read over any
-    # picture, which is the trick that makes footage-backed Shorts legible.
-    if kind != "stat":
+        # Caption band — a dark strip behind the words so they read over any
+        # picture, which is the trick that makes footage-backed Shorts
+        # legible.
+        #
+        # It is centred within the safe zone rather than pinned to a fixed
+        # top. YouTube's Shorts chrome — title, channel, action buttons —
+        # covers roughly the bottom fifth and the right edge, so SAFE_BOTTOM
+        # is where the readable frame actually ends, and a short caption
+        # placed at a fixed top leaves the whole lower half dead.
         body_font = _font(int(height * 0.044))
         lines = _wrap(draw, text.strip(), body_font, inner)[:5]
         line_h = int(height * 0.060)
+        pad = int(height * 0.028)
         band_h = line_h * len(lines) + int(height * 0.05)
-        draw.rounded_rectangle((margin - 20, caption_top - int(height * 0.028),
+        safe_top, safe_bottom = int(height * SAFE_TOP), int(height * SAFE_BOTTOM)
+        caption_top = max(safe_top, safe_top + (safe_bottom - safe_top - band_h) // 2)
+
+        draw.rounded_rectangle((margin - 20, caption_top - pad,
                                 width - margin + 20, caption_top + band_h),
                                radius=24, fill=(8, 8, 12, 210))
-        draw.rectangle((margin - 20, caption_top - int(height * 0.028),
+        draw.rectangle((margin - 20, caption_top - pad,
                         margin - 10, caption_top + band_h), fill=accent + (255,))
         y = caption_top
         for line in lines:

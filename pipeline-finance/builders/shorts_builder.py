@@ -181,30 +181,263 @@ def _build_shorts_with_moviepy(assets: ShortsAssets, output_path: Path) -> Optio
         return None
 
 
-def _build_shorts_with_ffmpeg(assets: ShortsAssets, output_path: Path) -> Optional[float]:
-    """ffmpeg fallback: scale/pad chart to 9:16 + attach audio."""
+# ── Card plan ─────────────────────────────────────────────────────────────────
+
+# Burned into the last card. The full disclaimer runs in the description; at
+# Shorts reading speed a 190-character sentence is a grey smear, so the card
+# carries the part a viewer can actually take in.
+SHORT_DISCLAIMER = "Educational only — not financial advice."
+
+
+def _split_stat(raw: str) -> tuple:
+    """
+    Split "S&P 500 +0.26%" into ("S&P 500", "+0.26%").
+
+    The figure is whichever token carries a sign or a percent; a bare number
+    is only accepted as a last resort, because "500" in "S&P 500" is part of
+    the name and putting it on screen as the headline number would be wrong.
+    """
+    parts = raw.split()
+    figure = None
+    for index in range(len(parts) - 1, -1, -1):
+        token = parts[index]
+        if not any(ch.isdigit() for ch in token):
+            continue
+        if token.endswith("%") or token[:1] in "+-−$":
+            figure = index
+            break
+        if figure is None:
+            figure = index
+    if figure is None:
+        return "", raw.strip()
+    # Three words is as much label as fits above the number without wrapping.
+    label = " ".join(parts[max(0, figure - 3):figure]).strip()
+    return label, " ".join(parts[figure:]).strip()
+
+
+def _script_phrases(script: str, limit: int) -> list:
+    """
+    Break a narration script into card-sized phrases.
+
+    Whole sentences are too long to hold a Shorts frame, so a long one is cut
+    at its clause joints — that is where the narrator pauses anyway, so the
+    cut lands on the beat rather than across it. Boilerplate is skipped: the
+    disclaimer and the AI-disclosure line are required in the description and
+    the audio, but as a caption card they waste one of very few slots.
+    """
+    import re
+    cleaned = re.sub(r"\[[A-Z][A-Z0-9 /_-]*\]", " ", script or "")
+    skip = ("financial advice", "ai-generated", "ai generated", "consult a licensed")
+
+    pieces = []
+    for sentence in re.split(r"(?<=[.!?])\s+", cleaned):
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+        if len(sentence) <= 78:
+            pieces.append(sentence)
+            continue
+        # Clause joints, longest-reaching first so a comma inside a clause
+        # does not win over the conjunction that actually splits the sentence.
+        parts = re.split(r",\s+(?=\w)|\s+(?:while|whereas|as traders|but)\s+", sentence)
+        pieces.extend(part.strip(" ,") for part in parts if part and part.strip(" ,"))
+
+    seen, phrases = set(), []
+    for piece in pieces:
+        low = piece.lower()
+        if not 18 <= len(piece) <= 90 or any(s in low for s in skip) or low in seen:
+            continue
+        seen.add(low)
+        phrases.append(piece[0].upper() + piece[1:])
+
+    # Figures first when there are more phrases than slots: a number is what
+    # stops a scroll, a linking clause is not.
+    if len(phrases) > limit:
+        ordered = sorted(
+            enumerate(phrases),
+            key=lambda pair: (not any(ch.isdigit() for ch in pair[1]), pair[0]),
+        )[:limit]
+        phrases = [phrase for _, phrase in sorted(ordered)]
+    return phrases
+
+
+def _normalise_card(card: dict) -> dict:
+    """Accept either the parse_cards shape ({type, text}) or an explicit card."""
+    kind = str(card.get("kind") or card.get("type") or "context").lower()
+    text = str(card.get("text", "")).strip()
+    stat = str(card.get("stat", "")).strip()
+    if kind == "stat" and not stat:
+        label, stat = _split_stat(text)
+        text = label or "TODAY"
+    return {"text": text, "kind": kind, "stat": stat}
+
+
+# How long one card holds the frame. Shorts that retain cut every two to
+# four seconds; the previous build held five cards across fifty seconds,
+# which is a slideshow no matter how good the individual card looks.
+CARD_SECONDS = 3.2
+MAX_CARDS = 18
+
+
+def _says_the_same_thing(first: str, second: str) -> bool:
+    """
+    Whether two card texts would read as a repeat.
+
+    Compared on content words rather than exactly, because the hook is
+    usually a tightened version of the script's opening sentence — "Wall
+    Street gave back a week of gains" against "Wall Street just gave back a
+    week of gains." — and an exact-match check lets that pair straight
+    through onto two consecutive cards.
+    """
+    filler = {"a", "an", "the", "just", "now", "today", "its", "it", "of",
+              "to", "and", "as", "on", "in", "is", "was", "has", "have"}
+
+    def words(text: str) -> set:
+        cleaned = "".join(ch if ch.isalnum() or ch.isspace() else " " for ch in text.lower())
+        return {w for w in cleaned.split() if w not in filler}
+
+    left, right = words(first), words(second)
+    if not left or not right:
+        return False
+    return len(left & right) / min(len(left), len(right)) >= 0.7
+
+
+def _cards_from_assets(assets: ShortsAssets, count: int = 5) -> list:
+    """
+    Turn the assets into `count` beats.
+
+    Every third body beat that carries a figure is promoted to a full-frame
+    number. Alternating a caption band with a hero stat is what gives the
+    Short a rhythm — a run of identical text cards reads as one long card no
+    matter how often it actually cuts.
+    """
+    from builders.beat_planner import figures_in_text
+
+    cards = []
+    hook = (assets.hook_text or assets.title or "").strip()
+    if hook:
+        cards.append({"text": hook, "kind": "hook"})
+    if assets.key_stat.strip():
+        label, stat = _split_stat(assets.key_stat)
+        cards.append({"text": label or assets.ticker or "TODAY",
+                      "kind": "stat", "stat": stat})
+
+    body_slots = max(count - len(cards) - 1, 1)
+    # The hook is usually lifted from the script's own opening line, so
+    # without this the first two cards say the same thing twice.
+    used_stats = {card.get("stat", "") for card in cards}
+    for index, phrase in enumerate(_script_phrases(assets.script, body_slots)):
+        if hook and _says_the_same_thing(phrase, hook):
+            continue
+        figures = figures_in_text(phrase) if index % 3 == 2 else []
+        figures = [f for f in figures if f["value"] not in used_stats]
+        if figures:
+            used_stats.add(figures[0]["value"])
+            cards.append({"text": figures[0]["label"], "kind": "stat",
+                          "stat": figures[0]["value"]})
+        else:
+            cards.append({"text": phrase, "kind": "context"})
+
+    cards.append({"text": f"{SHORT_DISCLAIMER} Daily market recap on the channel.",
+                  "kind": "cta"})
+    return cards
+
+
+def _card_count(total_seconds: float) -> int:
+    """Enough cards to cut on the beat, capped so rendering stays cheap."""
+    return max(5, min(MAX_CARDS, round(total_seconds / CARD_SECONDS)))
+
+
+def _background_photos(limit: int = 6) -> list:
+    """
+    Photos already on disk from the long-form b-roll fetch.
+
+    Reusing the cache rather than calling Pexels here keeps the Short free of
+    a network dependency at build time — and the pictures are on-topic for
+    the day, because they were fetched for the same story.
+    """
+    broll_dir = settings.output_dir / "broll"
+    if not broll_dir.exists():
+        return []
+    photos = [p for p in broll_dir.glob("*.jpg") if p.stat().st_size > 10_000]
+    photos.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return photos[:limit]
+
+
+def _has_audio(path: Path) -> bool:
+    """/dev/null is the historic 'no voiceover' placeholder — ffmpeg rejects it."""
+    try:
+        return path.is_file() and path.stat().st_size > 1024
+    except OSError:
+        return False
+
+
+def _build_shorts_with_ffmpeg(
+    assets: ShortsAssets,
+    output_path: Path,
+    cards: Optional[list] = None,
+    total_seconds: Optional[float] = None,
+) -> Optional[float]:
+    """
+    Render the Short as a sequence of vertical cards and attach the audio.
+
+    Previously this scaled one chart to 9:16 and held it for the whole clip,
+    which is why every Short looked identical. The cards come from
+    builders.shorts_cards; if they cannot be rendered the old single-still
+    path is still here as a fallback so a bad photo never costs us the video.
+    """
     logger.info("Building Short with ffmpeg")
 
+    target_dur = float(total_seconds or settings.shorts_duration_target)
     valid_charts = [p for p in assets.chart_paths if p.exists()]
-    bg_input = str(valid_charts[0]) if valid_charts else None
 
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
 
-        if bg_input:
-            # Scale to 9:16, pad with brand color
-            scaled = tmp / "scaled.png"
-            cmd_scale = [
-                "ffmpeg", "-y", "-i", bg_input,
-                "-vf", f"scale={SW}:-1,pad={SW}:{SH}:(ow-iw)/2:(oh-ih)/2:color=0A0A0F",
-                str(scaled),
-            ]
-            subprocess.run(cmd_scale, capture_output=True, timeout=30)
-            bg_src = str(scaled) if scaled.exists() else None
-        else:
-            bg_src = None
+        sequence = []
+        try:
+            from builders.shorts_cards import build_card_sequence
+            plan = [_normalise_card(c) for c in
+                    (cards or _cards_from_assets(assets, _card_count(target_dur)))]
+            sequence = build_card_sequence(
+                plan, tmp, target_dur, photos=_background_photos(),
+            )
+        except Exception as exc:
+            logger.warning("Short card render failed (%s) — falling back to still", exc)
 
-        target_dur = settings.shorts_duration_target
+        if sequence:
+            concat_file = tmp / "cards.txt"
+            lines = []
+            for frame, seconds in sequence:
+                lines.append(f"file '{Path(frame).resolve()}'")
+                lines.append(f"duration {seconds:.2f}")
+            lines.append(f"file '{Path(sequence[-1][0]).resolve()}'")  # last-frame quirk
+            concat_file.write_text("\n".join(lines) + "\n")
+            video_input = ["-f", "concat", "-safe", "0", "-i", str(concat_file)]
+        else:
+            still = None
+            if valid_charts:
+                scaled = tmp / "scaled.png"
+                subprocess.run(
+                    ["ffmpeg", "-y", "-i", str(valid_charts[0]), "-vf",
+                     f"scale={SW}:-1,pad={SW}:{SH}:(ow-iw)/2:(oh-ih)/2:color=0A0A0F",
+                     str(scaled)],
+                    capture_output=True, timeout=30,
+                )
+                still = scaled if scaled.exists() else None
+            if still is not None:
+                video_input = ["-loop", "1", "-i", str(still)]
+            else:
+                video_input = ["-f", "lavfi", "-i",
+                               f"color=c=0A0A0F:s={SW}x{SH}:r={settings.video_fps}"]
+
+        if _has_audio(assets.audio_path):
+            audio_input = ["-i", str(assets.audio_path)]
+        else:
+            # Silent bed: the themed Shorts have no voiceover and get music
+            # mixed in afterwards, which needs a stream to mix onto.
+            logger.info("Short has no voiceover — encoding a silent track")
+            audio_input = ["-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo"]
 
         # Round channel-logo badge — burned in on EVERY build path
         logo_png = None
@@ -215,43 +448,47 @@ def _build_shorts_with_ffmpeg(assets: ShortsAssets, output_path: Path) -> Option
             logger.error("Logo unavailable for Shorts ffmpeg build: %s", exc)
         if logo_png is None:
             logger.error("Building Short WITHOUT logo badge — check channel avatar/auth")
-        logo_overlay = "[base][2:v]overlay=main_w-overlay_w-30:40"
 
-        if bg_src:
-            cmd = ["ffmpeg", "-y", "-loop", "1", "-i", bg_src,
-                   "-i", str(assets.audio_path)]
-            if logo_png:
-                cmd += ["-i", str(logo_png),
-                        "-filter_complex",
-                        f"[0:v]scale={SW}:{SH},fps={settings.video_fps}[base];{logo_overlay}"]
-            else:
-                cmd += ["-s", f"{SW}x{SH}", "-r", str(settings.video_fps)]
-            cmd += [
-                "-c:v", "libx264", "-preset", "veryfast",
-                "-c:a", "aac", "-b:a", settings.audio_bitrate,
-                "-shortest", "-t", str(target_dur),
-                str(output_path),
-            ]
+        cmd = ["ffmpeg", "-y"] + video_input + audio_input
+        chain = f"[0:v]scale={SW}:{SH},fps={settings.video_fps},format=yuv420p"
+        if logo_png:
+            cmd += ["-i", str(logo_png)]
+            chain += "[base];[base][2:v]overlay=main_w-overlay_w-30:40[vout]"
         else:
-            # Pure audio → dark background video
-            cmd = ["ffmpeg", "-y",
-                   "-f", "lavfi", "-i", f"color=c=0A0A0F:s={SW}x{SH}:r={settings.video_fps}",
-                   "-i", str(assets.audio_path)]
-            if logo_png:
-                cmd += ["-i", str(logo_png),
-                        "-filter_complex", f"[0:v]null[base];{logo_overlay}"]
-            cmd += [
-                "-c:v", "libx264", "-preset", "veryfast",
-                "-c:a", "aac", "-b:a", settings.audio_bitrate,
-                "-shortest", "-t", str(target_dur),
-                str(output_path),
-            ]
+            chain += "[vout]"
+        cmd += [
+            "-filter_complex", chain,
+            "-map", "[vout]", "-map", "1:a",
+            "-c:v", "libx264", "-preset", "veryfast",
+            "-c:a", "aac", "-b:a", settings.audio_bitrate,
+            "-shortest", "-t", str(target_dur),
+            str(output_path),
+        ]
 
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
-        if result.returncode == 0:
-            return target_dur
-        logger.error("ffmpeg Shorts build failed: %s", result.stderr[-500:])
-        return None
+        if result.returncode != 0:
+            logger.error("ffmpeg Shorts build failed: %s", result.stderr[-500:])
+            return None
+
+    # -shortest can cut the clip below the target when the narration is
+    # shorter than the card plan, so report what was actually written rather
+    # than what was asked for — callers enforce the 60s limit on this number.
+    return _probe_duration(output_path) or target_dur
+
+
+def _probe_duration(path: Path) -> Optional[float]:
+    """Actual duration of an encoded file, or None if ffprobe cannot say."""
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=nw=1:nk=1", str(path)],
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return float(result.stdout.strip())
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        logger.debug("ffprobe on %s failed: %s", path.name, exc)
+    return None
 
 
 # ── ShortsBuilder class ───────────────────────────────────────────────────────
@@ -455,6 +692,10 @@ class ShortsBuilder:
         cards = self.parse_cards(script)
         logger.info("Building Short from script | %d cards | title=%s", len(cards), title[:50])
 
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe = "".join(c for c in title[:25] if c.isalnum() or c in " -_").strip().replace(" ", "_")
+        duration = 0.0
+
         # Build card clips
         try:
             from moviepy.editor import concatenate_videoclips
@@ -509,8 +750,6 @@ class ShortsBuilder:
                     f"Short duration {dur:.1f}s exceeds hard limit of {SHORTS_HARD_LIMIT}s"
                 )
 
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            safe = "".join(c for c in title[:25] if c.isalnum() or c in " -_").strip().replace(" ", "_")
             out_path = self.output_dir / f"short_{safe}_{timestamp}.mp4"
 
             final_video.write_videofile(
@@ -519,10 +758,18 @@ class ShortsBuilder:
                 bitrate="6000k", logger=None,
             )
 
+            duration = final_video.duration
+
         except ShortsOverLimitError:
             raise
         except ImportError:
-            logger.warning("MoviePy unavailable — using placeholder Short")
+            # MoviePy is not installed on the production VM, so this is the
+            # path that actually runs. It used to hand build_short() a
+            # /dev/null audio path, which ffmpeg rejects outright — every
+            # themed Short failed here. Render the same cards with ffmpeg and
+            # let the music mix below supply the audio.
+            logger.info("MoviePy unavailable — rendering Short cards with ffmpeg")
+            out_path = self.output_dir / f"short_{safe}_{timestamp}.mp4"
             assets = ShortsAssets(
                 audio_path=Path("/dev/null"),
                 chart_paths=chart_paths or [],
@@ -534,10 +781,23 @@ class ShortsBuilder:
                 ticker=ticker,
                 sentiment="neutral",
             )
-            return build_short(assets)
+            # The script, not parse_cards, drives the plan here: parse_cards
+            # returns five paragraph-sized blocks, and five cards across a
+            # fifty-second Short is a ten-second hold per card.
+            duration = _build_shorts_with_ffmpeg(
+                assets, out_path,
+                total_seconds=min(settings.shorts_duration_target, SHORTS_HARD_LIMIT),
+            )
+            if duration is None or not out_path.exists():
+                raise RuntimeError(f"Short build failed for '{title}'")
         except Exception as exc:
             logger.error("Short build failed: %s", exc)
             raise RuntimeError(f"Short build failed: {exc}")
+
+        if duration > SHORTS_HARD_LIMIT:
+            raise ShortsOverLimitError(
+                f"Short duration {duration:.1f}s exceeds hard limit of {SHORTS_HARD_LIMIT}s"
+            )
 
         if music:
             out_path = self.add_background_music(out_path)
@@ -546,7 +806,7 @@ class ShortsBuilder:
         file_size = out_path.stat().st_size / (1024 * 1024) if out_path.exists() else 0.0
         short = BuiltShort(
             path=out_path,
-            duration_seconds=final_video.duration,
+            duration_seconds=duration,
             file_size_mb=round(file_size, 2),
             title=title,
             thumbnail_path=chart_paths[0] if chart_paths else None,
