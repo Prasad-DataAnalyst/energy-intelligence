@@ -28,8 +28,12 @@ if [ "${DW_UPDATE_REEXEC:-}" != "1" ]; then
     cat "$0" > "$_copy"
     DW_UPDATE_REEXEC=1 exec bash "$_copy" "$@"
 fi
-# Now running from the copy. Unlink it so /tmp does not accumulate one per
-# deploy — on Linux the running shell keeps its open handle regardless.
+# Now running from the copy. Record what we are before unlinking it, so the
+# hand-off after the sync can tell whether the checkout carries a different
+# version of this script.
+DW_SELF_SUM="$(md5sum < "$0" | cut -d' ' -f1)"
+# Unlink the copy so /tmp does not accumulate one per deploy — on Linux the
+# running shell keeps its open handle regardless.
 case "$0" in /tmp/driftwire-update.*) rm -f "$0" ;; esac
 
 REPO_URL="${REPO_URL:-https://github.com/Prasad-DataAnalyst/energy-intelligence.git}"
@@ -76,6 +80,32 @@ BEFORE_SHA="$("${GIT[@]}" rev-parse HEAD 2>/dev/null || echo none)"
 "${GIT[@]}" checkout -q -f -B "$BRANCH" "origin/$BRANCH"
 "${GIT[@]}" reset -q --hard "origin/$BRANCH"
 echo "   now at: $("${GIT[@]}" log --oneline -1)"
+
+# Hand off to the version we just checked out.
+#
+# Everything below — the restart decision especially — must run from the new
+# code, not from the copy taken before the sync. Without this, a fix to the
+# restart logic can never take effect on the deploy that delivers it: the
+# run that installs it still uses the logic being replaced, and only a
+# second, separate run benefits. That is exactly how a broken build guard
+# survived several deploys.
+#
+# The stage flag makes this happen at most once, so a script that somehow
+# never matches cannot loop. Stage two repeats the backup and sync, both of
+# which are idempotent — the credential files are gitignored and the fetch
+# is a no-op at the same commit.
+if [ "${DW_UPDATE_STAGE2:-}" != "1" ]; then
+    NEW_SUM="$(md5sum < "$APP_DIR/deploy/update.sh" | cut -d' ' -f1)"
+    if [ "$NEW_SUM" != "$DW_SELF_SUM" ]; then
+        echo ""
+        echo "   this deploy updates update.sh itself — restarting the deploy"
+        echo "   with the new version so its restart logic is the one that runs"
+        echo ""
+        _next="$(mktemp /tmp/driftwire-update.XXXXXX)"
+        cat "$APP_DIR/deploy/update.sh" > "$_next"
+        DW_UPDATE_REEXEC=1 DW_UPDATE_STAGE2=1 exec bash "$_next" "$@"
+    fi
+fi
 
 echo "── Restoring credentials ──────────────────────────────────────────────"
 for f in .env finance_oauth.json youtube_token.json analytics_token.json; do
@@ -135,12 +165,36 @@ pipeline_children() {
     echo "${found# }"
 }
 
+# Whether the running daemon predates the code on disk.
+#
+# "The SHA did not change, so there is nothing to do" was the old test and it
+# was wrong in exactly the case that matters: an earlier deploy that synced
+# but failed to restart leaves the tree current and the daemon nine days
+# behind, and every deploy after it then declares victory without starting
+# the new code. Elapsed seconds from ps rather than a parsed systemd
+# timestamp — no locale or version to get wrong.
+daemon_is_stale() {
+    local pid="$1" secs started head_epoch
+    [ "${pid:-0}" -gt 0 ] 2>/dev/null || return 1
+    secs="$(ps -o etimes= -p "$pid" 2>/dev/null | tr -d ' ')"
+    [ -n "$secs" ] || return 1
+    started=$(( $(date +%s) - secs ))
+    head_epoch="$("${GIT[@]}" log -1 --format=%ct 2>/dev/null || echo 0)"
+    [ "$head_epoch" -gt "$started" ]
+}
+
 SCHED_PID="$(systemctl show -p MainPID --value driftwire326 2>/dev/null || echo 0)"
-if [ "${SCHED_PID:-0}" -gt 0 ] 2>/dev/null && [ -n "$(pipeline_children "$SCHED_PID")" ]; then
+
+if [ "$BEFORE_SHA" = "$AFTER_SHA" ] && ! daemon_is_stale "$SCHED_PID"; then
+    echo "   already at $AFTER_SHA and the daemon is running it — nothing to do"
+elif [ "${SCHED_PID:-0}" -gt 0 ] 2>/dev/null && [ -n "$(pipeline_children "$SCHED_PID")" ]; then
     # Wait it out rather than refusing and handing back a restart command.
     # Printing "run systemctl restart yourself" invites exactly the thing the
     # guard exists to prevent: the operator runs it immediately and kills the
     # build anyway. Waiting is what they actually wanted.
+    if [ "$BEFORE_SHA" = "$AFTER_SHA" ]; then
+        echo "   code unchanged this run, but the daemon predates it — it needs a restart"
+    fi
     echo "   a pipeline is building — waiting for it to finish (up to ${BUILD_WAIT_MINUTES}m)"
     for _pid in $(pipeline_children "$SCHED_PID"); do
         echo "      PID $_pid, running $(ps -o etime= -p "$_pid" 2>/dev/null | tr -d ' ')"
@@ -172,8 +226,6 @@ if [ "${SCHED_PID:-0}" -gt 0 ] 2>/dev/null && [ -n "$(pipeline_children "$SCHED_
         [ "$state" = "active" ] && echo "   ✅ scheduler active" \
             || echo "   ❌ scheduler is '$state' after restart"
     fi
-elif [ "$BEFORE_SHA" = "$AFTER_SHA" ]; then
-    echo "   already at $AFTER_SHA — nothing changed, leaving the scheduler alone"
 elif ! systemctl restart driftwire326 2>/dev/null; then
     echo "   (service not installed — skipped)"
 else
