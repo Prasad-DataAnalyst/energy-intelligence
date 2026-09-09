@@ -632,6 +632,47 @@ def _check_video_visibility() -> tuple[str, str, str, list[str]]:
     return _OK, "Video visibility", f"all {checked} recent video(s) are public", []
 
 
+def _check_thumbnails() -> tuple[str, str, str, list[str]]:
+    """
+    Are the designed thumbnails actually reaching YouTube?
+
+    Custom thumbnails require a verified channel. Without one the API
+    returns 403, the code logs it, and YouTube substitutes a frame from the
+    video — which is how a channel ends up showing the same dark cityscape
+    on three videos while believing it uploaded a designed thumbnail for
+    each. Nothing else in this report would ever notice.
+    """
+    import json as _json
+    try:
+        from uploader.uploader import THUMBNAIL_STATE
+        path = settings.logs_dir / THUMBNAIL_STATE
+    except Exception as exc:
+        return _WARN, "Thumbnails", f"uploader unavailable: {exc}", []
+
+    if not path.exists():
+        return (_WARN, "Thumbnails",
+                "no thumbnail upload recorded yet — the next publish will "
+                "report one", [])
+    try:
+        outcome = _json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return _WARN, "Thumbnails", "thumbnail status unreadable", []
+
+    when = (outcome.get("at") or "")[:16]
+    if outcome.get("status") == "ok":
+        return _OK, "Thumbnails", f"custom thumbnail set at {when}", []
+
+    error = outcome.get("error", "")
+    lines = [f"   {error[:150]}"]
+    if "403" in error or "forbidden" in error.lower():
+        lines.append("   this is the unverified-channel case: YouTube Studio →")
+        lines.append("   Settings → Channel → Feature eligibility → verify by phone")
+    lines.append("   until then YouTube picks a frame from the video instead")
+    return (_FAIL, "Thumbnails",
+            f"custom thumbnail FAILED at {when} — your designed art is not "
+            "reaching YouTube", lines)
+
+
 def _check_backups(stale_days: int = 10) -> tuple[str, str, str, list[str]]:
     """
     Is there a recent copy of the unrecoverable state, and is it anywhere
@@ -954,7 +995,7 @@ def run_health_report() -> int:
         _check_pipeline_states(), _check_uploads(),
         _check_claude_burn(), _check_optional_keys(), _check_backups(),
         _check_performance(), _check_format_performance(), _check_learning(),
-        _check_todays_slots(), _check_video_visibility()
+        _check_todays_slots(), _check_video_visibility(), _check_thumbnails()
     ):
         print(_line(status, label, detail))
         for line in lines:

@@ -247,10 +247,39 @@ def upload_video(
     )
 
 
+THUMBNAIL_STATE = "thumbnail_last_set.json"
+
+
+def _record_thumbnail_outcome(video_id: str, ok: bool, error: str = "") -> None:
+    """
+    Remember how the last thumbnail upload went. Never raises.
+
+    Custom thumbnails need a verified channel; without one the API returns
+    403 and YouTube quietly falls back to a frame grabbed from the video.
+    That is why a channel can end up with the same dark cityscape on three
+    different videos while the code believes it uploaded a designed
+    thumbnail for each of them.
+    """
+    import json as _json
+    from datetime import datetime as _dt
+    try:
+        from config.settings import settings as _settings
+        _settings.logs_dir.mkdir(parents=True, exist_ok=True)
+        (_settings.logs_dir / THUMBNAIL_STATE).write_text(_json.dumps({
+            "at": _dt.now().isoformat(timespec="seconds"),
+            "video_id": video_id,
+            "status": "ok" if ok else "failed",
+            "error": error[:300],
+        }, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
 def set_thumbnail(video_id: str, thumbnail_path: Path) -> bool:
     """Set custom thumbnail for an uploaded video."""
     if not thumbnail_path.exists():
         logger.warning("Thumbnail not found: %s", thumbnail_path)
+        _record_thumbnail_outcome(video_id, False, "thumbnail file missing")
         return False
     try:
         from googleapiclient.http import MediaFileUpload
@@ -260,9 +289,14 @@ def set_thumbnail(video_id: str, thumbnail_path: Path) -> bool:
             media_body=MediaFileUpload(str(thumbnail_path), mimetype="image/jpeg"),
         ).execute()
         logger.info("Thumbnail set for video %s", video_id)
+        _record_thumbnail_outcome(video_id, True)
         return True
     except Exception as exc:
-        logger.error("Thumbnail upload failed: %s", exc)
+        # Loud, because the visible consequence is silent: YouTube just uses
+        # a video frame and the channel looks like it has no art direction.
+        logger.error("THUMBNAIL UPLOAD FAILED for %s: %s — YouTube will use a "
+                     "frame from the video instead", video_id, exc)
+        _record_thumbnail_outcome(video_id, False, str(exc))
         return False
 
 

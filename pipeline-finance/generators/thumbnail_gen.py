@@ -32,6 +32,9 @@ class ThumbnailSpec:
     sentiment: str   # "bullish" | "bearish" | "neutral" | "warning"
     chart_path: Optional[Path]
     logo_path: Optional[Path]
+    # The number the thumbnail is built around. At the size a thumbnail is
+    # actually seen there is room for exactly one idea, and this is it.
+    key_stat: str = ""
 
 
 @dataclass
@@ -42,34 +45,29 @@ class ThumbnailFile:
 
 
 # ── Color Palettes by Sentiment ────────────────────────────────────────────
+# Bright enough to survive a feed. The previous palettes bottomed out at
+# (5,5,15) — at 336px wide in a row of competing thumbnails, near-black
+# reads as an empty slot rather than as a video.
 SENTIMENT_PALETTES = {
     "bullish": {
-        "bg_top": (0, 80, 20),
-        "bg_bot": (5, 5, 15),
-        "headline": (0, 255, 120),
-        "accent": (255, 215, 0),
-        "glow": (0, 200, 80),
+        "bg_top": (0, 122, 51), "bg_bot": (4, 30, 16),
+        "headline": (180, 255, 200), "accent": (0, 255, 128),
+        "glow": (0, 200, 80), "number": (120, 255, 170),
     },
     "bearish": {
-        "bg_top": (80, 0, 10),
-        "bg_bot": (5, 5, 15),
-        "headline": (255, 30, 50),
-        "accent": (255, 140, 0),
-        "glow": (200, 20, 40),
+        "bg_top": (150, 20, 34), "bg_bot": (32, 4, 8),
+        "headline": (255, 210, 215), "accent": (255, 70, 90),
+        "glow": (200, 20, 40), "number": (255, 130, 140),
     },
     "neutral": {
-        "bg_top": (10, 20, 60),
-        "bg_bot": (5, 5, 15),
-        "headline": (100, 160, 255),
-        "accent": (255, 215, 0),
-        "glow": (60, 120, 220),
+        "bg_top": (22, 52, 130), "bg_bot": (6, 10, 30),
+        "headline": (215, 230, 255), "accent": (120, 180, 255),
+        "glow": (60, 120, 220), "number": (150, 200, 255),
     },
     "warning": {
-        "bg_top": (80, 50, 0),
-        "bg_bot": (5, 5, 15),
-        "headline": (255, 200, 0),
-        "accent": (255, 80, 0),
-        "glow": (200, 160, 0),
+        "bg_top": (150, 100, 0), "bg_bot": (30, 20, 2),
+        "headline": (255, 240, 200), "accent": (255, 190, 0),
+        "glow": (200, 160, 0), "number": (255, 210, 90),
     },
 }
 
@@ -119,121 +117,129 @@ def _draw_text_with_shadow(draw, text: str, xy: tuple, font, fill: tuple,
     draw.text((x, y), text, font=font, fill=fill)
 
 
+def _draw_arrow(draw, box, colour, up: bool) -> None:
+    """
+    A direction arrow drawn as a polygon.
+
+    Not an emoji: DejaVu carries no colour emoji glyph, so the old design
+    rendered a tofu box in the most prominent position on the thumbnail. A
+    polygon always draws, at any size, on any machine.
+    """
+    x0, y0, x1, y1 = box
+    mid = (x0 + x1) / 2
+    if up:
+        draw.polygon([(mid, y0), (x1, y1), (x0, y1)], fill=colour)
+    else:
+        draw.polygon([(mid, y1), (x1, y0), (x0, y0)], fill=colour)
+
+
+def _fit_font(draw, text: str, max_width: int, start_px: int, floor_px: int,
+              bold: bool = True):
+    """Largest font that keeps text inside max_width."""
+    size = start_px
+    while size > floor_px:
+        font = _get_font(size, bold=bold)
+        if font is None:
+            return None
+        if draw.textbbox((0, 0), text, font=font)[2] <= max_width:
+            return font
+        size = int(size * 0.92)
+    return _get_font(floor_px, bold=bold)
+
+
 def generate_thumbnail(
     spec: ThumbnailSpec,
     chart_path: Optional[Path] = None,
 ) -> ThumbnailFile:
-    """Generate a single branded thumbnail PNG."""
+    """
+    Generate a branded thumbnail built around one number.
+
+    Designed for the size a thumbnail is actually seen at — roughly 336px
+    wide in a feed, where the previous layout became an unreadable smudge:
+    a wrapped headline in body-sized type, a subtext line, a ticker chip and
+    a watermark all competing, over a near-black background, with a tofu box
+    where the emoji should have been.
+
+    There is room for one idea. The number is that idea.
+    """
     try:
-        from PIL import Image, ImageDraw, ImageFilter, ImageFont
+        from PIL import Image, ImageDraw, ImageFilter
     except ImportError:
         logger.error("Pillow not installed — cannot generate thumbnails")
         raise
 
     palette = SENTIMENT_PALETTES.get(spec.sentiment, SENTIMENT_PALETTES["neutral"])
-    img = Image.new("RGB", (THUMB_W, THUMB_H), (0, 0, 0))
+    img = Image.new("RGB", (THUMB_W, THUMB_H), palette["bg_bot"])
     draw = ImageDraw.Draw(img, "RGBA")
-
-    # Gradient background
     _draw_gradient_bg(draw, THUMB_W, THUMB_H, palette)
 
-    # Subtle grid overlay for depth
-    for x in range(0, THUMB_W, 80):
-        draw.line([(x, 0), (x, THUMB_H)], fill=(255, 255, 255, 8), width=1)
-    for y in range(0, THUMB_H, 80):
-        draw.line([(0, y), (THUMB_W, y)], fill=(255, 255, 255, 8), width=1)
+    # Direction comes from the number itself where there is one. Deriving it
+    # from sentiment alone drew a down arrow over "+0.26%", because anything
+    # not classified bullish fell to the else branch.
+    stat_raw = (spec.key_stat or spec.subtext or "").strip()
+    if stat_raw.startswith("-") or stat_raw.startswith("−"):
+        up = False
+    elif stat_raw.startswith("+"):
+        up = True
+    else:
+        up = spec.sentiment == "bullish"
 
-    # Chart embed (right side, 40% width)
-    if chart_path and chart_path.exists():
-        try:
-            chart_img = Image.open(chart_path).convert("RGBA")
-            chart_w = int(THUMB_W * 0.45)
-            chart_h = int(THUMB_H * 0.7)
-            chart_img = chart_img.resize((chart_w, chart_h), Image.LANCZOS)
-            # Apply slight transparency
-            chart_img.putalpha(180)
-            img.paste(chart_img, (THUMB_W - chart_w - 20, (THUMB_H - chart_h) // 2), chart_img)
-        except Exception as exc:
-            logger.warning("Could not embed chart in thumbnail: %s", exc)
+    # A large, soft arrow behind everything — direction readable before any
+    # text resolves, which at feed size is most of the impression.
+    arrow_w = int(THUMB_W * 0.42)
+    arrow_box = (THUMB_W - arrow_w - 40, int(THUMB_H * 0.12),
+                 THUMB_W - 40, int(THUMB_H * 0.88))
+    glow = Image.new("RGBA", (THUMB_W, THUMB_H), (0, 0, 0, 0))
+    _draw_arrow(ImageDraw.Draw(glow), arrow_box, palette["accent"] + (70,), up)
+    img = Image.alpha_composite(img.convert("RGBA"),
+                                glow.filter(ImageFilter.GaussianBlur(6))).convert("RGB")
+    draw = ImageDraw.Draw(img, "RGBA")
 
-    # Accent bar on left
-    draw.rectangle([(0, 0), (8, THUMB_H)], fill=palette["accent"])
+    left = int(THUMB_W * 0.055)
+    text_width = int(THUMB_W * 0.60)
 
-    # Emoji (large, left-center)
-    emoji_font = _get_font(140, bold=True)
-    if emoji_font:
-        try:
-            draw.text((40, 80), spec.emoji, font=emoji_font, fill=(255, 255, 255))
-        except Exception:
-            draw.text((40, 80), "📈", font=_get_font(100), fill=(255, 255, 255))
+    # Label: what the number refers to.
+    label = (spec.ticker or spec.headline).upper()[:22]
+    label_font = _get_font(52, bold=True)
+    if label_font:
+        draw.text((left, int(THUMB_H * 0.13)), label,
+                  font=label_font, fill=palette["headline"])
 
-    # Headline (main text — bold, large)
-    headline_font = _get_font(88, bold=True)
-    if headline_font:
-        headline_text = spec.headline.upper()
-        # Word wrap at ~14 chars per line
-        words = headline_text.split()
-        lines, current = [], ""
-        for word in words:
-            if len(current + " " + word) > 14 and current:
-                lines.append(current)
-                current = word
-            else:
-                current = (current + " " + word).strip()
-        if current:
-            lines.append(current)
+    # The number, as large as it will go.
+    stat = (spec.key_stat or spec.subtext or "").strip()[:12]
+    if stat:
+        stat_font = _fit_font(draw, stat, text_width, int(THUMB_H * 0.42), 90)
+        if stat_font:
+            box = draw.textbbox((0, 0), stat, font=stat_font)
+            y = int(THUMB_H * 0.30)
+            # Heavy shadow: these sit on a coloured field, not a flat one.
+            draw.text((left + 6, y + 6 - box[1]), stat, font=stat_font,
+                      fill=(0, 0, 0, 160))
+            draw.text((left, y - box[1]), stat, font=stat_font,
+                      fill=palette["number"])
 
-        y_start = 230 if len(lines) <= 2 else 180
-        for i, line in enumerate(lines[:3]):
-            _draw_text_with_shadow(
-                draw, line, (40, y_start + i * 95),
-                headline_font, palette["headline"], shadow_offset=4,
-            )
+    # Two or three words of context, no more — and never the number again.
+    # "-0.55%" above "S&P 500 FALLS 0.55%" spends the whole thumbnail
+    # saying one thing twice.
+    words = [w for w in spec.headline.split()
+             if not any(ch.isdigit() for ch in w)]
+    kicker = " ".join(words[:4]).upper()
+    kicker_font = _fit_font(draw, kicker, text_width, 76, 40)
+    if kicker_font:
+        draw.text((left, int(THUMB_H * 0.76)), kicker,
+                  font=kicker_font, fill=(255, 255, 255))
 
-    # Subtext
-    sub_font = _get_font(42)
-    if sub_font and spec.subtext:
-        _draw_text_with_shadow(
-            draw, spec.subtext.upper(), (40, THUMB_H - 130),
-            sub_font, (255, 255, 255), shadow_offset=2,
-        )
-
-    # Ticker badge (bottom-right area)
-    if spec.ticker:
-        ticker_font = _get_font(52, bold=True)
-        badge_x, badge_y = 40, THUMB_H - 80
-        badge_w, badge_h = 180, 60
-        draw.rounded_rectangle(
-            [(badge_x, badge_y), (badge_x + badge_w, badge_y + badge_h)],
-            radius=10, fill=palette["accent"],
-        )
-        if ticker_font:
-            draw.text(
-                (badge_x + 15, badge_y + 8), f"${spec.ticker}",
-                font=ticker_font, fill=(0, 0, 0),
-            )
-
-    # Channel watermark (bottom right)
-    wm_font = _get_font(26)
-    if wm_font:
-        draw.text((THUMB_W - 200, THUMB_H - 40), "@DriftWire326",
-                  font=wm_font, fill=(255, 255, 255, 150))
-
-    # Glow effect on text area
-    glow_layer = Image.new("RGBA", (THUMB_W, THUMB_H), (0, 0, 0, 0))
-    glow_draw = ImageDraw.Draw(glow_layer)
-    glow_color = (*palette["glow"], 40)
-    glow_draw.ellipse([(0, 150), (600, 650)], fill=glow_color)
-    glow_layer = glow_layer.filter(ImageFilter.GaussianBlur(radius=60))
-    img = Image.alpha_composite(img.convert("RGBA"), glow_layer).convert("RGB")
+    # Accent rule anchoring the left column.
+    draw.rectangle([(0, 0), (14, THUMB_H)], fill=palette["accent"])
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"thumbnail_{spec.sentiment}_{timestamp}.jpg"
-    path = OUTPUT_DIR / filename
+    path = OUTPUT_DIR / f"thumbnail_{spec.sentiment}_{timestamp}.jpg"
     img.save(path, "JPEG", quality=95, optimize=True)
+    logger.info("Thumbnail: %s — %s (%s)", path.name, stat or "no stat",
+                spec.sentiment)
+    return ThumbnailFile(path=path, spec=spec,
+                         generated_at=datetime.now().isoformat())
 
-    logger.info("Thumbnail generated → %s", path)
-    return ThumbnailFile(path=path, spec=spec, generated_at=datetime.now().isoformat())
 
 
 _THUMBNAIL_COPY_PROMPT = """\
@@ -255,11 +261,6 @@ Rules — three visual elements ONLY (headline, the big stat, ticker):
 Return ONLY valid JSON:
 {{"headline": "<3-word ALL CAPS>", "subtext": "<max 4 words>", "ticker": "<symbol or null>", "emoji": "<single emoji>"}}"""
 
-
-# ── ThumbnailGenerator class ──────────────────────────────────────────────────
-
-MAX_THUMB_BYTES = 2 * 1024 * 1024  # 2 MB YouTube limit
-
 _TIER_SENTIMENT = {
     "tier1": "warning",    # breakout — urgent orange/yellow
     "tier2": "neutral",    # notable — blue
@@ -272,6 +273,9 @@ _SUNDAY_SENTIMENT = {
     "savings_wealth": "bullish",
     "rotating_bonus": "warning",
 }
+
+
+MAX_THUMB_BYTES = 2 * 1024 * 1024  # 2 MB YouTube limit
 
 
 class ThumbnailGenerator:
