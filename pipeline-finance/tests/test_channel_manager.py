@@ -194,13 +194,20 @@ class TestAnalyticsTracker:
         assert stats.views == 0
 
     def test_fetch_video_stats_with_data(self, at):
+        # Column order follows the metrics string: the impression metrics
+        # moved to the end when they were renamed to the identifiers the API
+        # actually accepts.
+        # video, views, watchMin, avgDur, subs, likes, comments, impr, ctr
         at._analytics_svc.reports().query().execute.return_value = {
-            "rows": [["vid123", 500, 120.5, 2000, 0.04, 90.0, 3, 45, 8]]
+            "rows": [["vid123", 500, 120.5, 90.0, 3, 45, 8, 2000, 0.04]]
         }
         stats = at.fetch_video_stats("vid123")
         assert stats.views == 500
-        assert stats.ctr == 0.04
         assert stats.watch_time_minutes == 120.5
+        assert stats.avg_view_duration_seconds == 90.0
+        assert stats.impressions == 2000
+        assert stats.ctr == 0.04
+        assert stats.likes == 45 and stats.comments == 8
 
     def test_save_daily_stats(self, at, tmp_path):
         stats = [VideoStats(video_id="v1", date="2026-06-22", views=100)]

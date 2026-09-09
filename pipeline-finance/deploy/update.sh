@@ -135,7 +135,10 @@ if [ "${SCHED_PID:-0}" -gt 0 ] 2>/dev/null && pgrep -P "$SCHED_PID" >/dev/null 2
             break
         fi
         if [ $((waited % 4)) -eq 0 ]; then
-            echo "      still building… ${waited}0s elapsed"
+            # $waited counts 30-second sleeps. Printing "${waited}0s" labelled
+            # them as 10 seconds each, so a full 15-minute wait reported
+            # "280s elapsed" and looked like it had given up after 4 minutes.
+            echo "      still building… $((waited / 2))m$((waited % 2 * 30))s elapsed"
         fi
     done
     if pgrep -P "$SCHED_PID" >/dev/null 2>&1; then

@@ -100,6 +100,47 @@ class WeeklyReport:
         }
 
 
+# YouTube Analytics metric names.
+#
+# The impression metrics are NOT called "impressions" and
+# "impressionClickThroughRate" — those identifiers do not exist in this API,
+# and asking for them fails the whole query with HTTP 400, taking views and
+# watch time down with them. They are "videoThumbnailImpressions" and
+# "videoThumbnailImpressionsClickRate", added to the Analytics API on
+# 2026-01-15. Older channels and some report types still reject them, hence
+# the two-tier query below.
+_CORE_METRICS = "views,estimatedMinutesWatched,subscribersGained"
+_IMPRESSION_METRICS = "videoThumbnailImpressions,videoThumbnailImpressionsClickRate"
+
+
+def _query_with_optional_impressions(analytics, **params) -> tuple:
+    """
+    Run an Analytics query, dropping the impression metrics if rejected.
+
+    One unsupported metric fails the entire request, so asking for
+    impressions unconditionally means a channel that cannot serve them gets
+    no views and no watch time either — which is how this returned nothing
+    at all rather than returning less.
+
+    Returns (rows, had_impressions, error).
+    """
+    metrics = params.pop("metrics")
+    try:
+        response = analytics.reports().query(
+            metrics=f"{metrics},{_IMPRESSION_METRICS}", **params).execute()
+        return response.get("rows", []), True, None
+    except Exception as exc:
+        if "videoThumbnailImpressions" not in str(exc):
+            return [], False, exc
+        logger.info("Impression metrics unavailable on this channel — "
+                    "fetching views and watch time only")
+    try:
+        response = analytics.reports().query(metrics=metrics, **params).execute()
+        return response.get("rows", []), False, None
+    except Exception as exc:
+        return [], False, exc
+
+
 def _get_youtube_service():
     """YouTube Data API v3 service (for videos.update, videos.list)."""
     from uploader.uploader import _get_authenticated_service
@@ -192,8 +233,9 @@ class AnalyticsTracker:
                 ids=f"channel=={channel_id}",
                 startDate=start_date,
                 endDate=end_date,
-                metrics="views,estimatedMinutesWatched,impressions,impressionClickThroughRate,"
-                        "averageViewDuration,subscribersGained,likes,comments",
+                metrics="views,estimatedMinutesWatched,"
+                        "averageViewDuration,subscribersGained,likes,comments,"
+                        + _IMPRESSION_METRICS,
                 dimensions="video",
                 filters=f"video=={video_id}",
             ).execute()
@@ -204,9 +246,10 @@ class AnalyticsTracker:
                 return VideoStats(video_id=video_id, date=start_date)
 
             row = rows[0]
-            # columns: video, views, estimatedMinutesWatched, impressions, ctr,
-            #          avgViewDuration, subscribersGained, likes, comments
-            _, views, watch_min, impressions, ctr, avg_dur, subs, likes, comments = row
+            # columns: video, views, estimatedMinutesWatched, avgViewDuration,
+            #          subscribersGained, likes, comments, impressions, ctr
+            (_, views, watch_min, avg_dur, subs, likes, comments,
+             impressions, ctr) = row
 
             return VideoStats(
                 video_id=video_id,
@@ -239,35 +282,37 @@ class AnalyticsTracker:
         if end_date is None:
             end_date = date.today().isoformat()
 
-        try:
-            channel_id = settings.channel_id or "mine"
-            response = self._analytics().reports().query(
-                ids=f"channel=={channel_id}",
-                startDate=start_date,
-                endDate=end_date,
-                metrics="views,estimatedMinutesWatched,impressions,"
-                        "impressionClickThroughRate,subscribersGained",
-            ).execute()
+        channel_id = settings.channel_id or "mine"
+        rows, had_impressions, error = _query_with_optional_impressions(
+            self._analytics(),
+            ids=f"channel=={channel_id}",
+            startDate=start_date,
+            endDate=end_date,
+            metrics=_CORE_METRICS,
+        )
+        if error:
+            logger.error("Failed to fetch channel stats: %s", error)
+            return {"start_date": start_date, "end_date": end_date,
+                    "error": str(error)}
+        if not rows:
+            return {"start_date": start_date, "end_date": end_date,
+                    "impressions_available": had_impressions}
 
-            rows = response.get("rows", [])
-            if not rows:
-                return {"start_date": start_date, "end_date": end_date}
-
-            row = rows[0]
-            views, watch_min, impressions, ctr, subs = row
-            return {
-                "start_date": start_date,
-                "end_date": end_date,
-                "total_views": int(views or 0),
-                "total_watch_time_minutes": float(watch_min or 0.0),
-                "total_impressions": int(impressions or 0),
-                "avg_ctr": float(ctr or 0.0),
-                "subscribers_gained": int(subs or 0),
-            }
-
-        except Exception as exc:
-            logger.error("Failed to fetch channel stats: %s", exc)
-            return {"start_date": start_date, "end_date": end_date, "error": str(exc)}
+        views, watch_min, subs = rows[0][:3]
+        stats = {
+            "start_date": start_date,
+            "end_date": end_date,
+            "total_views": int(views or 0),
+            "total_watch_time_minutes": float(watch_min or 0.0),
+            "subscribers_gained": int(subs or 0),
+            # Recorded so a caller can tell "no impressions" from "this
+            # channel does not report impressions" — they are the same zero.
+            "impressions_available": had_impressions,
+        }
+        if had_impressions:
+            stats["total_impressions"] = int(rows[0][3] or 0)
+            stats["avg_ctr"] = float(rows[0][4] or 0.0)
+        return stats
 
     def fetch_traffic_sources(
         self,
@@ -326,7 +371,29 @@ class AnalyticsTracker:
             return []
 
     def recent_video_count(self, max_results: int = 50) -> int:
-        """How many uploads the channel has, for per-video averages."""
+        """
+        How many videos the channel has, for per-video averages.
+
+        Read from channels.list rather than search.list: search costs 100
+        quota units against a daily 10,000 and returned 0 here anyway
+        (it needs an explicit channelId and quietly yields nothing without
+        one), while channels.list costs 1 and reports the count directly.
+        Falls back to the search listing so a channel whose statistics are
+        hidden still gets a number.
+        """
+        try:
+            channel_id = settings.channel_id
+            request = (self._service().channels().list(part="statistics", id=channel_id)
+                       if channel_id else
+                       self._service().channels().list(part="statistics", mine=True))
+            items = request.execute().get("items", [])
+            if items:
+                count = items[0].get("statistics", {}).get("videoCount")
+                if count is not None:
+                    return int(count)
+            logger.info("Channel statistics hidden — counting uploads instead")
+        except Exception as exc:
+            logger.warning("channels.list failed (%s) — counting uploads instead", exc)
         return len(self._list_recent_video_ids(max_results=max_results))
 
     # ── Reporting ────────────────────────────────────────────────────────────

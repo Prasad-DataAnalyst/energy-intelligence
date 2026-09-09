@@ -16,13 +16,15 @@ from monitor.discovery_report import (
 )
 
 
-def _channel(impressions=0, views=0, ctr=0.0, watch_minutes=0.0, subs=0, error=None):
+def _channel(impressions=0, views=0, ctr=0.0, watch_minutes=0.0, subs=0,
+             error=None, impressions_available=True):
     data = {
         "total_impressions": impressions,
         "total_views": views,
         "avg_ctr": ctr,
         "total_watch_time_minutes": watch_minutes,
         "subscribers_gained": subs,
+        "impressions_available": impressions_available,
     }
     if error:
         data["error"] = error
@@ -37,7 +39,7 @@ class TestTheThreeBottlenecks:
         impressions you already have, and there are none to convert.
         """
         result = diagnose(_channel(impressions=180, views=9, ctr=0.05),
-                          {"NO_LINK_OTHER": 9}, videos=27)
+                          {"SUBSCRIBER": 7, "NO_LINK_OTHER": 2}, videos=27)
         assert result.bottleneck == "distribution"
         assert result.status == _FAIL
         assert "180" in result.verdict
@@ -107,6 +109,32 @@ class TestMissingDataIsNotAFinding:
         assert any("24" in note or "verify-uploads" in note
                    for note in result.notes)
 
+    def test_an_api_error_does_not_discard_the_traffic_data(self):
+        """
+        Sources are a separate query and usually still arrive. Declaring "no
+        diagnosis possible" while holding a full traffic split threw away
+        the answer to the more important question.
+        """
+        result = diagnose(
+            _channel(error="Unknown identifier (impressions)"),
+            {"SHORTS": 42, "YT_SEARCH": 25, "SUBSCRIBER": 8,
+             "RELATED_VIDEO": 4, "NO_LINK_OTHER": 2}, videos=27)
+        assert result.bottleneck == "volume"
+        assert result.numbers["views"] == 81
+        assert any("unavailable" in note for note in result.notes)
+
+    def test_unreported_impressions_are_not_read_as_zero_impressions(self):
+        """
+        A channel that does not report impressions and a channel with no
+        impressions are the same zero, and calling the first one a
+        distribution failure would be a fabricated finding.
+        """
+        result = diagnose(
+            _channel(views=900, watch_minutes=2000, impressions_available=False),
+            {"SUBSCRIBER": 700, "RELATED_VIDEO": 200}, videos=10)
+        assert result.bottleneck != "distribution"
+        assert any("Studio" in note for note in result.notes)
+
     def test_missing_traffic_sources_are_flagged_as_missing(self):
         """An empty source split must not read as an empty result."""
         result = diagnose(_channel(impressions=40_000, views=420, ctr=0.011,
@@ -134,3 +162,120 @@ class TestThresholdsAreHonest:
 
     def test_zero_videos_does_not_divide_by_zero(self):
         assert diagnose(_channel(impressions=5, views=1), {}, videos=0) is not None
+
+
+class TestVolumeIsNotSuppression:
+    """
+    The real shape of this channel: YouTube is showing the videos, in very
+    small batches. That is a different problem from being suppressed, and
+    calling it suppression sends the work in the wrong direction.
+    """
+
+    _SOURCES = {"SHORTS": 42, "YT_SEARCH": 25, "SUBSCRIBER": 8,
+                "RELATED_VIDEO": 4, "NO_LINK_OTHER": 2, "EXT_URL": 2,
+                "YT_CHANNEL": 1}
+
+    def test_healthy_sources_with_tiny_numbers_is_a_volume_problem(self):
+        result = diagnose(
+            _channel(views=84, watch_minutes=40, impressions_available=False),
+            self._SOURCES, videos=27)
+        assert result.bottleneck == "volume"
+        assert "IS distributing" in result.verdict
+
+    def test_it_names_the_surface_already_working(self):
+        result = diagnose(
+            _channel(views=84, watch_minutes=40, impressions_available=False),
+            self._SOURCES, videos=27)
+        assert any("Shorts feed" in note for note in result.notes)
+
+    def test_it_says_plainly_that_this_is_not_suppression(self):
+        result = diagnose(
+            _channel(views=84, watch_minutes=40, impressions_available=False),
+            self._SOURCES, videos=27)
+        assert any("suppressed" in note.lower() for note in result.notes)
+        assert "not being distributed" not in result.verdict
+
+    def test_retention_is_not_judged_on_a_handful_of_views(self):
+        """
+        84 views at 28 seconds is not a retention finding — one long session
+        moves that average by seconds. The old rule called it one.
+        """
+        result = diagnose(
+            _channel(views=84, watch_minutes=40, impressions_available=False),
+            self._SOURCES, videos=27)
+        assert result.bottleneck != "retention"
+
+    def test_retention_is_judged_once_there_are_enough_views(self):
+        big = {source: views * 20 for source, views in self._SOURCES.items()}
+        result = diagnose(
+            _channel(views=1680, watch_minutes=280, impressions_available=False),
+            big, videos=27)
+        assert result.bottleneck == "retention"
+
+    def test_the_same_sources_at_real_scale_are_not_a_volume_problem(self):
+        big = {source: views * 400 for source, views in self._SOURCES.items()}
+        result = diagnose(
+            _channel(views=33_600, watch_minutes=40_000, impressions_available=False),
+            big, videos=27)
+        assert result.bottleneck != "volume"
+
+
+class TestAnalyticsMetricNames:
+    """
+    The query used "impressions" and "impressionClickThroughRate", which are
+    not identifiers this API has ever accepted. One bad metric fails the
+    whole request, so the channel returned no views and no watch time
+    either — the diagnosis lost everything to a naming error.
+    """
+
+    def test_the_impression_metrics_use_their_real_names(self):
+        from channel_manager.analytics_tracker import _IMPRESSION_METRICS
+        assert _IMPRESSION_METRICS == (
+            "videoThumbnailImpressions,videoThumbnailImpressionsClickRate")
+
+    def test_core_metrics_never_include_the_rejected_identifiers(self):
+        from channel_manager.analytics_tracker import _CORE_METRICS
+        assert "impressionClickThroughRate" not in _CORE_METRICS
+        assert ",impressions" not in _CORE_METRICS
+
+    def test_a_rejected_impression_metric_does_not_cost_the_other_data(self):
+        from unittest.mock import MagicMock
+        from channel_manager.analytics_tracker import (
+            _query_with_optional_impressions, _CORE_METRICS)
+
+        attempts = []
+
+        class Analytics:
+            def reports(self):
+                return self
+
+            def query(self, **kw):
+                attempts.append(kw["metrics"])
+                if "videoThumbnailImpressions" in kw["metrics"]:
+                    raise RuntimeError("Unknown identifier "
+                                       "(videoThumbnailImpressions)")
+                return MagicMock(execute=lambda: {"rows": [[84, 40.0, 1]]})
+
+        rows, had_impressions, error = _query_with_optional_impressions(
+            Analytics(), ids="channel==mine", startDate="a", endDate="b",
+            metrics=_CORE_METRICS)
+        assert rows == [[84, 40.0, 1]]
+        assert had_impressions is False
+        assert error is None
+        assert len(attempts) == 2
+
+    def test_a_real_failure_is_not_swallowed_as_a_missing_metric(self):
+        from channel_manager.analytics_tracker import (
+            _query_with_optional_impressions, _CORE_METRICS)
+
+        class Analytics:
+            def reports(self):
+                return self
+
+            def query(self, **kw):
+                raise RuntimeError("insufficientPermissions")
+
+        rows, had_impressions, error = _query_with_optional_impressions(
+            Analytics(), ids="x", startDate="a", endDate="b",
+            metrics=_CORE_METRICS)
+        assert rows == [] and error is not None
