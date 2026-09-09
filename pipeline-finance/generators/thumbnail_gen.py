@@ -35,6 +35,10 @@ class ThumbnailSpec:
     # The number the thumbnail is built around. At the size a thumbnail is
     # actually seen there is room for exactly one idea, and this is it.
     key_stat: str = ""
+    # Which show this is: "MARKET CLOSE", "PRE-MARKET", "SUNDAY DEEP DIVE".
+    # Same slot, same weight, every video — it is what lets a returning
+    # viewer recognise the channel before reading a word of the headline.
+    series: str = ""
 
 
 @dataclass
@@ -133,6 +137,125 @@ def _draw_arrow(draw, box, colour, up: bool) -> None:
         draw.polygon([(mid, y1), (x1, y0), (x0, y0)], fill=colour)
 
 
+def _photo_background(palette: dict):
+    """
+    A photograph behind the type, with a scrim over the column that carries
+    it.
+
+    A gradient field is the safe choice and it is why every thumbnail on the
+    channel looks like every other one. A picture varies by itself, every
+    day, without any per-video design work — but only if the left column
+    stays dark enough to read white type against, hence the scrim rather
+    than a flat dim.
+    """
+    from PIL import Image, ImageEnhance
+    from builders.broll_fetcher import cached_photos
+
+    photos = cached_photos(8)
+    if not photos:
+        return None
+    # Rotate by day so consecutive videos do not share a picture.
+    photo = photos[datetime.now().timetuple().tm_yday % len(photos)]
+    try:
+        shot = Image.open(photo).convert("RGB")
+    except Exception as exc:
+        logger.warning("Thumbnail photo unusable (%s) — keeping gradient", exc)
+        return None
+
+    scale = max(THUMB_W / shot.width, THUMB_H / shot.height)
+    shot = shot.resize((max(int(shot.width * scale), THUMB_W),
+                        max(int(shot.height * scale), THUMB_H)), Image.LANCZOS)
+    left = (shot.width - THUMB_W) // 2
+    shot = shot.crop((left, 0, left + THUMB_W, THUMB_H))
+    shot = ImageEnhance.Brightness(shot).enhance(0.55)
+
+    # Horizontal scrim: opaque brand colour on the left, clear on the right
+    # so the picture is still visibly a picture.
+    scrim = Image.new("L", (THUMB_W, 1))
+    for x in range(THUMB_W):
+        edge = x / THUMB_W
+        scrim.putpixel((x, 0), int(235 * max(0.0, 1.0 - (edge / 0.72) ** 1.6)))
+    scrim = scrim.resize((THUMB_W, THUMB_H))
+    field = Image.new("RGB", (THUMB_W, THUMB_H), palette["bg_bot"])
+    return Image.composite(field, shot, scrim)
+
+
+def _draw_series_badge(draw, series: str, palette: dict) -> int:
+    """
+    The show's name, in the same corner at the same weight on every video.
+
+    This is the one element that must not vary. The channels that build an
+    audience on thumbnails alone — "IBD Explains", "FAANG Stock Show" — do
+    it by stamping the series, not by redesigning each upload. Returns the
+    y coordinate the rest of the layout should start below.
+    """
+    top = int(THUMB_H * 0.055)
+    if not series:
+        return top
+
+    text = series.upper()[:22]
+    font = _get_font(34, bold=True)
+    if font is None:
+        return top
+    left = int(THUMB_W * 0.055)
+    box = draw.textbbox((0, 0), text, font=font)
+    pad_x, pad_y = 18, 12
+    draw.rectangle(
+        [(left - pad_x, top - pad_y),
+         (left + box[2] - box[0] + pad_x, top + box[3] + pad_y)],
+        fill=palette["accent"],
+    )
+    draw.text((left, top - box[1]), text, font=font, fill=(8, 8, 12))
+    return top + box[3] + pad_y
+
+
+def _hero_number(spec: "ThumbnailSpec") -> str:
+    """
+    The one figure the thumbnail is built around.
+
+    spec.key_stat is authoritative. The fallback matters because for most of
+    this channel's life nothing set it: the copy model's subtext came
+    through instead and was truncated to twelve characters, so "S&P falls
+    0.55%" rendered as "S&P falls 0." — a broken number in the largest type
+    on the image. Pull the figure out of the sentence rather than cutting it.
+    """
+    explicit = (spec.key_stat or "").strip()
+    if explicit:
+        return explicit[:12]
+    match = re.search(r"[+-−]?\$?\d[\d,]*(?:\.\d+)?%?", spec.subtext or "")
+    return match.group()[:12] if match else ""
+
+
+def _draw_title_block(draw, headline: str, left: int, top: int,
+                      max_width: int, palette: dict) -> None:
+    """A large two- or three-line title, for videos with no figure."""
+    words = headline.upper().split()
+    if not words:
+        return
+    lines, line = [], ""
+    probe = _get_font(72, bold=True)
+    for word in words:
+        trial = f"{line} {word}".strip()
+        if probe and draw.textbbox((0, 0), trial, font=probe)[2] > max_width and line:
+            lines.append(line)
+            line = word
+        else:
+            line = trial
+    if line:
+        lines.append(line)
+    lines = lines[:3]
+
+    y = top
+    for text in lines:
+        font = _fit_font(draw, text, max_width, 96, 44)
+        if font is None:
+            return
+        box = draw.textbbox((0, 0), text, font=font)
+        draw.text((left + 5, y + 5 - box[1]), text, font=font, fill=(0, 0, 0, 160))
+        draw.text((left, y - box[1]), text, font=font, fill=palette["headline"])
+        y += box[3] - box[1] + int(THUMB_H * 0.035)
+
+
 def _fit_font(draw, text: str, max_width: int, start_px: int, floor_px: int,
               bold: bool = True):
     """Largest font that keeps text inside max_width."""
@@ -169,14 +292,16 @@ def generate_thumbnail(
         raise
 
     palette = SENTIMENT_PALETTES.get(spec.sentiment, SENTIMENT_PALETTES["neutral"])
-    img = Image.new("RGB", (THUMB_W, THUMB_H), palette["bg_bot"])
+    img = _photo_background(palette)
+    if img is None:
+        img = Image.new("RGB", (THUMB_W, THUMB_H), palette["bg_bot"])
+        _draw_gradient_bg(ImageDraw.Draw(img, "RGBA"), THUMB_W, THUMB_H, palette)
     draw = ImageDraw.Draw(img, "RGBA")
-    _draw_gradient_bg(draw, THUMB_W, THUMB_H, palette)
 
     # Direction comes from the number itself where there is one. Deriving it
     # from sentiment alone drew a down arrow over "+0.26%", because anything
     # not classified bullish fell to the else branch.
-    stat_raw = (spec.key_stat or spec.subtext or "").strip()
+    stat_raw = _hero_number(spec)
     if stat_raw.startswith("-") or stat_raw.startswith("−"):
         up = False
     elif stat_raw.startswith("+"):
@@ -198,42 +323,63 @@ def generate_thumbnail(
     left = int(THUMB_W * 0.055)
     text_width = int(THUMB_W * 0.60)
 
-    # Label: what the number refers to.
-    label = (spec.ticker or spec.headline).upper()[:22]
-    label_font = _get_font(52, bold=True)
-    if label_font:
-        draw.text((left, int(THUMB_H * 0.13)), label,
-                  font=label_font, fill=palette["headline"])
+    # The series badge is the fixed point of the whole layout; everything
+    # else starts below whatever height it took.
+    cursor = _draw_series_badge(draw, spec.series, palette) + int(THUMB_H * 0.04)
 
-    # The number, as large as it will go.
-    stat = (spec.key_stat or spec.subtext or "").strip()[:12]
+    # Label: the ticker, and only the ticker. It used to fall back to the
+    # headline, which is also the kicker at the bottom of the frame — so
+    # every thumbnail without a ticker printed the same three words twice
+    # and spent two of its three elements saying one thing.
+    label = (spec.ticker or "").upper()[:22]
+    label_font = _get_font(52, bold=True)
+    if label and label_font:
+        draw.text((left, cursor), label, font=label_font,
+                  fill=palette["headline"])
+        cursor += int(THUMB_H * 0.11)
+
+    stat = stat_raw
     if stat:
+        # The number, as large as it will go.
         stat_font = _fit_font(draw, stat, text_width, int(THUMB_H * 0.42), 90)
         if stat_font:
             box = draw.textbbox((0, 0), stat, font=stat_font)
-            y = int(THUMB_H * 0.30)
-            # Heavy shadow: these sit on a coloured field, not a flat one.
-            draw.text((left + 6, y + 6 - box[1]), stat, font=stat_font,
+            # Heavy shadow: these sit on a photograph, not a flat field.
+            draw.text((left + 6, cursor + 6 - box[1]), stat, font=stat_font,
                       fill=(0, 0, 0, 160))
-            draw.text((left, y - box[1]), stat, font=stat_font,
+            draw.text((left, cursor - box[1]), stat, font=stat_font,
                       fill=palette["number"])
 
-    # Two or three words of context, no more — and never the number again.
-    # "-0.55%" above "S&P 500 FALLS 0.55%" spends the whole thumbnail
-    # saying one thing twice.
-    words = [w for w in spec.headline.split()
-             if not any(ch.isdigit() for ch in w)]
-    kicker = " ".join(words[:4]).upper()
-    kicker_font = _fit_font(draw, kicker, text_width, 76, 40)
-    if kicker_font:
-        draw.text((left, int(THUMB_H * 0.76)), kicker,
-                  font=kicker_font, fill=(255, 255, 255))
+        # Two or three words of context, no more — and never the number
+        # again. "-0.55%" above "S&P 500 FALLS 0.55%" spends the whole
+        # thumbnail saying one thing twice.
+        words = [w for w in spec.headline.split()
+                 if not any(ch.isdigit() for ch in w)]
+        kicker = " ".join(words[:4]).upper()
+        kicker_font = _fit_font(draw, kicker, text_width, 76, 40)
+        if kicker_font:
+            draw.text((left, int(THUMB_H * 0.76)), kicker,
+                      font=kicker_font, fill=(255, 255, 255))
+    else:
+        # The educational videos have no figure to build around, and the
+        # layout used to leave the middle of the frame empty and drop the
+        # title to the bottom edge. With nothing to compete with, the title
+        # IS the hero — set large across the frame, which is how the
+        # channels that run title-led thumbnails do it.
+        _draw_title_block(draw, spec.headline, left, cursor, text_width, palette)
 
     # Accent rule anchoring the left column.
     draw.rectangle([(0, 0), (14, THUMB_H)], fill=palette["accent"])
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    path = OUTPUT_DIR / f"thumbnail_{spec.sentiment}_{timestamp}.jpg"
+    slug = re.sub(r"[^a-z0-9]+", "_", (spec.series or spec.sentiment).lower()).strip("_")
+    # Second resolution is not enough: two thumbnails made in the same second
+    # wrote to the same name, and the second one silently replaced the first.
+    path = OUTPUT_DIR / f"thumbnail_{slug}_{timestamp}.jpg"
+    suffix = 2
+    while path.exists():
+        path = OUTPUT_DIR / f"thumbnail_{slug}_{timestamp}_{suffix}.jpg"
+        suffix += 1
     img.save(path, "JPEG", quality=95, optimize=True)
     logger.info("Thumbnail: %s — %s (%s)", path.name, stat or "no stat",
                 spec.sentiment)
@@ -275,6 +421,14 @@ _SUNDAY_SENTIMENT = {
 }
 
 
+# The channel's shows. These strings are the brand: they go in the same
+# corner at the same weight on every upload, and changing one breaks the
+# recognition it exists to build, so they are named here rather than passed
+# as ad-hoc literals from each scheduler.
+SERIES_PREMARKET = "PRE-MARKET"
+SERIES_MARKET_CLOSE = "MARKET CLOSE"
+SERIES_SUNDAY = "SUNDAY DEEP DIVE"
+
 MAX_THUMB_BYTES = 2 * 1024 * 1024  # 2 MB YouTube limit
 
 
@@ -293,6 +447,7 @@ class ThumbnailGenerator:
         tier: str = "tier2",
         chart_path: Optional[Path] = None,
         sentiment: Optional[str] = None,
+        series: str = "",
     ) -> ThumbnailFile:
         """
         Generate a weekday thumbnail.
@@ -311,6 +466,8 @@ class ThumbnailGenerator:
             sentiment=auto_sentiment,
             chart_path=chart_path,
             logo_path=None,
+            key_stat=key_stat,
+            series=series or SERIES_MARKET_CLOSE,
         )
         thumb = generate_thumbnail(spec, chart_path)
         self.validate_file_size(thumb.path)
@@ -332,6 +489,7 @@ class ThumbnailGenerator:
             sentiment=sent,
             chart_path=chart_path,
             logo_path=None,
+            series=SERIES_SUNDAY,
         )
         thumb = generate_thumbnail(spec, chart_path)
         self.validate_file_size(thumb.path)
@@ -427,6 +585,7 @@ def generate_thumbnail_from_claude(
     key_stat: str,
     sentiment: str,
     chart_path: Optional[Path] = None,
+    series: str = "",
 ) -> ThumbnailFile:
     """Ask Claude for thumbnail copy, then generate the image."""
     import anthropic
@@ -459,5 +618,9 @@ def generate_thumbnail_from_claude(
         sentiment=sentiment,
         chart_path=chart_path,
         logo_path=None,
+        # The caller's figure, not the copy model's sentence. Leaving this
+        # empty is what put "S&P falls 0." in the largest type on the image.
+        key_stat=key_stat,
+        series=series,
     )
     return generate_thumbnail(spec, chart_path=chart_path)

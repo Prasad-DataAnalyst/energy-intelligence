@@ -231,3 +231,118 @@ class TestThumbnailUploadIsAccountable:
         blocked.write_text("a file where a directory should be")
         settings.logs_dir = blocked
         umod._record_thumbnail_outcome("v", False, "boom")   # must not raise
+
+
+# ── Series branding, photo backgrounds, title-led layout ─────────────────────
+
+class TestSeriesBranding:
+    """
+    27 uploads with no shared mark on any of them means nothing accumulates.
+    The channels that build an audience on thumbnails stamp the series in the
+    same corner at the same weight on every video.
+    """
+
+    @staticmethod
+    def _spec(**over):
+        from generators.thumbnail_gen import ThumbnailSpec, SERIES_MARKET_CLOSE
+        base = dict(headline="TECH LEADS RALLY", subtext="", ticker="QQQ",
+                    emoji="", sentiment="bullish", chart_path=None,
+                    logo_path=None, key_stat="+1.24%", series=SERIES_MARKET_CLOSE)
+        base.update(over)
+        return ThumbnailSpec(**base)
+
+    def test_the_badge_lands_in_the_same_place_whatever_the_content(self, tmp_path):
+        from generators.thumbnail_gen import (generate_thumbnail, THUMB_W, THUMB_H,
+                                              SENTIMENT_PALETTES)
+        Image = pytest.importorskip("PIL.Image")
+
+        def badge_box(spec):
+            img = Image.open(generate_thumbnail(spec).path).convert("RGB")
+            accent = SENTIMENT_PALETTES[spec.sentiment]["accent"]
+            top = img.crop((0, 0, THUMB_W, int(THUMB_H * 0.2)))
+            hits = [(x, y) for x in range(0, top.width, 4)
+                    for y in range(0, top.height, 4)
+                    if sum(abs(a - b) for a, b in zip(top.getpixel((x, y)), accent)) < 60]
+            assert hits, "series badge not drawn"
+            return min(x for x, _ in hits), min(y for _, y in hits)
+
+        first = badge_box(self._spec())
+        second = badge_box(self._spec(headline="A MUCH LONGER HEADLINE HERE",
+                                      ticker=None, key_stat="-0.55%"))
+        assert first == second
+
+    def test_the_headline_is_not_printed_twice(self, tmp_path):
+        """
+        The top label used to fall back to the headline, which is also the
+        kicker along the bottom — so a thumbnail with no ticker spent two of
+        its three elements saying the same three words.
+        """
+        from generators.thumbnail_gen import generate_thumbnail, THUMB_H
+        Image = pytest.importorskip("PIL.Image")
+
+        def hero_top(spec):
+            img = Image.open(generate_thumbnail(spec).path).convert("L")
+            rows = [y for y in range(int(THUMB_H * 0.13), int(THUMB_H * 0.70))
+                    if max(img.crop((0, y, img.width // 2, y + 1)).getdata()) > 170]
+            return min(rows)
+
+        with_ticker = hero_top(self._spec(ticker="QQQ"))
+        without = hero_top(self._spec(ticker=None))
+        assert without < with_ticker, "the number should rise into the freed space"
+
+    def test_two_thumbnails_made_in_the_same_second_do_not_overwrite(self):
+        """Second-resolution names silently collapsed two files into one."""
+        from generators.thumbnail_gen import generate_thumbnail
+        pytest.importorskip("PIL.Image")
+        first = generate_thumbnail(self._spec()).path
+        second = generate_thumbnail(self._spec(headline="OTHER STORY")).path
+        assert first != second
+        assert first.exists() and second.exists()
+
+
+class TestHeroNumber:
+
+    def test_the_callers_figure_wins(self):
+        from generators.thumbnail_gen import _hero_number, ThumbnailSpec
+        spec = ThumbnailSpec(headline="H", subtext="S&P falls 0.55 percent",
+                             ticker=None, emoji="", sentiment="bearish",
+                             chart_path=None, logo_path=None, key_stat="-0.55%")
+        assert _hero_number(spec) == "-0.55%"
+
+    def test_a_sentence_is_mined_for_its_figure_not_truncated(self):
+        """
+        Nothing set key_stat for most of this channel's life, so the copy
+        model's sentence came through and was cut to twelve characters:
+        "S&P falls 0." in the largest type on the image.
+        """
+        from generators.thumbnail_gen import _hero_number, ThumbnailSpec
+        spec = ThumbnailSpec(headline="H", subtext="S&P falls 0.55%",
+                             ticker=None, emoji="", sentiment="bearish",
+                             chart_path=None, logo_path=None, key_stat="")
+        assert _hero_number(spec) == "0.55%"
+
+    def test_no_figure_anywhere_yields_nothing_rather_than_junk(self):
+        from generators.thumbnail_gen import _hero_number, ThumbnailSpec
+        spec = ThumbnailSpec(headline="HOW BONDS WORK", subtext="Sunday deep dive",
+                             ticker=None, emoji="", sentiment="neutral",
+                             chart_path=None, logo_path=None, key_stat="")
+        assert _hero_number(spec) == ""
+
+
+class TestTitleLedLayout:
+
+    def test_a_video_with_no_figure_still_fills_the_frame(self):
+        """
+        The educational videos have no stat. The layout used to leave the
+        middle empty and drop the title to the bottom edge.
+        """
+        from generators.thumbnail_gen import (ThumbnailSpec, generate_thumbnail,
+                                              SERIES_SUNDAY, THUMB_H)
+        Image = pytest.importorskip("PIL.Image")
+        path = generate_thumbnail(ThumbnailSpec(
+            headline="WHAT AN INDEX FUND ACTUALLY OWNS", subtext="", ticker=None,
+            emoji="", sentiment="neutral", chart_path=None, logo_path=None,
+            key_stat="", series=SERIES_SUNDAY)).path
+        img = Image.open(path).convert("L")
+        band = img.crop((0, int(THUMB_H * 0.20), img.width // 2, int(THUMB_H * 0.60)))
+        assert max(band.getdata()) > 170, "middle of the frame is empty"

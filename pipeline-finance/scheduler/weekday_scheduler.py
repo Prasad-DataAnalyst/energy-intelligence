@@ -452,12 +452,16 @@ class WeekdayScheduler:
             )
             title = title_set.winner.title
 
-            from generators.thumbnail_gen import generate_thumbnail_from_claude
+            from generators.thumbnail_gen import (
+                generate_thumbnail_from_claude, SERIES_PREMARKET, SERIES_MARKET_CLOSE,
+            )
             thumbnail = generate_thumbnail_from_claude(
                 video_title=title,
-                key_stat=f"S&P {market.sp500.change_pct:+.2f}%",
+                key_stat=f"{market.sp500.change_pct:+.2f}%",
                 sentiment=sentiment,
                 chart_path=chart_paths[0] if chart_paths else None,
+                series=(SERIES_PREMARKET if self.slot == "premarket"
+                        else SERIES_MARKET_CLOSE),
             )
             state.mark_done("generate_assets", artifacts={
                 "audio_path": audio.merged_path or "",

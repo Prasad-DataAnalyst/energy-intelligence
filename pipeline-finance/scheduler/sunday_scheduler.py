@@ -286,12 +286,15 @@ class SundayScheduler:
             title = title_set.winner.title
 
             # ── Thumbnail ──────────────────────────────────────────────────
-            from generators.thumbnail_gen import generate_thumbnail_from_claude
+            from generators.thumbnail_gen import (
+                generate_thumbnail_from_claude, SERIES_SUNDAY,
+            )
             thumbnail = generate_thumbnail_from_claude(
                 video_title=title,
                 key_stat=current_relevance[:50],
                 sentiment="neutral",
                 chart_path=chart_paths[0] if chart_paths else None,
+                series=SERIES_SUNDAY,
             )
 
             # ── Build video ────────────────────────────────────────────────

@@ -349,19 +349,9 @@ def _card_count(total_seconds: float) -> int:
 
 
 def _background_photos(limit: int = 6) -> list:
-    """
-    Photos already on disk from the long-form b-roll fetch.
-
-    Reusing the cache rather than calling Pexels here keeps the Short free of
-    a network dependency at build time — and the pictures are on-topic for
-    the day, because they were fetched for the same story.
-    """
-    broll_dir = settings.output_dir / "broll"
-    if not broll_dir.exists():
-        return []
-    photos = [p for p in broll_dir.glob("*.jpg") if p.stat().st_size > 10_000]
-    photos.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-    return photos[:limit]
+    """Photos the long-form b-roll fetch already paid for."""
+    from builders.broll_fetcher import cached_photos
+    return cached_photos(limit)
 
 
 def _has_audio(path: Path) -> bool:

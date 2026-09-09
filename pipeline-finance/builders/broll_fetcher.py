@@ -89,6 +89,27 @@ def fetch_photo(query: str) -> Optional[tuple[Path, str]]:
         return None
 
 
+def cached_photos(limit: int = 6) -> list:
+    """
+    Photos already on disk from an earlier fetch, newest first.
+
+    Shorts cards and thumbnails both want a picture behind the type, and
+    both are built after the long-form pipeline has already paid for one.
+    Reading the cache rather than calling Pexels again keeps them free of a
+    network dependency at build time, and the pictures are on-topic for the
+    day because they were fetched for the same story.
+
+    Stylized slides are excluded: they already carry burned-in captions and
+    a brand bar, so using one as a background stacks two layouts.
+    """
+    if not BROLL_DIR.exists():
+        return []
+    photos = [p for p in BROLL_DIR.glob("*.jpg")
+              if p.stat().st_size > 10_000 and not p.stem.endswith("_slide")]
+    photos.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return photos[:limit]
+
+
 def stylize_broll(photo_path: Path, caption: str = "") -> Optional[Path]:
     """
     Turn a raw photo into a branded slide: cover-crop to video resolution,
