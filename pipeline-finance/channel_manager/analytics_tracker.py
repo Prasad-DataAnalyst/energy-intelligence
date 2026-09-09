@@ -353,18 +353,68 @@ class AnalyticsTracker:
             logger.error("Failed to fetch traffic sources: %s", exc)
             return {}
 
+    def _uploads_playlist_id(self) -> str:
+        """The channel's own uploads playlist, which holds every video."""
+        channel_id = settings.channel_id
+        params = {"part": "contentDetails"}
+        params.update({"id": channel_id} if channel_id else {"mine": True})
+        items = self._service().channels().list(**params).execute().get("items", [])
+        if not items:
+            return ""
+        return (items[0].get("contentDetails", {})
+                .get("relatedPlaylists", {}).get("uploads", ""))
+
     def _list_recent_video_ids(self, max_results: int = 20) -> list[str]:
-        """List the channel's most recent video IDs via Data API."""
+        """
+        The channel's most recent video IDs, newest first.
+
+        Read from the uploads playlist rather than search.list. search costs
+        100 quota units against a daily 10,000 and needs an explicit
+        channelId — without one it quietly returns nothing, which is how the
+        weekly report came to say "0 views across 0 videos" on a channel with
+        27 uploads, and how the nightly analytics pull had never recorded a
+        single run. The playlist route costs 2 units and works from the
+        authenticated account alone.
+        """
+        try:
+            uploads = self._uploads_playlist_id()
+            if uploads:
+                ids, page = [], None
+                while len(ids) < max_results:
+                    response = self._service().playlistItems().list(
+                        part="contentDetails",
+                        playlistId=uploads,
+                        maxResults=min(50, max_results - len(ids)),
+                        pageToken=page,
+                    ).execute()
+                    found = [item["contentDetails"]["videoId"]
+                             for item in response.get("items", [])]
+                    ids += found
+                    page = response.get("nextPageToken")
+                    # A page that returns nothing ends the walk whatever its
+                    # token says. Trusting the token alone spins forever on
+                    # an empty page, and this loop is talking to a network
+                    # service that is free to hand one back.
+                    if not found or not page:
+                        break
+                return ids[:max_results]
+            logger.info("No uploads playlist — falling back to search")
+        except Exception as exc:
+            logger.warning("Uploads playlist unavailable (%s) — falling back to search", exc)
+
         try:
             channel_id = settings.channel_id
-            request = self._service().search().list(
+            if not channel_id:
+                logger.error("Cannot list videos: no CHANNEL_ID set and no "
+                             "uploads playlist reachable")
+                return []
+            response = self._service().search().list(
                 part="id",
                 channelId=channel_id,
                 type="video",
                 order="date",
                 maxResults=max_results,
-            )
-            response = request.execute()
+            ).execute()
             return [item["id"]["videoId"] for item in response.get("items", [])]
         except Exception as exc:
             logger.error("Failed to list recent video IDs: %s", exc)

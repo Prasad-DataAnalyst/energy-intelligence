@@ -337,3 +337,75 @@ class TestCommentMonitor:
         with patch("channel_manager.comment_monitor.COMMENTS_DIR", tmp_path):
             result = cm.get_pending_replies("2026-06-01")
         assert result == []
+
+
+class TestVideoListingUsesTheUploadsPlaylist:
+    """
+    search.list needs an explicit channelId and quietly returns nothing
+    without one — which is how the weekly report said "0 views across 0
+    videos" on a channel with 27 uploads, and why the nightly analytics pull
+    had never recorded a run. It also costs 100 quota units against a daily
+    10,000; the playlist route costs 2.
+    """
+
+    @staticmethod
+    def _tracker(uploads_items, playlist_pages):
+        from unittest.mock import MagicMock
+        from channel_manager.analytics_tracker import AnalyticsTracker
+        svc = MagicMock()
+        svc.channels().list().execute.return_value = uploads_items
+        svc.playlistItems().list().execute.side_effect = playlist_pages
+        return AnalyticsTracker(youtube_service=svc,
+                                analytics_service=MagicMock()), svc
+
+    def test_ids_come_from_the_uploads_playlist(self):
+        tracker, svc = self._tracker(
+            {"items": [{"contentDetails": {"relatedPlaylists": {"uploads": "UU_abc"}}}]},
+            [{"items": [{"contentDetails": {"videoId": "v1"}},
+                        {"contentDetails": {"videoId": "v2"}}]}],
+        )
+        assert tracker._list_recent_video_ids(max_results=5) == ["v1", "v2"]
+        svc.search.assert_not_called()
+
+    def test_it_pages_until_it_has_enough(self):
+        tracker, _ = self._tracker(
+            {"items": [{"contentDetails": {"relatedPlaylists": {"uploads": "UU_abc"}}}]},
+            [{"items": [{"contentDetails": {"videoId": f"a{n}"} } for n in range(3)],
+              "nextPageToken": "p2"},
+             {"items": [{"contentDetails": {"videoId": f"b{n}"} } for n in range(3)]}],
+        )
+        assert tracker._list_recent_video_ids(max_results=6) == [
+            "a0", "a1", "a2", "b0", "b1", "b2"]
+
+    def test_a_channel_with_no_uploads_playlist_and_no_id_returns_nothing(self,
+                                                                          monkeypatch):
+        """Returning [] beats raising, but it must be logged, not silent."""
+        from config.settings import settings
+        monkeypatch.setattr(settings, "channel_id", "", raising=False)
+        tracker, _ = self._tracker({"items": []}, [])
+        assert tracker._list_recent_video_ids() == []
+
+    def test_an_empty_page_ends_the_walk_whatever_the_token_says(self):
+        """
+        Paging on the token alone spins forever against a service that
+        returns a page token with no items — and this loop talks to one that
+        is free to do exactly that. It hung the test suite.
+        """
+        from unittest.mock import MagicMock
+        from channel_manager.analytics_tracker import AnalyticsTracker
+
+        pages = {"n": 0}
+        svc = MagicMock()
+        svc.channels().list().execute.return_value = {
+            "items": [{"contentDetails": {"relatedPlaylists": {"uploads": "UU_x"}}}]}
+
+        def endless(**kwargs):
+            pages["n"] += 1
+            return MagicMock(execute=lambda: {"items": [],
+                                              "nextPageToken": "always"})
+
+        svc.playlistItems().list = endless
+        tracker = AnalyticsTracker(youtube_service=svc,
+                                   analytics_service=MagicMock())
+        assert tracker._list_recent_video_ids(max_results=30) == []
+        assert pages["n"] == 1
