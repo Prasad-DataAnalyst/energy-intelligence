@@ -124,3 +124,68 @@ class TestChannelMonitorBugFix:
         metrics = monitor._get_mock_metrics()
         # Should not raise even with missing SMTP config
         monitor._send_alert_email(alerts, metrics)
+
+
+# ── Stale running code ───────────────────────────────────────────────────────
+
+class TestRunningCodeCheck:
+    """
+    "active (running)" says nothing about WHICH code is running. A deploy
+    that syncs the tree but never restarts leaves the daemon serving
+    whatever it started with, silently and indefinitely — which is what a
+    false-positive build guard caused for weeks.
+    """
+
+    @staticmethod
+    def _patch(monkeypatch, started, commit_epoch):
+        from monitor import health_report
+        from unittest.mock import MagicMock
+
+        def fake_run(cmd, **kwargs):
+            if "ActiveEnterTimestamp" in cmd:
+                return MagicMock(stdout=started)
+            return MagicMock(stdout=f"{commit_epoch} abc1234 Some commit subject")
+
+        monkeypatch.setattr(health_report.subprocess, "run", fake_run)
+        return health_report
+
+    def test_a_daemon_older_than_head_is_a_failure(self, monkeypatch):
+        import calendar, time
+        started = "Mon 2026-09-01 10:00:00 UTC"
+        commit = calendar.timegm(time.strptime("2026-09-09 10:00:00",
+                                               "%Y-%m-%d %H:%M:%S"))
+        hr = self._patch(monkeypatch, started, commit)
+        status, _, detail, lines = hr._check_running_code()
+        assert status == hr._FAIL
+        assert "STALE" in detail
+        assert any("never restarted" in line for line in lines)
+
+    def test_a_daemon_started_after_head_is_current(self, monkeypatch):
+        import calendar, time
+        started = "Wed 2026-09-09 12:00:00 UTC"
+        commit = calendar.timegm(time.strptime("2026-09-09 10:00:00",
+                                               "%Y-%m-%d %H:%M:%S"))
+        hr = self._patch(monkeypatch, started, commit)
+        status, _, detail, _ = hr._check_running_code()
+        assert status == hr._OK
+        assert "current" in detail
+
+    def test_an_unparseable_timestamp_does_not_cry_stale(self, monkeypatch):
+        """
+        systemd timestamp formats vary by locale and version. Guessing wrong
+        would report a false STALE on every single run.
+        """
+        hr = self._patch(monkeypatch, "n/a", 1_757_000_000)
+        status, _, detail, _ = hr._check_running_code()
+        assert status == hr._WARN
+        assert "unparseable" in detail or "unknown" in detail
+
+    def test_a_missing_systemctl_is_not_a_failure(self, monkeypatch):
+        from monitor import health_report
+
+        def missing(cmd, **kwargs):
+            raise FileNotFoundError("systemctl")
+
+        monkeypatch.setattr(health_report.subprocess, "run", missing)
+        status, _, _, _ = health_report._check_running_code()
+        assert status == health_report._WARN

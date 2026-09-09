@@ -88,6 +88,66 @@ def _check_daemon() -> tuple[str, str, str]:
         return _WARN, "Scheduler daemon", str(exc)[:80]
 
 
+def _check_running_code() -> tuple[str, str, str, list[str]]:
+    """
+    Whether the daemon is running the code that is actually checked out.
+
+    "active (running)" says nothing about WHICH code is running. A deploy
+    that syncs the tree but never restarts leaves the daemon serving
+    whatever it started with, indefinitely and silently — which is exactly
+    what happened for weeks: the restart guard mistook a lingering
+    multiprocessing.resource_tracker for a build in progress, so every
+    deploy waited its full timeout and gave up.
+
+    Compares the unit's start time against the commit date of HEAD.
+    """
+    try:
+        started = subprocess.run(
+            ["systemctl", "show", "-p", "ActiveEnterTimestamp", "--value",
+             "driftwire326"],
+            capture_output=True, text=True, timeout=15,
+        ).stdout.strip()
+    except FileNotFoundError:
+        return _WARN, "Running code", "systemctl unavailable", []
+    except Exception as exc:
+        return _WARN, "Running code", str(exc)[:80], []
+
+    if not started:
+        return _WARN, "Running code", "daemon start time unknown", []
+
+    try:
+        started_at = datetime.strptime(started.split(" UTC")[0].strip(),
+                                       "%a %Y-%m-%d %H:%M:%S")
+    except ValueError:
+        # Timestamp formats vary with locale and systemd version. Guessing
+        # wrong here would report a false "stale" on every run.
+        return _WARN, "Running code", f"unparseable start time: {started[:40]}", []
+
+    try:
+        committed = subprocess.run(
+            ["git", "-c", f"safe.directory={Path(__file__).resolve().parent.parent}",
+             "log", "-1", "--format=%ct %h %s"],
+            capture_output=True, text=True, timeout=15,
+            cwd=Path(__file__).resolve().parent.parent,
+        ).stdout.strip()
+        epoch, sha, subject = committed.split(" ", 2)
+        commit_at = datetime.utcfromtimestamp(int(epoch))
+    except Exception as exc:
+        return _WARN, "Running code", f"cannot read git HEAD ({exc})"[:80], []
+
+    if commit_at <= started_at:
+        age = (datetime.utcnow() - started_at).total_seconds() / 3600
+        return _OK, "Running code", f"current ({sha}), up {age:.0f}h", []
+
+    behind = (commit_at - started_at).total_seconds() / 3600
+    return (_FAIL, "Running code",
+            f"STALE — daemon predates HEAD by {behind:.0f}h",
+            [f"   HEAD is {sha} \"{subject[:50]}\"",
+             "   The checkout is updated but the daemon never restarted.",
+             "   Nothing you deployed is live. Restart when no build is running:",
+             "   sudo bash deploy/update.sh"])
+
+
 def _check_heartbeat() -> tuple[str, str, str]:
     """The daemon writes a heartbeat every 30 min — proves it is alive AND working."""
     hb = settings.logs_dir / "heartbeat.log"
@@ -1014,6 +1074,7 @@ def run_health_report() -> int:
     for status, label, detail, lines in (
         _check_startup_error(), _check_registered_jobs(),
         _check_pipeline_states(), _check_uploads(),
+        _check_running_code(),
         _check_claude_burn(), _check_optional_keys(), _check_backups(),
         _check_performance(), _check_format_performance(), _check_learning(),
         _check_todays_slots(), _check_video_visibility(), _check_thumbnails()

@@ -115,23 +115,41 @@ AFTER_SHA="$("${GIT[@]}" rev-parse HEAD 2>/dev/null || echo none)"
 # A pipeline runs as a child of the scheduler, so restarting mid-build kills
 # it and loses that video — systemd takes the whole cgroup down with the unit.
 #
-# Detected by asking whether the unit's main process has children, not by
-# matching process names: the pipeline is spawned rather than forked, so the
-# child's command line is the multiprocessing bootstrap and carries none of
-# the name the scheduler gave it. The scheduler only has children while a
-# pipeline is running, which makes this both simpler and accurate.
+# Detected by looking for the multiprocessing bootstrap in a child's command
+# line. "Does the scheduler have any children at all" was the obvious test
+# and it was wrong: the spawn start method also launches a
+# multiprocessing.resource_tracker child, and that one lives as long as the
+# daemon does. So from the first pipeline run onward the guard was
+# permanently true, every deploy waited its full fifteen minutes and gave
+# up, and the daemon kept running whatever code it had started with. The
+# tracker is bookkeeping, not work; a zombie is already finished.
+pipeline_children() {
+    local pid stat cmd found=""
+    for pid in $(pgrep -P "$1" 2>/dev/null); do
+        stat="$(ps -o stat= -p "$pid" 2>/dev/null | tr -d ' ')"
+        cmd="$(ps -o args= -p "$pid" 2>/dev/null)"
+        case "$stat" in Z*) continue ;; esac
+        case "$cmd" in *resource_tracker*) continue ;; esac
+        found="$found $pid"
+    done
+    echo "${found# }"
+}
+
 SCHED_PID="$(systemctl show -p MainPID --value driftwire326 2>/dev/null || echo 0)"
-if [ "${SCHED_PID:-0}" -gt 0 ] 2>/dev/null && pgrep -P "$SCHED_PID" >/dev/null 2>&1; then
+if [ "${SCHED_PID:-0}" -gt 0 ] 2>/dev/null && [ -n "$(pipeline_children "$SCHED_PID")" ]; then
     # Wait it out rather than refusing and handing back a restart command.
     # Printing "run systemctl restart yourself" invites exactly the thing the
     # guard exists to prevent: the operator runs it immediately and kills the
     # build anyway. Waiting is what they actually wanted.
     echo "   a pipeline is building — waiting for it to finish (up to ${BUILD_WAIT_MINUTES}m)"
+    for _pid in $(pipeline_children "$SCHED_PID"); do
+        echo "      PID $_pid, running $(ps -o etime= -p "$_pid" 2>/dev/null | tr -d ' ')"
+    done
     waited=0
     while [ "$waited" -lt "$((BUILD_WAIT_MINUTES * 2))" ]; do
         sleep 30
         waited=$((waited + 1))
-        if ! pgrep -P "$SCHED_PID" >/dev/null 2>&1; then
+        if [ -z "$(pipeline_children "$SCHED_PID")" ]; then
             break
         fi
         if [ $((waited % 4)) -eq 0 ]; then
@@ -141,7 +159,7 @@ if [ "${SCHED_PID:-0}" -gt 0 ] 2>/dev/null && pgrep -P "$SCHED_PID" >/dev/null 2
             echo "      still building… $((waited / 2))m$((waited % 2 * 30))s elapsed"
         fi
     done
-    if pgrep -P "$SCHED_PID" >/dev/null 2>&1; then
+    if [ -n "$(pipeline_children "$SCHED_PID")" ]; then
         echo "   ⚠️  still building after ${BUILD_WAIT_MINUTES}m — leaving the daemon alone."
         echo "      The code is updated and takes effect on the next scheduled run."
         echo "      Do NOT run 'systemctl restart' until the build finishes or you"
