@@ -160,3 +160,97 @@ class TestShortsBuilderClass:
     def test_shorts_over_limit_error_is_exception(self):
         with pytest.raises(ShortsOverLimitError):
             raise ShortsOverLimitError("Over 60s")
+
+
+# ── Shorts cards ─────────────────────────────────────────────────────────────
+
+class TestShortsCards:
+    """
+    The old cards were centred paragraphs on a flat colour field — a slide
+    deck rotated ninety degrees. These put imagery behind a caption band,
+    the way vertical finance video actually looks.
+    """
+
+    @staticmethod
+    def _photo(tmp_path):
+        Image = pytest.importorskip("PIL.Image")
+        path = tmp_path / "photo.jpg"
+        Image.new("RGB", (1600, 900), (70, 80, 120)).save(path)
+        return path
+
+    def test_a_card_renders_at_vertical_canvas_size(self, tmp_path):
+        from config.settings import settings
+        from builders.shorts_cards import render_card
+        Image = pytest.importorskip("PIL.Image")
+        path = render_card("Markets moved today.", tmp_path / "c.png")
+        assert Image.open(path).size == (settings.shorts_width, settings.shorts_height)
+
+    def test_a_photo_background_is_used_and_dimmed(self, tmp_path):
+        """Undimmed, the caption stops being readable at a glance."""
+        from builders.shorts_cards import render_card, PHOTO_DIM
+        Image = pytest.importorskip("PIL.Image")
+        ImageStat = pytest.importorskip("PIL.ImageStat")
+        photo = self._photo(tmp_path)
+        card = render_card("Some copy.", tmp_path / "c.png", photo=photo)
+        original = ImageStat.Stat(Image.open(photo).convert("L")).mean[0]
+        rendered = ImageStat.Stat(Image.open(card).convert("L")).mean[0]
+        assert rendered < original
+        assert PHOTO_DIM < 1.0
+
+    def test_an_unreadable_photo_falls_back_to_colour(self, tmp_path):
+        from builders.shorts_cards import render_card
+        Image = pytest.importorskip("PIL.Image")
+        broken = tmp_path / "broken.jpg"
+        broken.write_text("not an image")
+        path = render_card("Copy.", tmp_path / "c.png", photo=broken)
+        assert Image.open(path).size[0] > 0
+
+    def test_a_positive_stat_differs_from_a_negative_one(self, tmp_path):
+        from builders.shorts_cards import render_card
+        Image = pytest.importorskip("PIL.Image")
+        up = render_card("NVIDIA", tmp_path / "up.png", kind="stat", stat="+9.1%")
+        down = render_card("NVIDIA", tmp_path / "dn.png", kind="stat", stat="-9.1%")
+        assert Image.open(up).tobytes() != Image.open(down).tobytes()
+
+    def test_nothing_readable_sits_under_youtube_chrome(self, tmp_path):
+        """
+        The Shorts UI — title, channel, action buttons — covers roughly the
+        bottom fifth. Anything that has to be read cannot live there.
+        """
+        import inspect
+        from builders import shorts_cards
+        source = inspect.getsource(shorts_cards.render_card)
+        assert "0.775" in source          # handle sits above the chrome
+        assert "0.30" in source           # caption band starts in the safe zone
+
+    def test_long_copy_wraps_rather_than_overflowing(self, tmp_path):
+        from builders.shorts_cards import render_card
+        Image = pytest.importorskip("PIL.Image")
+        path = render_card("word " * 120, tmp_path / "c.png")
+        assert Image.open(path).size[1] > 0
+
+    def test_the_sequence_covers_the_runtime(self, tmp_path):
+        from builders.shorts_cards import build_card_sequence
+        pytest.importorskip("PIL.Image")
+        cards = [{"text": "a", "kind": "hook"}, {"text": "NVDA", "kind": "stat",
+                  "stat": "+9.1%"}, {"text": "c", "kind": "cta"}]
+        seq = build_card_sequence(cards, tmp_path, 45.0)
+        assert len(seq) == 3
+        assert sum(d for _, d in seq) == pytest.approx(45.0, abs=0.05)
+
+    def test_photos_rotate_rather_than_repeat(self, tmp_path):
+        """The same picture on every card is the flat-colour problem again."""
+        from builders.shorts_cards import build_card_sequence
+        Image = pytest.importorskip("PIL.Image")
+        photos = []
+        for i, shade in enumerate([(20, 60, 120), (120, 60, 20)]):
+            p = tmp_path / f"p{i}.jpg"
+            Image.new("RGB", (1600, 900), shade).save(p)
+            photos.append(p)
+        cards = [{"text": f"card {i}", "kind": "context"} for i in range(2)]
+        seq = build_card_sequence(cards, tmp_path, 30.0, photos=photos)
+        assert Image.open(seq[0][0]).tobytes() != Image.open(seq[1][0]).tobytes()
+
+    def test_no_cards_returns_empty_for_the_caller_to_fall_back(self, tmp_path):
+        from builders.shorts_cards import build_card_sequence
+        assert build_card_sequence([], tmp_path, 45.0) == []
