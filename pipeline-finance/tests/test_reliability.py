@@ -1481,18 +1481,34 @@ class TestJobTableStaysCurrent:
         assert status == health_report._WARN
         assert "already passed" in detail
 
-    def test_the_heartbeat_refreshes_the_table(self):
+    def test_something_still_refreshes_the_table(self):
+        """
+        Written once at startup the table goes stale immediately. It moved
+        out of the heartbeat, so it needs its own job — otherwise decoupling
+        the two just deletes the refresh.
+        """
         import inspect
         from scheduler import master_scheduler
-        source = inspect.getsource(master_scheduler.run_heartbeat)
+        source = inspect.getsource(master_scheduler.run_job_table_refresh)
         assert "_write_registered_jobs" in source
 
+    def test_both_jobs_are_registered_on_their_own_schedules(self):
+        import inspect
+        from scheduler import master_scheduler
+        source = inspect.getsource(master_scheduler)
+        assert 'id="heartbeat"' in source
+        assert 'id="job_table_refresh"' in source
+
     def test_the_refresh_cannot_break_the_heartbeat(self):
-        """Liveness reporting must not depend on bookkeeping succeeding."""
+        """
+        Liveness reporting must not depend on bookkeeping — by exception or
+        by blocking. It is now a separate job, so a refresh that hangs
+        cannot consume the heartbeat's max_instances slot.
+        """
         from unittest.mock import patch
         from config.settings import settings
         from scheduler import master_scheduler
-        import tempfile
+        import inspect, tempfile
         from pathlib import Path
         settings.logs_dir = Path(tempfile.mkdtemp())
         with patch.object(master_scheduler, "_LIVE_SCHEDULER", object()), \
@@ -1500,6 +1516,26 @@ class TestJobTableStaysCurrent:
                           side_effect=RuntimeError("boom")):
             master_scheduler.run_heartbeat()      # must not raise
         assert (settings.logs_dir / "heartbeat.log").exists()
+        assert "_write_registered_jobs" not in inspect.getsource(
+            master_scheduler.run_heartbeat)
+
+    def test_the_heartbeat_tolerates_more_than_one_instance(self):
+        """
+        Under max_instances=1 a single hung instance silences the heartbeat
+        for good, and a missing heartbeat reads as a dead daemon — the one
+        false alarm this signal must never raise.
+        """
+        import inspect, re
+        from scheduler import master_scheduler
+        source = inspect.getsource(master_scheduler)
+        block = source.split('id="heartbeat"')[1].split(")")[0]
+        # Skip comment lines: the comment here explains what max_instances=1
+        # did wrong, and a naive search finds that instead of the setting.
+        code = "\n".join(line for line in block.splitlines()
+                         if not line.strip().startswith("#"))
+        instances = re.search(r"max_instances=(\d+)", code)
+        assert instances, "heartbeat job does not set max_instances"
+        assert int(instances.group(1)) > 1
 
 
 class TestHeadlineStatIsWorthSaying:

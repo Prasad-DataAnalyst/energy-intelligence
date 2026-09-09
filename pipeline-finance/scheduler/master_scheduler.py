@@ -149,7 +149,17 @@ def run_sunday_pipeline() -> None:
 
 
 def run_heartbeat() -> None:
-    """30-minute heartbeat — logs scheduler liveness to logs/heartbeat.log."""
+    """
+    30-minute heartbeat — logs scheduler liveness to logs/heartbeat.log.
+
+    This function does one thing on purpose. It used to refresh the job
+    table as well, which coupled the only liveness signal the channel has to
+    a second piece of work: the job runs under max_instances=1, so one
+    instance that blocks rather than raising suppresses every heartbeat
+    after it, permanently and silently, while the scheduler carries on
+    firing everything else. Observed exactly that — beats stopped at 16:30
+    and videos kept publishing until 18:15.
+    """
     hb_path = settings.logs_dir / "heartbeat.log"
     settings.logs_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -157,15 +167,23 @@ def run_heartbeat() -> None:
         f.write(f"[HEARTBEAT] {ts} | PID={os.getpid()} | scheduler alive\n")
     logger.debug("Heartbeat logged at %s", ts)
 
-    # Refresh the job table while we are here. Written once at startup it
-    # goes stale immediately — a daemon up since Friday reports every fire
-    # time as of Friday, so the health report shows "next run" times that
-    # have already passed and reads as though nothing is scheduled.
-    if _LIVE_SCHEDULER is not None:
-        try:
-            _write_registered_jobs(_LIVE_SCHEDULER)
-        except Exception as exc:
-            logger.debug("Job table refresh skipped: %s", exc)
+
+def run_job_table_refresh() -> None:
+    """
+    Keep the registered-job snapshot current.
+
+    Written once at startup it goes stale immediately — a daemon up since
+    Friday reports every fire time as of Friday, so the health report shows
+    "next run" times that have already passed and reads as though nothing is
+    scheduled. Its own job now, so that a failure here costs the job table
+    and nothing else.
+    """
+    if _LIVE_SCHEDULER is None:
+        return
+    try:
+        _write_registered_jobs(_LIVE_SCHEDULER)
+    except Exception as exc:
+        logger.debug("Job table refresh skipped: %s", exc)
 
 
 def run_monitor_check() -> None:
@@ -472,6 +490,20 @@ def start_scheduler() -> None:
         CronTrigger(minute="0,30"),
         id="heartbeat",
         name="Scheduler Heartbeat",
+        # Deliberately more than one. Under max_instances=1 a single
+        # instance that hangs rather than raising silences the heartbeat for
+        # good, and a missing heartbeat is read as a dead daemon — the one
+        # false alarm this signal must never produce.
+        max_instances=3,
+        coalesce=True,
+    )
+
+    # ── Job table refresh (every 30 minutes, offset from the heartbeat) ───
+    scheduler.add_job(
+        run_job_table_refresh,
+        CronTrigger(minute="5,35"),
+        id="job_table_refresh",
+        name="Registered Job Table Refresh",
         max_instances=1,
         coalesce=True,
     )

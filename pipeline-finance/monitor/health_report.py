@@ -1112,11 +1112,26 @@ def run_health_report() -> int:
             print("  ROOT CAUSE: disk full — renders cannot write. Free space:")
             print("    sudo find /opt/driftwire326/pipeline-finance/output -type f "
                   "-mtime +3 -delete")
-        elif "Scheduler daemon" in failures or "Daemon heartbeat" in failures:
+        elif "Scheduler daemon" in failures:
             print("  ROOT CAUSE: the scheduler is not running its jobs. Start it and")
             print("  read why it stopped:")
             print("    sudo systemctl start driftwire326")
             print("    sudo journalctl -u driftwire326 -n 60 --no-pager")
+        elif "Daemon heartbeat" in failures:
+            # A stale heartbeat on a daemon that is up and still publishing
+            # is not a dead daemon, and the advice used to be "start it" —
+            # which does nothing to an active unit and names the wrong
+            # cause. The heartbeat job itself has wedged.
+            print("  ROOT CAUSE: the daemon is up but its heartbeat has stopped.")
+            print("  That is the heartbeat job wedged, not a dead scheduler —")
+            print("  check whether videos are still publishing above. A restart")
+            print("  clears it; the journal says what blocked:")
+            print("    sudo journalctl -u driftwire326 -n 60 --no-pager")
+            print("    sudo bash /opt/driftwire326/pipeline-finance/deploy/update.sh")
+        elif "Running code" in failures:
+            print("  ROOT CAUSE: the daemon is serving code older than the checkout,")
+            print("  so nothing recently deployed is actually running:")
+            print("    sudo bash /opt/driftwire326/pipeline-finance/deploy/update.sh")
         elif "Pipeline runs" in failures:
             print("  ROOT CAUSE: the daemon is up but no pipeline fired — check the")
             print("  job schedule and the service log:")

@@ -189,3 +189,64 @@ class TestRunningCodeCheck:
         monkeypatch.setattr(health_report.subprocess, "run", missing)
         status, _, _, _ = health_report._check_running_code()
         assert status == health_report._WARN
+
+
+class TestHeartbeatIsIndependent:
+    """
+    The heartbeat is the only liveness signal the channel has. Anything that
+    can block it silently is a bug in the signal, not in what blocked it.
+    """
+
+    def test_the_heartbeat_job_does_nothing_but_beat(self):
+        """
+        It used to refresh the job table too. Under max_instances=1 one
+        instance that blocks rather than raising suppresses every heartbeat
+        after it — beats stopped at 16:30 while videos published until 18:15.
+        """
+        import inspect
+        from scheduler import master_scheduler
+        body = inspect.getsource(master_scheduler.run_heartbeat)
+        assert "_write_registered_jobs" not in body
+        assert "heartbeat.log" in body
+
+    def test_the_job_table_refresh_is_its_own_job(self):
+        from scheduler import master_scheduler
+        assert callable(master_scheduler.run_job_table_refresh)
+
+    def test_a_refresh_failure_cannot_reach_the_heartbeat(self, monkeypatch):
+        from scheduler import master_scheduler
+
+        def explode(_):
+            raise RuntimeError("job store locked")
+
+        monkeypatch.setattr(master_scheduler, "_write_registered_jobs", explode)
+        monkeypatch.setattr(master_scheduler, "_LIVE_SCHEDULER", object())
+        master_scheduler.run_job_table_refresh()      # must not raise
+
+
+class TestVerdictNamesTheRightCause:
+
+    @staticmethod
+    def _verdict(failures, capsys, monkeypatch):
+        from monitor import health_report
+        monkeypatch.setattr(health_report, "_gather", lambda: failures, raising=False)
+        return failures
+
+    def test_a_stale_heartbeat_is_not_reported_as_a_dead_daemon(self):
+        """
+        "Start it" does nothing to a unit that is already active, and names
+        the wrong cause: the daemon was up and publishing.
+        """
+        import inspect
+        from monitor import health_report
+        body = inspect.getsource(health_report.run_health_report)
+        heartbeat_branch = body.split('elif "Daemon heartbeat" in failures:')[1]
+        heartbeat_branch = heartbeat_branch.split("elif ")[0]
+        assert "systemctl start" not in heartbeat_branch
+        assert "wedged" in heartbeat_branch
+
+    def test_stale_running_code_has_its_own_cause(self):
+        import inspect
+        from monitor import health_report
+        body = inspect.getsource(health_report.run_health_report)
+        assert 'elif "Running code" in failures:' in body
