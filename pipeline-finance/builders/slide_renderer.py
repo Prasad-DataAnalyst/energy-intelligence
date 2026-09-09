@@ -178,6 +178,90 @@ def render_market_slide(market) -> Optional[Path]:
         return None
 
 
+def render_market_board(market, title: str = "") -> Optional[Path]:
+    """
+    A broadcast-style index board: name, level, direction, change, percent.
+
+    Modelled on the index cards financial television runs between segments —
+    the one element of that look that needs no studio, no anchor and no
+    licensed footage, just typography and alignment. Dense, scannable, and
+    unmistakably finance, which is exactly what the slideshow was missing.
+    """
+    try:
+        img, draw, w, h = _canvas()
+        rows = []
+        for label, attr in (("S&P 500", "sp500"), ("NASDAQ", "nasdaq"),
+                            ("DOW", "dow"), ("VIX", "vix"),
+                            ("10-YR YIELD", "ten_year_yield")):
+            snap = getattr(market, attr, None)
+            if snap is None:
+                continue
+            try:
+                rows.append((label, float(snap.price), float(snap.change),
+                             float(snap.change_pct)))
+            except (TypeError, ValueError):
+                continue
+        if not rows:
+            return None
+
+        board_w = int(w * 0.78)
+        x0 = (w - board_w) // 2
+        header_h = int(h * 0.085)
+        row_h = int(h * 0.105)
+        y0 = int(h * 0.16)
+
+        # Header bar — the amber strip is the signature of the format.
+        draw.rectangle((x0, y0, x0 + board_w, y0 + header_h), fill=GOLD)
+        draw.text((x0 + int(w * 0.022), y0 + header_h // 2),
+                  (title or "US MARKET UPDATE").upper(),
+                  font=_font(int(h * 0.040)), fill=(0, 0, 0), anchor="lm")
+        draw.text((x0 + board_w - int(w * 0.022), y0 + header_h // 2),
+                  datetime.now().strftime("%b %d").upper(),
+                  font=_font(int(h * 0.030)), fill=(0, 0, 0), anchor="rm")
+
+        # Columns, right-aligned so the digits line up down the board.
+        col_value = x0 + int(board_w * 0.56)
+        col_arrow = x0 + int(board_w * 0.64)
+        col_change = x0 + int(board_w * 0.82)
+        col_pct = x0 + board_w - int(w * 0.022)
+
+        y = y0 + header_h
+        for index, (label, price, change, pct) in enumerate(rows):
+            band = SURFACE if index % 2 == 0 else SURFACE2
+            draw.rectangle((x0, y, x0 + board_w, y + row_h), fill=band)
+            mid = y + row_h // 2
+            colour = _pct_color(pct)
+
+            draw.text((x0 + int(w * 0.022), mid), label,
+                      font=_font(int(h * 0.042)), fill=TEXT, anchor="lm")
+            draw.text((col_value, mid), f"{price:,.2f}",
+                      font=_font(int(h * 0.046)), fill=TEXT, anchor="rm")
+
+            # Triangle rather than a glyph: no font on this box carries a
+            # dependable arrow, and a tofu box in a price board is fatal.
+            size = int(h * 0.020)
+            cx, cy = col_arrow, mid
+            if pct >= 0:
+                draw.polygon([(cx, cy - size), (cx + size, cy + size),
+                              (cx - size, cy + size)], fill=colour)
+            else:
+                draw.polygon([(cx, cy + size), (cx + size, cy - size),
+                              (cx - size, cy - size)], fill=colour)
+
+            draw.text((col_change, mid), f"{abs(change):,.2f}",
+                      font=_font(int(h * 0.040)), fill=colour, anchor="rm")
+            draw.text((col_pct, mid), f"{abs(pct):.2f}%",
+                      font=_font(int(h * 0.040)), fill=colour, anchor="rm")
+            y += row_h
+
+        _paste_logo(img, w, h)
+        _brand_footer(draw, w, h)
+        return _save(img, "market_board")
+    except Exception as exc:
+        logger.warning("Market board failed: %s", exc)
+        return None
+
+
 def render_movers_slide(market) -> Optional[Path]:
     """Two-column board: top gainers vs top losers."""
     try:
@@ -438,7 +522,10 @@ def build_visual_sequence(market, economic, chart_paths: list, title: str,
     # was — so a day NVIDIA moved 9% opens on the movers, and a day the Fed
     # moved with stocks flat opens on the economy.
     blocks = [
-        ("indices",    [render_market_slide(market), charts.get("index")]),
+        # Board first: it carries the most information in the least time and
+        # sets a broadcast register the rest of the sequence inherits.
+        ("indices",    [render_market_board(market), render_market_slide(market),
+                        charts.get("index")]),
         ("movers",     [render_movers_slide(market), charts.get("gainers")]),
         ("economy",    [render_econ_slide(economic)] if economic is not None else []),
         ("volatility", [charts.get("candlestick")]),

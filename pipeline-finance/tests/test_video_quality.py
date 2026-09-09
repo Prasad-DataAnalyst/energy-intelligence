@@ -1080,3 +1080,67 @@ class TestSequenceStructureHolds:
         econ_at = sequence.index(made["render_econ_slide"])
         movers_at = sequence.index(made["render_movers_slide"])
         assert econ_at < movers_at
+
+
+class TestMarketBoard:
+    """
+    A broadcast-style index board — the one element of financial television's
+    look that needs no studio, no anchor and no licensed footage.
+    """
+
+    @staticmethod
+    def _snap(price, change, pct):
+        from types import SimpleNamespace
+        return SimpleNamespace(price=price, change=change, change_pct=pct)
+
+    def _market(self, **overrides):
+        from types import SimpleNamespace
+        base = dict(sp500=self._snap(6512.44, -35.80, -0.55),
+                    nasdaq=self._snap(21874.10, 56.20, 0.26),
+                    dow=self._snap(44210.55, -128.44, -0.29),
+                    vix=self._snap(15.82, 1.21, 8.29),
+                    ten_year_yield=self._snap(4.213, -0.042, -0.99))
+        base.update(overrides)
+        return SimpleNamespace(**base)
+
+    def test_the_board_renders_at_canvas_size(self):
+        pytest.importorskip("PIL.Image")
+        from PIL import Image
+        from config.settings import settings
+        from builders.slide_renderer import render_market_board
+        path = render_market_board(self._market())
+        assert path is not None
+        assert Image.open(path).size == (settings.video_width, settings.video_height)
+
+    def test_direction_uses_a_drawn_triangle_not_a_glyph(self):
+        """No font here carries a dependable arrow, and a tofu box in a price
+        board is fatal."""
+        import inspect
+        from builders import slide_renderer
+        source = inspect.getsource(slide_renderer.render_market_board)
+        assert "draw.polygon" in source
+        assert "▲" not in source and "▼" not in source
+
+    def test_a_missing_index_is_skipped_not_fatal(self):
+        pytest.importorskip("PIL.Image")
+        from builders.slide_renderer import render_market_board
+        market = self._market()
+        del market.vix
+        assert render_market_board(market) is not None
+
+    def test_unparseable_prices_are_skipped(self):
+        pytest.importorskip("PIL.Image")
+        from builders.slide_renderer import render_market_board
+        assert render_market_board(
+            self._market(dow=self._snap("n/a", "n/a", "n/a"))) is not None
+
+    def test_no_usable_rows_returns_none(self):
+        from types import SimpleNamespace
+        from builders.slide_renderer import render_market_board
+        assert render_market_board(SimpleNamespace()) is None
+
+    def test_the_board_is_in_the_visual_sequence(self):
+        import inspect
+        from builders import slide_renderer
+        source = inspect.getsource(slide_renderer.build_visual_sequence)
+        assert "render_market_board(market)" in source
