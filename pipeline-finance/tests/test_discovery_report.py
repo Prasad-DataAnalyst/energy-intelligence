@@ -279,3 +279,68 @@ class TestAnalyticsMetricNames:
             Analytics(), ids="x", startDate="a", endDate="b",
             metrics=_CORE_METRICS)
         assert rows == [] and error is not None
+
+
+class TestOnDemandAnalyticsPull:
+    """
+    The pull only ran at 21:30 ET, so a fix to it could not be verified
+    until the next morning — and it had walked an empty video list for its
+    whole life with no way to see that.
+    """
+
+    def test_an_empty_video_list_is_reported_as_the_failure_it_is(self, capsys,
+                                                                  monkeypatch):
+        """Zero videos and zero views look identical in the totals."""
+        import main
+        from unittest.mock import MagicMock
+
+        tracker = MagicMock()
+        tracker._list_recent_video_ids.return_value = []
+        monkeypatch.setattr(
+            "channel_manager.analytics_tracker.AnalyticsTracker",
+            lambda *a, **k: tracker)
+
+        assert main.cmd_pull_analytics() == 1
+        out = capsys.readouterr().out
+        assert "Videos found: 0" in out
+        assert "nothing to walk" in out
+        tracker.run_daily_pull.assert_not_called()
+
+    def test_videos_with_no_stats_yet_is_not_an_error(self, capsys, monkeypatch):
+        """YouTube lags 24-48h; a young channel genuinely has none."""
+        import main
+        from unittest.mock import MagicMock
+
+        tracker = MagicMock()
+        tracker._list_recent_video_ids.return_value = ["v1", "v2"]
+        tracker.run_daily_pull.return_value = []
+        monkeypatch.setattr(
+            "channel_manager.analytics_tracker.AnalyticsTracker",
+            lambda *a, **k: tracker)
+
+        assert main.cmd_pull_analytics() == 0
+        assert "24" in capsys.readouterr().out
+
+    def test_it_prints_what_it_collected(self, capsys, monkeypatch):
+        import main
+        from unittest.mock import MagicMock
+        from channel_manager.analytics_tracker import VideoStats
+
+        tracker = MagicMock()
+        tracker._list_recent_video_ids.return_value = ["v1", "v2"]
+        tracker.run_daily_pull.return_value = [
+            VideoStats(video_id="v1", date="2026-09-09", views=12,
+                       watch_time_minutes=8.5, ctr=0.031),
+            VideoStats(video_id="v2", date="2026-09-09", views=3,
+                       watch_time_minutes=1.2, ctr=0.02),
+        ]
+        monkeypatch.setattr(
+            "channel_manager.analytics_tracker.AnalyticsTracker",
+            lambda *a, **k: tracker)
+
+        assert main.cmd_pull_analytics() == 0
+        out = capsys.readouterr().out
+        assert "Stats collected: 2 of 2" in out
+        assert "v1" in out and "12" in out
+        # Busiest first, so the useful line is not buried.
+        assert out.index("v1") < out.index("v2")

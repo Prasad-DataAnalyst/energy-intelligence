@@ -223,6 +223,43 @@ def cmd_test() -> int:
     return result.returncode
 
 
+def cmd_pull_analytics() -> int:
+    """
+    Run the nightly analytics pull now and say what it found.
+
+    The pull only ever ran at 21:30 ET, so a fix to it could not be checked
+    until the next morning — and it had silently walked an empty video list
+    for its whole life without anyone being able to see that. Reports the
+    video count first, because zero videos is the failure that looks
+    identical to zero views.
+    """
+    from channel_manager.analytics_tracker import AnalyticsTracker
+
+    tracker = AnalyticsTracker()
+    video_ids = tracker._list_recent_video_ids(max_results=30)
+    print(f"\nVideos found: {len(video_ids)}")
+    if not video_ids:
+        print("  ❌ No videos listed — the pull has nothing to walk.")
+        print("     Check CHANNEL_ID in .env and that the uploads playlist")
+        print("     is reachable for this account.")
+        return 1
+
+    stats = tracker.run_daily_pull()
+    print(f"Stats collected: {len(stats)} of {len(video_ids)}")
+    if not stats:
+        print("  ⚠️  Videos listed but no stats returned — YouTube lags 24–48h,")
+        print("      so a channel this young may genuinely have none yet.")
+        return 0
+
+    with_views = [s for s in stats if s.views]
+    print(f"With views yesterday: {len(with_views)}\n")
+    for stat in sorted(stats, key=lambda s: -s.views)[:10]:
+        print(f"  {stat.video_id}  {stat.views:>4} views  "
+              f"{stat.watch_time_minutes:>6.1f} min  CTR {stat.ctr_pct}")
+    print()
+    return 0
+
+
 def cmd_start_scheduler() -> int:
     from scheduler.master_scheduler import start_scheduler
     try:
@@ -275,6 +312,9 @@ def main() -> int:
     parser.add_argument("--publish-private", action="store_true",
                         dest="publish_private",
                         help="Publish any uploaded video still sitting private")
+    parser.add_argument("--pull-analytics", action="store_true",
+                        dest="pull_analytics",
+                        help="Run the nightly analytics pull now")
     parser.add_argument("--diagnose", action="store_true",
                         help="Why the videos are or are not being watched")
     parser.add_argument("--diagnose-days", type=int, default=28,
@@ -313,6 +353,9 @@ def main() -> int:
     if args.verify_uploads:
         from monitor.health_report import verify_uploads
         return 1 if verify_uploads() else 0
+
+    if args.pull_analytics:
+        return cmd_pull_analytics()
 
     if args.diagnose:
         from monitor.discovery_report import run as run_diagnosis
