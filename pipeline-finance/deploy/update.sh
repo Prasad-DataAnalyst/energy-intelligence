@@ -175,8 +175,21 @@ else
     echo "   ✅ scheduler active"
 fi
 
+# Print the commands rather than leaving them to be remembered. The install
+# is not in a home directory, is owned by another user, and runs from a venv
+# rather than a `python` on PATH — so a plausible-looking command typed from
+# memory fails on all three counts.
+RUN_AS="sudo -u $SERVICE_USER bash -c 'cd $APP_DIR && $INSTALL_DIR/venv/bin/python3 main.py"
 echo ""
 echo "════════════════════════════════════════════════════════════════════════"
-echo "✅ Update complete. Verify with:"
-echo "   sudo -u $SERVICE_USER bash -c 'cd $APP_DIR && $INSTALL_DIR/venv/bin/python3 main.py --health'"
+echo "✅ Update complete. Run these from anywhere on this VM:"
+echo ""
+echo "   Is the pipeline healthy?"
+echo "   $RUN_AS --health'"
+echo ""
+echo "   Why are the videos not being watched?"
+echo "   $RUN_AS --diagnose'"
+echo ""
+echo "   What is actually public on the channel?"
+echo "   $RUN_AS --verify-uploads'"
 echo "════════════════════════════════════════════════════════════════════════"
