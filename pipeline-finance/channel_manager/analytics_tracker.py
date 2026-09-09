@@ -269,6 +269,45 @@ class AnalyticsTracker:
             logger.error("Failed to fetch channel stats: %s", exc)
             return {"start_date": start_date, "end_date": end_date, "error": str(exc)}
 
+    def fetch_traffic_sources(
+        self,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ) -> dict:
+        """
+        Where the views came from, by YouTube's own traffic-source type.
+
+        This is the dimension that separates "the videos are bad" from "the
+        videos are not being shown to anyone", and nothing else the tracker
+        fetches can tell those apart. Views arriving from browse, suggested
+        and the Shorts feed mean YouTube is distributing the channel; views
+        arriving only from external links and channel pages mean it is not,
+        however good the thumbnails are.
+
+        Returns {source_type: views}, empty on failure — a caller must not
+        read an empty result as "no algorithmic traffic".
+        """
+        if start_date is None:
+            start_date = (date.today() - timedelta(days=28)).isoformat()
+        if end_date is None:
+            end_date = date.today().isoformat()
+
+        try:
+            channel_id = settings.channel_id or "mine"
+            response = self._analytics().reports().query(
+                ids=f"channel=={channel_id}",
+                startDate=start_date,
+                endDate=end_date,
+                metrics="views",
+                dimensions="insightTrafficSourceType",
+                sort="-views",
+            ).execute()
+            return {str(row[0]): int(row[1] or 0)
+                    for row in response.get("rows", []) if row}
+        except Exception as exc:
+            logger.error("Failed to fetch traffic sources: %s", exc)
+            return {}
+
     def _list_recent_video_ids(self, max_results: int = 20) -> list[str]:
         """List the channel's most recent video IDs via Data API."""
         try:
@@ -285,6 +324,10 @@ class AnalyticsTracker:
         except Exception as exc:
             logger.error("Failed to list recent video IDs: %s", exc)
             return []
+
+    def recent_video_count(self, max_results: int = 50) -> int:
+        """How many uploads the channel has, for per-video averages."""
+        return len(self._list_recent_video_ids(max_results=max_results))
 
     # ── Reporting ────────────────────────────────────────────────────────────
 

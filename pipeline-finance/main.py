@@ -275,6 +275,10 @@ def main() -> int:
     parser.add_argument("--publish-private", action="store_true",
                         dest="publish_private",
                         help="Publish any uploaded video still sitting private")
+    parser.add_argument("--diagnose", action="store_true",
+                        help="Why the videos are or are not being watched")
+    parser.add_argument("--diagnose-days", type=int, default=28,
+                        help="Window for --diagnose (default 28)")
     parser.add_argument("--health", action="store_true",
                         help="Full diagnosis: why is nothing publishing?")
     parser.add_argument("--test", action="store_true", help="Run test suite")
@@ -309,6 +313,11 @@ def main() -> int:
     if args.verify_uploads:
         from monitor.health_report import verify_uploads
         return 1 if verify_uploads() else 0
+
+    if args.diagnose:
+        from monitor.discovery_report import run as run_diagnosis
+        run_diagnosis(days=args.diagnose_days)
+        return 0
 
     if args.health:
         return cmd_health()
