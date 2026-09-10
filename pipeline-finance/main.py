@@ -129,26 +129,59 @@ def cmd_run_monitor() -> int:
 
 
 def cmd_mode_scrape(date_str: str = "") -> int:
-    """Scrape all data sources, save JSON to output/scripts/."""
+    """
+    Scrape every data source and report what each one returned.
+
+    Trends was missing from a command whose docstring says "all data
+    sources", which is how it went a long time with every query failing and
+    nobody looking: the only place it ran was inside a pipeline that treats
+    it as optional and swallows the result.
+
+    Each source is reported separately and a failure in one does not stop
+    the others, because the useful answer here is which sources are working,
+    not whether all of them are.
+    """
     logger = logging.getLogger("main")
     logger.info("MODE: scrape (date=%s)", date_str or "today")
-    try:
-        from scrapers.market_scraper import scrape_market
-        from scrapers.earnings_scraper import scrape_earnings
-        from scrapers.economic_scraper import scrape_economic_data
 
-        market = scrape_market()
-        earnings = scrape_earnings()
-        economic = scrape_economic_data()
+    def _try(label, fn):
+        try:
+            value = fn()
+            print(f"  ✅ {label:9} {value}")
+            return True
+        except Exception as exc:
+            print(f"  ❌ {label:9} {type(exc).__name__}: {exc}")
+            logger.warning("%s scrape failed: %s", label, exc)
+            return False
 
-        print(f"Market:   {market.to_narrative()[:120]}...")
-        print(f"Earnings: {earnings.to_narrative()[:120]}...")
-        print(f"Economic: {economic.to_narrative()[:120]}...")
-        print("\n✅ Scrape complete — data saved to output/scripts/")
-        return 0
-    except Exception as exc:
-        logging.getLogger("main").exception("Scrape failed: %s", exc)
-        return 1
+    print()
+    results = [
+        _try("Market", lambda: __import__(
+            "scrapers.market_scraper", fromlist=["scrape_market"]
+        ).scrape_market().to_narrative()[:110] + "..."),
+        _try("Earnings", lambda: __import__(
+            "scrapers.earnings_scraper", fromlist=["scrape_earnings"]
+        ).scrape_earnings().to_narrative()[:110] + "..."),
+        _try("Economic", lambda: __import__(
+            "scrapers.economic_scraper", fromlist=["scrape_economic_data"]
+        ).scrape_economic_data().to_narrative()[:110] + "..."),
+        _try("Trends", _trends_summary),
+    ]
+    print(f"\n{sum(results)} of {len(results)} sources returned data")
+    if not all(results):
+        print("A failed source degrades the video rather than stopping it — "
+              "the run still publishes.")
+    return 0 if any(results) else 1
+
+
+def _trends_summary() -> str:
+    """What Google Trends returned, or why nothing came back."""
+    from scrapers.trends_scraper import TrendsScraper
+    rising = TrendsScraper().get_rising_queries()
+    if not rising:
+        return "no rising queries (rate limited, or none above threshold)"
+    top = ", ".join(q["query"] for q in rising[:3])
+    return f"{len(rising)} rising queries — {top}"
 
 
 def cmd_mode_build(topic: str = "") -> int:

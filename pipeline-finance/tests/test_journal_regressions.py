@@ -135,3 +135,77 @@ class TestFredHasARealisticTimeout:
                 continue
         # No FRED request may carry a hardcoded ten-second timeout.
         assert "timeout=10," not in source.replace("timeout=10,  # rss", "")
+
+
+class TestScrapeModeReportsEverySource:
+    """
+    Trends was absent from a command documented as "all data sources", so
+    the only place it ran was inside a pipeline that treats it as optional
+    and swallows the result. That is how every query failed for a long time
+    with nobody looking.
+    """
+
+    @staticmethod
+    def _stub_network(monkeypatch, trends):
+        """
+        Stub every source. Without this the test reaches Yahoo, FRED and
+        Google for real — 40 seconds, and red whenever one of them is down.
+        """
+        import main
+
+        class Narrative:
+            def to_narrative(self):
+                return "stubbed narrative text"
+
+        for module, fn in (("scrapers.market_scraper", "scrape_market"),
+                           ("scrapers.earnings_scraper", "scrape_earnings"),
+                           ("scrapers.economic_scraper", "scrape_economic_data")):
+            monkeypatch.setattr(f"{module}.{fn}", lambda: Narrative())
+        monkeypatch.setattr(main, "_trends_summary", trends)
+
+    def test_trends_is_one_of_the_reported_sources(self, capsys, monkeypatch):
+        import main
+        self._stub_network(monkeypatch, lambda: "4 rising queries — a, b, c")
+        main.cmd_mode_scrape()
+        out = capsys.readouterr().out
+        assert "Trends" in out
+        assert "4 of 4 sources" in out
+
+    def test_one_failing_source_does_not_hide_the_others(self, capsys, monkeypatch):
+        import main
+
+        def boom():
+            raise RuntimeError("stlouisfed timed out")
+
+        self._stub_network(monkeypatch, boom)
+        assert main.cmd_mode_scrape() == 0      # a partial scrape is not a failure
+        out = capsys.readouterr().out
+        assert "❌ Trends" in out
+        assert "stlouisfed timed out" in out
+        assert "still publishes" in out
+        assert "3 of 4 sources" in out
+
+    def test_every_source_failing_is_an_error_exit(self, capsys, monkeypatch):
+        import main
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("network down")
+
+        for module, fn in (("scrapers.market_scraper", "scrape_market"),
+                           ("scrapers.earnings_scraper", "scrape_earnings"),
+                           ("scrapers.economic_scraper", "scrape_economic_data")):
+            monkeypatch.setattr(f"{module}.{fn}", boom)
+        monkeypatch.setattr(main, "_trends_summary", boom)
+        assert main.cmd_mode_scrape() == 1
+
+    def test_trends_returning_nothing_is_distinguished_from_erroring(self,
+                                                                     monkeypatch):
+        """
+        Rate limiting and a crash both end with no queries, and only one of
+        them is a bug.
+        """
+        import main
+        import scrapers.trends_scraper as ts
+        monkeypatch.setattr(ts.TrendsScraper, "get_rising_queries",
+                            lambda self, **kw: [])
+        assert "no rising queries" in main._trends_summary()
