@@ -64,7 +64,21 @@ class TitleSet:
     generated_at: str = field(default_factory=lambda: datetime.now().isoformat())
 
 
-def _score_title(title: str) -> TitleScore:
+# Weight per keyword match, out of the 30-point keyword budget. A phrase
+# people are searching for TODAY is worth more than one from a list written
+# months ago and never revisited — SEO_KEYWORDS is an educated guess,
+# rising queries are measurement.
+_STATIC_KEYWORD_POINTS = 6.0
+_LIVE_DEMAND_POINTS = 12.0
+_KEYWORD_BUDGET = 30.0
+
+def _demand_terms(queries: list) -> set:
+    """The distinctive words from today's rising queries."""
+    from scrapers.trends_scraper import demand_terms
+    return demand_terms(queries)
+
+
+def _score_title(title: str, demand_terms: Optional[set] = None) -> TitleScore:
     feedback = []
     length = len(title)
 
@@ -79,8 +93,19 @@ def _score_title(title: str) -> TitleScore:
 
     title_lower = title.lower()
     matched_kw = [kw for kw in SEO_KEYWORDS if kw.lower() in title_lower]
-    keyword_score = min(30.0, len(matched_kw) * 10)
-    if not matched_kw:
+    # Titles are scored against what people searched for today, not only
+    # against a static list. 30% of this channel's views already come from
+    # search, and a title that contains the phrase someone typed is the
+    # thing that earns them.
+    matched_demand = sorted(t for t in (demand_terms or set()) if t in title_lower)
+    keyword_score = min(
+        _KEYWORD_BUDGET,
+        len(matched_kw) * _STATIC_KEYWORD_POINTS
+        + len(matched_demand) * _LIVE_DEMAND_POINTS,
+    )
+    if matched_demand:
+        feedback.append(f"Matches today's search demand: {', '.join(matched_demand)}")
+    elif not matched_kw:
         feedback.append("No SEO keywords detected — add finance keywords")
 
     matched_pw = [w for cat in POWER_WORDS.values() for w in cat if w.lower() in title_lower]
@@ -124,6 +149,7 @@ def _generate_titles_via_claude(
     hook_card_text: str = "",
     sunday_theme: str = "",
     script_summary: str = "",
+    rising_queries: Optional[list] = None,
 ) -> list[str]:
     """Route to the correct title prompt and return a list of title strings."""
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -145,6 +171,20 @@ def _generate_titles_via_claude(
             topic=topic,
             anchor_number=anchor_number or "key market move",
             script_summary=script_summary[:400] if script_summary else topic,
+        )
+
+    # Appended rather than templated into each prompt: there are three
+    # prompt variants and this applies identically to all of them.
+    if rising_queries:
+        prompt += (
+            "\n\nWHAT PEOPLE ARE SEARCHING FOR RIGHT NOW (Google Trends, "
+            "rising queries):\n"
+            + ", ".join(str(q) for q in rising_queries[:8])
+            + "\n\nWhere one of these genuinely fits this video, use the "
+              "searcher's own wording in the title — that phrasing is what "
+              "makes the video findable. Never force one in; a title that "
+              "misdescribes the video costs more than the search traffic is "
+              "worth."
         )
 
     try:
@@ -217,6 +257,18 @@ def generate_title_set(
     effective_anchor = anchor_number or key_stat
     logger.info("Generating titles for: %s | type=%s", topic[:60], video_type)
 
+    # Fetched once and used twice: given to Claude so a title CAN contain
+    # the phrase people typed, and used to score the results so one that
+    # does wins. Optional — Trends is rate-limited and must never block a
+    # scheduled publish.
+    try:
+        from scrapers.trends_scraper import todays_rising_queries
+        rising = todays_rising_queries(8)
+    except Exception as exc:
+        logger.warning("Search demand unavailable (non-fatal): %s", exc)
+        rising = []
+    demand_terms = _demand_terms(rising)
+
     raw_titles = _generate_titles_via_claude(
         topic=topic,
         anchor_number=effective_anchor,
@@ -224,6 +276,7 @@ def generate_title_set(
         hook_card_text=hook_card_text,
         sunday_theme=sunday_theme,
         script_summary=script_summary,
+        rising_queries=rising,
     )
 
     if not raw_titles:
@@ -238,7 +291,13 @@ def generate_title_set(
     move_pct = _move_pct_from_stat(effective_anchor)
     raw_titles = [sanitize_title_tone(t, move_pct) for t in raw_titles]
 
-    scored = sorted([_score_title(t) for t in raw_titles], key=lambda s: s.total_score, reverse=True)
+    scored = sorted([_score_title(t, demand_terms) for t in raw_titles],
+                    key=lambda s: s.total_score, reverse=True)
+    if demand_terms:
+        logger.info("Title scored against %d live search terms; winner matches: %s",
+                    len(demand_terms),
+                    ", ".join(t for t in sorted(demand_terms)
+                              if t in scored[0].title.lower()) or "none")
     winner = scored[0]
     ab_pair = (scored[0], scored[1]) if len(scored) >= 2 else (scored[0], scored[0])
 

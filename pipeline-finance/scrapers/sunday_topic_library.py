@@ -87,6 +87,44 @@ def get_available_topics(cooldown_weeks: int = 12) -> list[dict]:
     return available
 
 
+def _demand_score(topic: dict, terms: set) -> int:
+    """
+    How many of today's rising search terms this topic actually covers.
+
+    Matched against the whole entry — title, subtopics, concepts and tags —
+    because a searcher typing "0dte" should reach the options topic even
+    though the title says "Calls, Puts, and How Wall Street Really Bets".
+    """
+    if not terms:
+        return 0
+    haystack = " ".join(str(part).lower() for part in (
+        [topic.get("title", ""), topic.get("current_relevance", "")]
+        + list(topic.get("subtopics") or [])
+        + list(topic.get("key_concepts") or [])
+        + list(topic.get("tags") or [])
+    ))
+    return sum(1 for term in terms if term in haystack)
+
+
+def _demand_ranked(available: list, terms: set) -> list:
+    """
+    The eligible topics that best match today's demand, or all of them.
+
+    Returns the joint best rather than a single winner: an evergreen library
+    of 103 topics will often have several equally relevant to the same
+    query, and collapsing to one would make the rotation deterministic and
+    the channel repetitive — which is the problem the cooldown exists to
+    prevent.
+    """
+    if not terms or not available:
+        return available
+    scored = [(_demand_score(topic, terms), topic) for topic in available]
+    best = max(score for score, _ in scored)
+    if best == 0:
+        return available
+    return [topic for score, topic in scored if score == best]
+
+
 def pick_topic(week_market_summary: str = "", use_ai: bool = False) -> dict:
     """
     Select this week's Sunday topic.
@@ -109,9 +147,18 @@ def pick_topic(week_market_summary: str = "", use_ai: bool = False) -> dict:
         chosen = _ai_pick(available, week_market_summary)
 
     if chosen is None:
-        # Weighted random fallback
+        # Bias the pool toward what people are searching for this week.
+        # Evergreen explainers earn search traffic for years where a daily
+        # recap is worthless after a day, so which explainer gets made is
+        # worth deciding on measured demand rather than a fixed rotation.
+        demand = _todays_demand_terms()
+        pool_source = _demand_ranked(available, demand)
+        if demand and len(pool_source) < len(available):
+            logger.info("Search demand narrowed %d eligible topics to %d",
+                        len(available), len(pool_source))
+
         pool: list[dict] = []
-        for topic in available:
+        for topic in pool_source:
             weight = weights_map.get(topic.get("estimated_views", "medium"), 1)
             pool.extend([topic] * weight)
         chosen = random.choice(pool)
@@ -120,6 +167,17 @@ def pick_topic(week_market_summary: str = "", use_ai: bool = False) -> dict:
     logger.info("Sunday topic selected: %s (%d of %d eligible)",
                 chosen["title"], len(available), len(library["topics"]))
     return chosen
+
+
+def _todays_demand_terms() -> set:
+    """Today's rising search terms, or an empty set — never an exception."""
+    try:
+        from scrapers.trends_scraper import todays_rising_queries, demand_terms
+        return demand_terms(todays_rising_queries(8))
+    except Exception as exc:
+        logger.warning("Search demand unavailable for topic choice "
+                       "(non-fatal): %s", exc)
+        return set()
 
 
 def _ai_pick(available: list[dict], week_market_summary: str) -> Optional[dict]:
@@ -141,6 +199,20 @@ def _ai_pick(available: list[dict], week_market_summary: str) -> Optional[dict]:
             week_market_summary=week_market_summary[:800],
             available_topics_list=topics_list,
         )
+        rising = []
+        try:
+            from scrapers.trends_scraper import todays_rising_queries
+            rising = todays_rising_queries(8)
+        except Exception as exc:
+            logger.debug("Rising queries unavailable for AI pick: %s", exc)
+        if rising:
+            prompt += (
+                "\n\nRISING SEARCHES THIS WEEK: "
+                + ", ".join(str(q) for q in rising)
+                + "\nPrefer a topic that answers one of these, but only where "
+                  "the match is genuine — a mismatched explainer earns the "
+                  "click and loses the viewer."
+            )
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         resp = client.messages.create(
             model=CLAUDE_MODEL,

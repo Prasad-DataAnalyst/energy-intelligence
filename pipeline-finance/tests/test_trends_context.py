@@ -129,8 +129,8 @@ class TestTrendsNeverBlocksPublishing:
         limit, so every extra seed is another second of a pipeline that
         publishes to a clock.
         """
-        from generators.script_gen import _TREND_SEEDS
-        assert len(_TREND_SEEDS) <= 3
+        from scrapers.trends_scraper import TREND_SEEDS
+        assert len(TREND_SEEDS) <= 3
 
 
 class TestContextComposition:

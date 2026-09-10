@@ -172,3 +172,84 @@ class TrendsScraper:
         """
         rising = self.get_rising_queries()
         return [r["query"] for r in rising[:10] if r.get("query")]
+
+
+# ── Shared day cache ─────────────────────────────────────────────────────────
+
+TREND_SEEDS = ["stock market today", "S&P 500", "inflation"]
+TREND_CACHE_NAME = "trending_queries.json"
+
+
+def todays_rising_queries(limit: int = 8) -> list:
+    """
+    The day's rising search queries, fetched at most once per day.
+
+    Lives here rather than in script_gen because more than one consumer
+    wants it now: the script leads with what people are already curious
+    about, and the title generator needs the same phrases to put IN the
+    title — which is the half that earns search traffic. Two copies of the
+    cache would mean two fetches against a rate-limited endpoint and two
+    chances to disagree about what today's queries are.
+
+    Returns [] on any failure. Google Trends is unofficial and rate-limited,
+    and nothing that publishes on a schedule may wait on it or fail with it.
+    """
+    import json
+    from datetime import date
+    from config.settings import settings
+
+    cache = settings.logs_dir / TREND_CACHE_NAME
+    today = date.today().isoformat()
+
+    try:
+        if cache.exists():
+            cached = json.loads(cache.read_text(encoding="utf-8"))
+            # Both weekday runs share one fetch: the day's searches do not
+            # change enough between them to spend the rate-limit budget.
+            if cached.get("date") == today:
+                return list(cached.get("queries", []))[:limit]
+    except Exception as exc:
+        logger.debug("Trend cache unreadable (non-fatal): %s", exc)
+
+    try:
+        rising = TrendsScraper().get_rising_queries(keywords=TREND_SEEDS)
+        queries = [item["query"] for item in rising if item.get("query")]
+    except Exception as exc:
+        logger.warning("Google Trends unavailable (non-fatal): %s", exc)
+        return []
+
+    if not queries:
+        return []
+    try:
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps({"date": today, "queries": queries}),
+                         encoding="utf-8")
+    except Exception as exc:
+        logger.debug("Trend cache not written (non-fatal): %s", exc)
+    return queries[:limit]
+
+
+# Words too common in finance to count as a demand signal. Every title in
+# the niche contains "stock" or "market", so matching on them would rank
+# everything identically and say nothing.
+DEMAND_STOPWORDS = {
+    "the", "a", "an", "of", "for", "to", "in", "on", "and", "is", "are",
+    "stock", "stocks", "market", "markets", "today", "now", "news", "price",
+}
+
+
+def demand_terms(queries: list) -> set:
+    """
+    The distinctive words in a set of rising queries.
+
+    Lives here because two very different consumers need the same reading of
+    the data — the title scorer and the Sunday topic picker — and one of
+    them is in scrapers/, which must not import from generators/.
+    """
+    terms = set()
+    for query in queries or []:
+        for word in str(query).lower().split():
+            cleaned = "".join(ch for ch in word if ch.isalnum())
+            if len(cleaned) > 3 and cleaned not in DEMAND_STOPWORDS:
+                terms.add(cleaned)
+    return terms
