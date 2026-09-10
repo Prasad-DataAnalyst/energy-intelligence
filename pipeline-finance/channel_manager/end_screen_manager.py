@@ -15,6 +15,9 @@ from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
+# Explain the missing API once per process, not once per publish.
+_EXPLAINED = False
+
 END_SCREEN_DURATION_SECONDS = 20  # last N seconds of the video
 
 
@@ -47,54 +50,28 @@ class EndScreenManager:
             )
             return False
 
-        start_ms = int((duration_seconds - END_SCREEN_DURATION_SECONDS) * 1000)
-        end_ms = int(duration_seconds * 1000)
-
-        body = {
-            "kind": "youtube#video",
-            "id": video_id,
-            "endscreen": {
-                "elements": [
-                    {
-                        "type": "SUBSCRIBE",
-                        "position": {"type": "CORNER", "cornerPosition": "TOP_RIGHT"},
-                        "startOffsetMs": start_ms,
-                        "widthMs": end_ms - start_ms,
-                        "element": {
-                            "type": "SUBSCRIBE",
-                            "subscribe": {
-                                "backgroundColor": 16711680,  # red
-                            },
-                        },
-                    },
-                    {
-                        "type": "RECOMMENDED_VIDEO",
-                        "position": {"type": "CORNER", "cornerPosition": "BOTTOM_LEFT"},
-                        "startOffsetMs": start_ms,
-                        "widthMs": end_ms - start_ms,
-                        "element": {
-                            "type": "RECOMMENDED_VIDEO",
-                            "recommendedVideo": {"videoId": "featured"},
-                        },
-                    },
-                ]
-            },
-        }
-
-        try:
-            self._service().videos().update(
-                part="endscreen",
-                body=body,
-            ).execute()
-            logger.info("End screens added to video %s (start: %dms)", video_id, start_ms)
-            return True
-        except Exception as exc:
-            # 403 = eligibility; 400 = bad format — both are non-fatal
-            logger.warning(
-                "Could not add end screen to video %s (may require eligibility): %s",
-                video_id, exc,
+        # There is no API for this. videos.update has no "endscreen" part —
+        # YouTube rejects the request at validation with
+        #
+        #   "'endscreen'" ... reason: unknownPart
+        #
+        # which is not an eligibility problem, as the old warning claimed,
+        # and no amount of verification or scope will change it. End screens
+        # are Studio-only. The call was made on every publish and could
+        # never have succeeded, so it is gone; what remains is saying so
+        # once, clearly, instead of logging a misleading warning forever.
+        global _EXPLAINED
+        if not _EXPLAINED:
+            _EXPLAINED = True
+            logger.info(
+                "End screens cannot be set through the API (videos.update has "
+                "no 'endscreen' part) — configure them once in YouTube Studio "
+                "under Content > a video > Editor, or rely on the burned-in "
+                "end card the video builder already appends."
             )
-            return False
+        logger.debug("End screen skipped for %s (%.0fs) — no API exists",
+                     video_id, duration_seconds)
+        return False
 
     def add_end_screen_to_recent(self, video_id: str, video_duration: float) -> bool:
         """Convenience wrapper called immediately after upload."""

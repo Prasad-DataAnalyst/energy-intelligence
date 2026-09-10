@@ -42,45 +42,53 @@ def _make_settings(tmp_path):
 # ── EndScreenManager ─────────────────────────────────────────────────────────
 
 class TestEndScreenManager:
+    """
+    These tests used to assert a success path that never existed. A MagicMock
+    happily accepts videos().update(part="endscreen"), so they passed while
+    YouTube rejected every real call with reason: unknownPart. The API has no
+    endscreen part at all — end screens are Studio-only — so the honest
+    behaviour is to make no call and say so.
+    """
+
     def test_short_video_skipped(self):
         from channel_manager.end_screen_manager import EndScreenManager
         mgr = EndScreenManager(youtube_service=MagicMock())
-        result = mgr.add_end_screen("vid123", duration_seconds=15.0)
-        assert result is False
+        assert mgr.add_end_screen("vid123", duration_seconds=15.0) is False
 
-    def test_success_path(self):
+    def test_a_long_video_makes_no_api_call(self):
         from channel_manager.end_screen_manager import EndScreenManager
         mock_svc = MagicMock()
-        mock_svc.videos.return_value.update.return_value.execute.return_value = {}
         mgr = EndScreenManager(youtube_service=mock_svc)
-        result = mgr.add_end_screen("vid123", duration_seconds=300.0)
-        assert result is True
+        assert mgr.add_end_screen("vid123", duration_seconds=300.0) is False
+        mock_svc.videos.assert_not_called()
 
-    def test_api_error_returns_false(self):
+    def test_the_convenience_wrapper_behaves_the_same(self):
         from channel_manager.end_screen_manager import EndScreenManager
         mock_svc = MagicMock()
-        mock_svc.videos.return_value.update.return_value.execute.side_effect = Exception("403")
         mgr = EndScreenManager(youtube_service=mock_svc)
-        result = mgr.add_end_screen("vid123", duration_seconds=300.0)
-        assert result is False
+        assert mgr.add_end_screen_to_recent("vid456", video_duration=200.0) is False
+        mock_svc.videos.assert_not_called()
 
-    def test_convenience_wrapper(self):
-        from channel_manager.end_screen_manager import EndScreenManager
-        mock_svc = MagicMock()
-        mock_svc.videos.return_value.update.return_value.execute.return_value = {}
-        mgr = EndScreenManager(youtube_service=mock_svc)
-        result = mgr.add_end_screen_to_recent("vid456", video_duration=200.0)
-        assert result is True
-
-    def test_exactly_at_boundary(self):
-        from channel_manager.end_screen_manager import EndScreenManager
+    def test_the_length_guard_still_distinguishes_the_boundary(self):
+        """
+        The guard is kept because it is the one piece of this that was
+        right, and it documents what a real end screen would need.
+        """
+        import inspect
+        from channel_manager import end_screen_manager
+        from channel_manager.end_screen_manager import (
+            EndScreenManager, END_SCREEN_DURATION_SECONDS)
         mgr = EndScreenManager(youtube_service=MagicMock())
-        # exactly END_SCREEN_DURATION_SECONDS + 5 = 25s — should NOT skip
-        mock_svc = MagicMock()
-        mock_svc.videos.return_value.update.return_value.execute.return_value = {}
-        mgr2 = EndScreenManager(youtube_service=mock_svc)
-        result = mgr2.add_end_screen("vid123", duration_seconds=25.0)
-        assert result is True
+
+        end_screen_manager._EXPLAINED = True      # silence the one-time notice
+        too_short = mgr.add_end_screen("v", duration_seconds=END_SCREEN_DURATION_SECONDS)
+        long_enough = mgr.add_end_screen(
+            "v", duration_seconds=END_SCREEN_DURATION_SECONDS + 5)
+        assert too_short is False and long_enough is False
+        # Different reasons, and the log is where that distinction lives.
+        source = inspect.getsource(EndScreenManager.add_end_screen)
+        assert "too short" in source
+        assert "no API exists" in source
 
 
 # ── PostManager ───────────────────────────────────────────────────────────────

@@ -28,12 +28,47 @@ _PYTRENDS_TIMEOUT = (10, 30)  # (connect, read) seconds
 
 
 def _get_pytrends_client():
-    """Build a TrendReq with retry. Raises ImportError if pytrends not installed."""
+    """
+    Build a TrendReq. Raises ImportError if pytrends is not installed.
+
+    Deliberately does NOT pass retries/backoff_factor. pytrends turns those
+    into urllib3.Retry(method_whitelist=...), and urllib3 renamed that
+    argument to allowed_methods in 2.0 — so asking pytrends to retry makes
+    every single query raise TypeError before it reaches the network:
+
+        Trends query failed for 'stock market today':
+        Retry.__init__() got an unexpected keyword argument 'method_whitelist'
+
+    Every trends lookup had been failing that way, silently, since the
+    scraper was wired in. Retrying is done in _query_with_retry below, where
+    it does not depend on a third party's urllib3 compatibility.
+    """
     try:
         from pytrends.request import TrendReq
-        return TrendReq(hl="en-US", tz=300, timeout=_PYTRENDS_TIMEOUT, retries=2, backoff_factor=0.5)
+        return TrendReq(hl="en-US", tz=300, timeout=_PYTRENDS_TIMEOUT)
     except ImportError as exc:
         raise ImportError("pytrends is required: pip install pytrends>=4.9.0") from exc
+
+
+def _query_with_retry(fn, attempts: int = 3, base_delay: float = 1.0):
+    """
+    Run a Trends call, retrying transient failures with backoff.
+
+    Google rate-limits this endpoint aggressively and answers with a 429 or
+    a read timeout rather than anything structured, so the retry is on the
+    exception rather than on a status code.
+    """
+    for attempt in range(1, attempts + 1):
+        try:
+            return fn()
+        except Exception as exc:
+            if attempt == attempts:
+                raise
+            delay = base_delay * (2 ** (attempt - 1))
+            logger.debug("Trends attempt %d/%d failed (%s) — retry in %.1fs",
+                         attempt, attempts, exc, delay)
+            time.sleep(delay)
+    return None
 
 
 class TrendsScraper:
@@ -78,8 +113,12 @@ class TrendsScraper:
         # pytrends only accepts up to 5 keywords at once
         for kw in keywords[:5]:
             try:
-                pt.build_payload([kw], cat=0, timeframe=timeframe, geo=geo, gprop="")
-                related = pt.related_queries()
+                def _fetch(keyword=kw):
+                    pt.build_payload([keyword], cat=0, timeframe=timeframe,
+                                     geo=geo, gprop="")
+                    return pt.related_queries()
+
+                related = _query_with_retry(_fetch) or {}
                 rising_df = related.get(kw, {}).get("rising")
                 if rising_df is not None and not rising_df.empty:
                     for _, row in rising_df.head(_RISING_TOP_N).iterrows():

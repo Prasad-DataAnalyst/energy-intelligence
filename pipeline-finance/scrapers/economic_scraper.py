@@ -28,6 +28,11 @@ logger = logging.getLogger(__name__)
 # ── FRED API endpoints ────────────────────────────────────────────────────────
 
 FRED_BASE          = "https://api.stlouisfed.org/fred"
+# (connect, read). FRED is free and frequently slow: a flat 10-second budget
+# timed out every series on one morning's run — CPI, fed funds, breakevens
+# and the 10-year all missing — and the video went out with no economic
+# context at all. The retry loop was working; the budget was the problem.
+FRED_TIMEOUT       = (5, 30)
 FRED_OBS_URL       = f"{FRED_BASE}/series/observations"
 FRED_INFO_URL      = f"{FRED_BASE}/series"
 FRED_RELEASE_DATES = f"{FRED_BASE}/release/dates"
@@ -274,7 +279,7 @@ class EconomicScraper:
             resp = requests.get(
                 FRED_INFO_URL,
                 params={"series_id": series_id, "api_key": self._api_key, "file_type": "json"},
-                timeout=10,
+                timeout=FRED_TIMEOUT,
             )
             resp.raise_for_status()
             seriess = resp.json().get("seriess", [])
@@ -295,7 +300,7 @@ class EconomicScraper:
                     "sort_order": "desc",
                     "limit":      n + 2,   # extra buffer for missing-value rows
                 },
-                timeout=10,
+                timeout=FRED_TIMEOUT,
             )
             resp.raise_for_status()
             obs = resp.json().get("observations", [])
@@ -461,7 +466,7 @@ class EconomicScraper:
                             "realtime_end":   end_date.isoformat(),
                             "include_release_dates_with_no_data": "true",
                         },
-                        timeout=10,
+                        timeout=FRED_TIMEOUT,
                     )
                     if resp.ok:
                         for rd in resp.json().get("release_dates", []):
@@ -540,7 +545,7 @@ def _fetch_fred_series(
     }
     for attempt in range(MAX_RETRIES):
         try:
-            resp = requests.get(FRED_OBS_URL, params=params, timeout=10)
+            resp = requests.get(FRED_OBS_URL, params=params, timeout=FRED_TIMEOUT)
             resp.raise_for_status()
             obs   = [o for o in resp.json().get("observations", []) if o["value"] != "."]
             if not obs:
