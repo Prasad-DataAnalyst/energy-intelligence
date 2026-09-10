@@ -97,13 +97,15 @@ def _demand_score(topic: dict, terms: set) -> int:
     """
     if not terms:
         return 0
-    haystack = " ".join(str(part).lower() for part in (
+    from scrapers.trends_scraper import matches_demand
+    haystack = " ".join(str(part) for part in (
         [topic.get("title", ""), topic.get("current_relevance", "")]
         + list(topic.get("subtopics") or [])
         + list(topic.get("key_concepts") or [])
         + list(topic.get("tags") or [])
     ))
-    return sum(1 for term in terms if term in haystack)
+    # Whole-word, not substring: "rate" must not match "corporate".
+    return len(matches_demand(haystack, terms))
 
 
 def _demand_ranked(available: list, terms: set) -> list:

@@ -274,3 +274,52 @@ class TestTopicChoiceFollowsDemand:
         from scrapers import sunday_topic_library
         source = inspect.getsource(sunday_topic_library)
         assert "generators" not in source
+
+
+class TestDemandMatchingIsWholeWord:
+    """
+    A plain substring test looked right and was wrong. The term "rate", from
+    the query "fed rate decision", matched "Corporate Bonds Explained" and
+    scored that title 12 points — more than two static SEO keywords — for an
+    accidental overlap of letters.
+    """
+
+    def test_a_term_inside_a_longer_word_is_not_a_match(self):
+        from scrapers.trends_scraper import demand_terms, matches_demand
+        terms = demand_terms(["fed rate decision"])
+        assert matches_demand("Corporate Bonds Explained", terms) == set()
+        assert matches_demand("Accurate Ratings And Corporate Debt", terms) == set()
+
+    def test_a_real_word_match_still_counts(self):
+        from scrapers.trends_scraper import demand_terms, matches_demand
+        terms = demand_terms(["fed rate decision"])
+        assert matches_demand("Fed Rate Decision Day", terms) == {"rate", "decision"}
+
+    def test_punctuation_does_not_block_a_match(self):
+        from scrapers.trends_scraper import demand_terms, matches_demand
+        terms = demand_terms(["nvidia earnings"])
+        assert "nvidia" in matches_demand("NVIDIA: Earnings, Explained!", terms)
+
+    def test_title_scoring_no_longer_rewards_the_false_match(self):
+        from generators.title_gen import _score_title, _demand_terms
+        terms = _demand_terms(["fed rate decision"])
+        false_match = _score_title("Corporate Bonds Explained For Beginners", terms)
+        assert not any("search demand" in f for f in false_match.feedback)
+
+    def test_topic_scoring_no_longer_rewards_the_false_match(self):
+        from scrapers.sunday_topic_library import _demand_score
+        topic = {"title": "Corporate Bonds Explained", "subtopics": [],
+                 "key_concepts": [], "tags": ["corporate debt"],
+                 "current_relevance": ""}
+        assert _demand_score(topic, {"rate"}) == 0
+
+    def test_topic_scoring_still_finds_a_genuine_match_in_a_tag(self):
+        from scrapers.sunday_topic_library import _demand_score
+        topic = {"title": "Calls, Puts and How Wall Street Bets",
+                 "subtopics": ["0dte options"], "key_concepts": [],
+                 "tags": ["options trading"], "current_relevance": ""}
+        assert _demand_score(topic, {"0dte"}) == 1
+
+    def test_no_terms_matches_nothing_rather_than_everything(self):
+        from scrapers.trends_scraper import matches_demand
+        assert matches_demand("Any Title At All", set()) == set()

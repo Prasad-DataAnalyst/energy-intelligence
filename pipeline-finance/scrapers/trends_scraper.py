@@ -253,3 +253,28 @@ def demand_terms(queries: list) -> set:
             if len(cleaned) > 3 and cleaned not in DEMAND_STOPWORDS:
                 terms.add(cleaned)
     return terms
+
+
+def _tokenize(text: str) -> set:
+    """The same word-splitting demand_terms applies to queries."""
+    words = set()
+    for word in str(text or "").lower().split():
+        cleaned = "".join(ch for ch in word if ch.isalnum())
+        if cleaned:
+            words.add(cleaned)
+    return words
+
+
+def matches_demand(text: str, terms: set) -> set:
+    """
+    Which demand terms this text actually contains, matched whole-word.
+
+    A plain substring test looked right and was wrong: the term "rate", from
+    "fed rate decision", matched "Corporate Bonds Explained" and scored that
+    title 12 points — more than two static SEO keywords — for an accidental
+    overlap of letters. Both sides are tokenised the same way so the
+    comparison is symmetric.
+    """
+    if not terms:
+        return set()
+    return {term for term in terms if term in _tokenize(text)}

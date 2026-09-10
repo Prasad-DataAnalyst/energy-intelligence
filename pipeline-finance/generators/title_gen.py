@@ -72,6 +72,12 @@ _STATIC_KEYWORD_POINTS = 6.0
 _LIVE_DEMAND_POINTS = 12.0
 _KEYWORD_BUDGET = 30.0
 
+def _matched_in(title: str, terms: set) -> set:
+    """Demand terms this title genuinely carries, whole-word."""
+    from scrapers.trends_scraper import matches_demand
+    return matches_demand(title, terms or set())
+
+
 def _demand_terms(queries: list) -> set:
     """The distinctive words from today's rising queries."""
     from scrapers.trends_scraper import demand_terms
@@ -97,7 +103,8 @@ def _score_title(title: str, demand_terms: Optional[set] = None) -> TitleScore:
     # against a static list. 30% of this channel's views already come from
     # search, and a title that contains the phrase someone typed is the
     # thing that earns them.
-    matched_demand = sorted(t for t in (demand_terms or set()) if t in title_lower)
+    from scrapers.trends_scraper import matches_demand
+    matched_demand = sorted(matches_demand(title, demand_terms or set()))
     keyword_score = min(
         _KEYWORD_BUDGET,
         len(matched_kw) * _STATIC_KEYWORD_POINTS
@@ -296,8 +303,8 @@ def generate_title_set(
     if demand_terms:
         logger.info("Title scored against %d live search terms; winner matches: %s",
                     len(demand_terms),
-                    ", ".join(t for t in sorted(demand_terms)
-                              if t in scored[0].title.lower()) or "none")
+                    ", ".join(sorted(
+                        _matched_in(scored[0].title, demand_terms))) or "none")
     winner = scored[0]
     ab_pair = (scored[0], scored[1]) if len(scored) >= 2 else (scored[0], scored[0])
 
