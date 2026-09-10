@@ -448,3 +448,107 @@ class TestShortsCardPlan:
         if result.returncode != 0:
             pytest.skip("ffmpeg unavailable")
         assert _has_audio(wav) is True
+
+
+class TestShortsHookCard:
+    """
+    Shorts drive 50% of this channel's views, so the hook is the frame that
+    decides whether any of them are watched past the first second. It used
+    to get the same small caption band as a body card.
+    """
+
+    def test_the_hook_is_set_far_larger_than_a_body_caption(self, tmp_path):
+        from builders.shorts_cards import render_card, HOOK_MAX_FRACTION
+        Image = pytest.importorskip("PIL.Image")
+
+        def ink_rows(kind, name):
+            path = render_card("Wall Street gave back gains", tmp_path / name,
+                               kind=kind)
+            img = Image.Image.convert(Image.open(path), "L")
+            width, height = img.size
+            return sum(1 for y in range(height)
+                       if max(img.crop((0, y, width, y + 1)).getdata()) > 200)
+
+        assert ink_rows("hook", "h.png") > ink_rows("context", "c.png")
+        assert HOOK_MAX_FRACTION > 0.06
+
+    def test_the_hook_sits_high_where_the_eye_lands(self, tmp_path):
+        from builders.shorts_cards import render_card, SAFE_TOP, SAFE_BOTTOM
+        Image = pytest.importorskip("PIL.Image")
+        path = render_card("Wall Street gave back a week of gains",
+                           tmp_path / "h.png", kind="hook")
+        img = Image.Image.convert(Image.open(path), "L")
+        width, height = img.size
+        rows = [y for y in range(height)
+                if max(img.crop((0, y, width, y + 1)).getdata()) > 200]
+        assert rows
+        assert min(rows) >= height * SAFE_TOP - 4
+        assert min(rows) < height * (SAFE_TOP + SAFE_BOTTOM) / 2
+
+    def test_long_hook_copy_shrinks_rather_than_overflowing(self, tmp_path):
+        from builders.shorts_cards import (render_card, _fit_hook,
+                                           HOOK_MAX_LINES, HOOK_MIN_FRACTION)
+        from PIL import ImageDraw, Image as PILImage
+        pytest.importorskip("PIL.Image")
+        draw = ImageDraw.Draw(PILImage.new("RGB", (1080, 1920)))
+        lines, font = _fit_hook(draw, "word " * 40, 900, 1920)
+        assert len(lines) <= HOOK_MAX_LINES
+        assert font.size >= int(1920 * HOOK_MIN_FRACTION) - 1
+        # And it still renders.
+        assert render_card("word " * 40, tmp_path / "h.png", kind="hook").exists()
+
+    def test_a_short_hook_keeps_the_full_size(self, tmp_path):
+        """
+        Shrinking unconditionally would throw away the size advantage that
+        makes the hook stop a scroll.
+        """
+        from builders.shorts_cards import _fit_hook, HOOK_MAX_FRACTION
+        from PIL import ImageDraw, Image as PILImage
+        pytest.importorskip("PIL.Image")
+        draw = ImageDraw.Draw(PILImage.new("RGB", (1080, 1920)))
+        _, font = _fit_hook(draw, "Yields jumped", 900, 1920)
+        assert font.size == int(1920 * HOOK_MAX_FRACTION)
+
+
+class TestShortsCardTiming:
+
+    @staticmethod
+    def _plan(count):
+        cards = [{"text": "Hook line", "kind": "hook"}]
+        cards += [{"text": f"Body beat number {n} on the session.",
+                   "kind": "context"} for n in range(count - 1)]
+        return cards
+
+    def test_the_hook_holds_less_than_an_even_share(self, tmp_path):
+        """
+        Equal time put the first real number five seconds into a
+        fifty-second Short. A hook only has to be read.
+        """
+        from builders.shorts_cards import build_card_sequence, HOOK_SECONDS
+        pytest.importorskip("PIL.Image")
+        seq = build_card_sequence(self._plan(10), tmp_path, 50.0)
+        assert seq[0][1] == pytest.approx(HOOK_SECONDS)
+        assert seq[1][1] > seq[0][1]
+
+    def test_the_durations_still_sum_to_the_audio_length(self, tmp_path):
+        """The video must not end before or after the narration."""
+        from builders.shorts_cards import build_card_sequence
+        pytest.importorskip("PIL.Image")
+        seq = build_card_sequence(self._plan(12), tmp_path, 50.0)
+        assert sum(s for _, s in seq) == pytest.approx(50.0, abs=0.05)
+
+    def test_a_plan_with_no_hook_divides_evenly(self, tmp_path):
+        from builders.shorts_cards import build_card_sequence
+        pytest.importorskip("PIL.Image")
+        cards = [{"text": f"Beat {n}", "kind": "context"} for n in range(5)]
+        seq = build_card_sequence(cards, tmp_path, 40.0)
+        assert all(s == pytest.approx(8.0) for _, s in seq)
+
+    def test_a_too_short_plan_warns_rather_than_going_quietly_slow(self, tmp_path,
+                                                                   caplog):
+        import logging
+        from builders import shorts_cards
+        pytest.importorskip("PIL.Image")
+        with caplog.at_level(logging.WARNING, logger=shorts_cards.__name__):
+            shorts_cards.build_card_sequence(self._plan(4), tmp_path, 50.0)
+        assert any("slideshow" in r.getMessage() for r in caplog.records)

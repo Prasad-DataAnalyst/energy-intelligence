@@ -127,6 +127,50 @@ def _top_news_headline() -> Optional[str]:
     return None
 
 
+def _premarket_summary() -> str:
+    """
+    Futures and overnight movers, for the Short that publishes before the
+    bell. None of it is available from regular-session data, which is what
+    makes this a different video from the 5:15pm recap rather than the same
+    story twice.
+    """
+    try:
+        from scrapers.market_scraper import MarketScraper
+        data = MarketScraper().get_premarket_data()
+    except Exception as exc:
+        logger.warning("Pre-market data unavailable (non-fatal): %s", exc)
+        return ""
+
+    lines = []
+    futures = data.get("futures") or {}
+    if futures:
+        moves = ", ".join(
+            f"{f.get('name', sym)} {f.get('change_pct', 0):+.2f}%"
+            for sym, f in futures.items())
+        lines.append(f"FUTURES BEFORE THE OPEN: {moves}. "
+                     f"Direction: {data.get('futures_direction', 'mixed')}.")
+    movers = data.get("top_movers") or []
+    if movers:
+        listed = ", ".join(
+            f"{m.get('symbol')} {m.get('change_pct', 0):+.2f}%" for m in movers[:4])
+        lines.append(f"PRE-MARKET MOVERS: {listed}.")
+    return "\n".join(lines)
+
+
+# The 8am slot. Its own theme rather than an entry in the weekday table
+# because it is chosen by time of day, not by which day it is: the same
+# "what to watch before the bell" framing works Monday through Friday, and
+# the data behind it only exists in the morning.
+PREMARKET_THEME = {
+    "name": "Before the Bell",
+    "title": "3 Things to Watch Before the Bell",
+    "context": _premarket_summary,
+    "brief": ("Three things to watch before the US open, from the futures and "
+              "pre-market movers given. Forward-looking only — say what to "
+              "watch and why, never what already happened."),
+}
+
+
 def get_todays_theme(weekday: Optional[int] = None) -> Optional[dict]:
     """
     Return today's Short theme spec: {name, title_prefix, context_fn, topic}.
@@ -192,12 +236,16 @@ def generate_short_script(theme: dict, context: str) -> Optional[str]:
         return None
 
 
-def run_themed_short(weekday: Optional[int] = None, upload: bool = True) -> Optional[str]:
+def run_themed_short(weekday: Optional[int] = None, upload: bool = True,
+                     slot: str = "midday") -> Optional[str]:
     """
     Full themed-Short pipeline for today. Returns video_id (or the built
     file path as str when upload=False), None if skipped or failed.
     """
-    theme = get_todays_theme(weekday)
+    if slot == "premarket":
+        theme = PREMARKET_THEME
+    else:
+        theme = get_todays_theme(weekday)
     if theme is None:
         logger.info("No themed Short scheduled today")
         return None

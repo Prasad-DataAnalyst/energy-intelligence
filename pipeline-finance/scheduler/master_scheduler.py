@@ -196,17 +196,17 @@ def run_monitor_check() -> None:
         logger.warning("Monitor check failed: %s", exc)
 
 
-def run_themed_short_job() -> None:
-    """Day-themed Short: generate → build → upload (Mon-Fri 12:30, Sat 11:00)."""
+def run_themed_short_job(slot: str = "midday") -> None:
+    """Themed Short: generate → build → upload (Mon-Fri 12:30, Sat 11:00)."""
     try:
         from scheduler.short_pipeline import run_themed_short
-        video_id = run_themed_short()
+        video_id = run_themed_short(slot=slot)
         if video_id:
-            logger.info("Themed Short published: %s", video_id)
+            logger.info("Themed Short published (%s): %s", slot, video_id)
         else:
-            logger.info("Themed Short skipped or failed today (see logs)")
+            logger.info("Themed Short (%s) skipped or failed today (see logs)", slot)
     except Exception as exc:
-        logger.error("Themed Short job failed: %s", exc)
+        logger.error("Themed Short job (%s) failed: %s", slot, exc)
 
 
 def run_pipeline_retry() -> None:
@@ -298,14 +298,32 @@ CONTENT_SLOTS: dict[str, dict] = {
     "midday_short":      {"day_of_week": "mon-fri", "hour": 12, "minute": 30},
     "weekday_postmarket": {"day_of_week": "mon-fri", "hour": 17, "minute": 15},
     "saturday_short":    {"day_of_week": "sat", "hour": 11, "minute": 0},
+    # A second evergreen long-form, midweek.
+    #
+    # 30% of this channel's views come from search, and a daily recap is
+    # worthless 24 hours after it publishes while an explainer answering a
+    # recurring question earns views for years. One evergreen video against
+    # ten recaps was the wrong ratio for where the traffic actually comes
+    # from. This costs nothing extra: moving the 8am slot to a Short freed
+    # five long-form builds a week, and this spends one of them.
+    #
+    # 19:00 rather than the afternoon so it never lands in the same hour as
+    # the 17:15 recap — two uploads an hour apart compete with each other on
+    # the same subscribers' feeds.
+    "midweek_evergreen": {"day_of_week": "wed", "hour": 19, "minute": 0},
     "sunday_educational": {"day_of_week": "sun", "hour": 11, "minute": 0},
 }
 
 CONTENT_SLOT_NAMES: dict[str, str] = {
-    "weekday_premarket": "Pre-market video",
+    # Reads from the setting so the health report's "next scheduled content"
+    # names what will actually publish rather than what used to.
+    "weekday_premarket": ("Pre-market Short"
+                          if settings.premarket_format == "short"
+                          else "Pre-market video"),
     "midday_short": "Midday Short",
     "weekday_postmarket": "Post-market video",
     "saturday_short": "Saturday Short",
+    "midweek_evergreen": "Midweek explainer",
     "sunday_educational": "Sunday deep-dive",
 }
 
@@ -413,17 +431,40 @@ def start_scheduler() -> None:
     _LIVE_SCHEDULER = scheduler
 
     # ── Weekday jobs ──────────────────────────────────────────────────────
-    # Pre-market recap (8 AM ET, Mon–Fri)
-    scheduler.add_job(
-        run_weekday_pipeline,
-        CronTrigger(timezone=tz, **CONTENT_SLOTS["weekday_premarket"]),
-        id="weekday_premarket",
-        args=["premarket"],
-        name="Weekday Pre-Market Pipeline",
-        max_instances=1,
-        coalesce=True,
-        misfire_grace_time=1800,    # 30 min grace
-    )
+    # The 8am slot, as a Short or as a long-form recap.
+    #
+    # Shorts drive 50% of this channel's views from 6 of its 17 weekly
+    # uploads, so per video they are worth several times the long-form. The
+    # two weekday long-form videos also covered the same market day, which
+    # is near-duplicate content under YouTube's inauthentic-content policy.
+    # Publishing the morning as a Short addresses both at once and keeps
+    # total output the same.
+    #
+    # settings.premarket_format reverts it, because this is a bet on traffic
+    # data that only started recording today, not an established fact.
+    if settings.premarket_format == "short":
+        scheduler.add_job(
+            run_themed_short_job,
+            CronTrigger(timezone=tz, **CONTENT_SLOTS["weekday_premarket"]),
+            id="weekday_premarket",
+            args=["premarket"],
+            name="Pre-Market Short (Before the Bell)",
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=1800,    # 30 min grace
+        )
+    else:
+        scheduler.add_job(
+            run_weekday_pipeline,
+            CronTrigger(timezone=tz, **CONTENT_SLOTS["weekday_premarket"]),
+            id="weekday_premarket",
+            args=["premarket"],
+            name="Weekday Pre-Market Pipeline",
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=1800,
+        )
+    logger.info("Pre-market slot format: %s", settings.premarket_format)
 
     # Post-market recap (5:15 PM ET, Mon–Fri — spec: markets settle by 5:15).
     # Its own slot, so it publishes its own video rather than seeing the
@@ -446,10 +487,25 @@ def start_scheduler() -> None:
         run_themed_short_job,
         CronTrigger(timezone=tz, **CONTENT_SLOTS["midday_short"]),
         id="midday_short",
+        args=["midday"],
         name="Midday Themed Short",
         max_instances=1,
         coalesce=True,
         misfire_grace_time=1800,
+    )
+
+    # Midweek evergreen long-form (7:00 PM ET Wednesday). Same pipeline as
+    # Sunday: the topic library, its cooldowns and its demand ranking all
+    # apply, and PipelineState is keyed by date so the two runs never see
+    # each other's checkpoint.
+    scheduler.add_job(
+        run_sunday_pipeline,
+        CronTrigger(timezone=tz, **CONTENT_SLOTS["midweek_evergreen"]),
+        id="midweek_evergreen",
+        name="Midweek Evergreen Explainer",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
     )
 
     # Saturday evergreen Short (11:00 AM ET)
@@ -457,6 +513,7 @@ def start_scheduler() -> None:
         run_themed_short_job,
         CronTrigger(timezone=tz, **CONTENT_SLOTS["saturday_short"]),
         id="saturday_short",
+        args=["midday"],
         name="Saturday Evergreen Short",
         max_instances=1,
         coalesce=True,

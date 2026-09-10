@@ -294,6 +294,20 @@ NEGATIVE_COLOR  = "#FF4444"
 # ─────────────────────────────────────────────────────────────────────────────
 
 CLAUDE_MODEL       = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
+
+# Which format the 8am slot publishes: "short" or "long".
+#
+# Set to "short" on the traffic evidence: Shorts drive 50% of this channel's
+# views from 6 of its 17 weekly uploads, and the two weekday long-form
+# videos covered the same market day — near-duplicate content, which is what
+# YouTube's inauthentic-content policy targets. A 60-second "what to watch
+# before the bell" is also a better fit for the material than a 2.5-minute
+# recap of numbers that have not happened yet.
+#
+# Left as a setting rather than hardcoded because it is a bet, not a fact:
+# the per-format analytics that would confirm it only started recording
+# today. PREMARKET_FORMAT=long in .env reverts it with no deploy.
+PREMARKET_FORMAT   = os.getenv("PREMARKET_FORMAT", "short").strip().lower()
 CLAUDE_MAX_TOKENS  = 2048
 CLAUDE_TEMPERATURE = 0.7
 
@@ -343,6 +357,7 @@ settings = SimpleNamespace(
     fred_api_key           = FRED_API_KEY,
     finnhub_api_key        = FINNHUB_API_KEY,
     pexels_api_key         = PEXELS_API_KEY,
+    premarket_format       = PREMARKET_FORMAT,
     marketstack_api_key    = MARKETSTACK_API_KEY,
     youtube_client_secrets = OAUTH_FILE,
     channel_name           = CHANNEL_NAME,

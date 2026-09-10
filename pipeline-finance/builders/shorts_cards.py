@@ -34,6 +34,14 @@ AMBER = (255, 196, 0)
 # being readable at a glance, which is the whole job of the caption.
 PHOTO_DIM = 0.42
 
+# How long the hook holds. Short on purpose: it only has to be read, and the
+# figure after it is what a viewer actually stays for.
+HOOK_SECONDS = 2.5
+
+# Past this, a card stops being a beat and becomes a slide. Used to warn,
+# never to gate: a Short that cuts slowly still publishes.
+MAX_CARD_SECONDS = 6.0
+
 # The readable frame. Below SAFE_BOTTOM the Shorts player draws the title,
 # channel row and action buttons over the video, so anything placed there is
 # invisible in the app however good it looks in a still.
@@ -95,6 +103,33 @@ def _wrap(draw, text: str, font, max_width: int) -> list:
     return lines
 
 
+# The hook gets roughly double the body size, then shrinks only as far as it
+# must. Four lines is the most a viewer takes in during a hook.
+HOOK_MAX_FRACTION = 0.075
+HOOK_MIN_FRACTION = 0.042
+HOOK_MAX_LINES = 4
+
+
+def _fit_hook(draw, text: str, max_width: int, height: int) -> tuple:
+    """
+    The largest type that fits the hook in at most HOOK_MAX_LINES.
+
+    Shrinking is a last resort: a hook set small enough to always fit would
+    throw away the size advantage that makes it stop a scroll, so it starts
+    large and steps down only when the copy is genuinely long.
+    """
+    size = int(height * HOOK_MAX_FRACTION)
+    floor = int(height * HOOK_MIN_FRACTION)
+    while size > floor:
+        font = _font(size)
+        lines = _wrap(draw, text, font, max_width)
+        if len(lines) <= HOOK_MAX_LINES:
+            return lines, font
+        size = int(size * 0.92)
+    font = _font(floor)
+    return _wrap(draw, text, font, max_width)[:HOOK_MAX_LINES], font
+
+
 def render_card(
     text: str,
     dest: Path,
@@ -130,7 +165,42 @@ def render_card(
     draw.rectangle((0, 0, int(width * max(0.0, min(progress, 1.0))), bar_h),
                    fill=accent + (255,))
 
-    if kind == "stat" and stat:
+    if kind == "hook":
+        # The single highest-leverage frame on the channel: Shorts drive 50%
+        # of its views, and this frame decides whether any of them are
+        # watched past the first second.
+        #
+        # Deliberately unlike every other card. A body caption is set small
+        # in a rounded band because it competes with a photograph and a
+        # number; the hook competes with nothing, so it gets roughly double
+        # the type, sits high where the eye lands as a Short opens, and
+        # takes a full-width scrim rather than a band — a band draws a box
+        # the eye reads as "a caption", which is the wrong first impression.
+        lines, hook_font = _fit_hook(draw, text.strip(), inner, height)
+        line_h = int(hook_font.size * 1.18)
+        block_h = line_h * len(lines)
+        top = int(height * SAFE_TOP)
+
+        scrim = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        ImageDraw.Draw(scrim).rectangle(
+            (0, top - int(height * 0.06), width, top + block_h + int(height * 0.05)),
+            fill=(6, 6, 10, 200))
+        layer = Image.alpha_composite(scrim, layer)
+        draw = ImageDraw.Draw(layer)
+
+        # Accent rule above the words — a fixed mark in a fixed place, so
+        # the channel is recognisable in the feed before the text resolves.
+        draw.rectangle((margin, top - int(height * 0.035),
+                        margin + int(width * 0.22), top - int(height * 0.027)),
+                       fill=accent + (255,))
+
+        y = top
+        for line in lines:
+            draw.text((margin + 4, y + 4), line, font=hook_font, fill=(0, 0, 0, 190))
+            draw.text((margin, y), line, font=hook_font, fill=TEXT)
+            y += line_h
+
+    elif kind == "stat" and stat:
         # Label above, number below. A one-word caption band under a huge
         # figure reads as an orphan; as a kicker above it, it is a label.
         label = text.strip().upper()[:24]
@@ -214,7 +284,15 @@ def build_card_sequence(cards: list, tmp_dir: Path, total_seconds: float,
     if not cards or total_seconds <= 0:
         return []
     photos = [p for p in (photos or []) if p and Path(p).exists()]
-    per_card = total_seconds / len(cards)
+
+    # The hook holds for less than an even share. Equal time put the first
+    # real number five seconds into a fifty-second Short; a hook only has to
+    # be read, and the figure is what a viewer stays for.
+    hook_count = sum(1 for c in cards if str(c.get("kind")) == "hook")
+    hook_seconds = min(HOOK_SECONDS, total_seconds / len(cards))
+    remainder = total_seconds - hook_seconds * hook_count
+    per_card = remainder / max(len(cards) - hook_count, 1)
+
     sequence = []
     for index, card in enumerate(cards):
         try:
@@ -227,11 +305,24 @@ def build_card_sequence(cards: list, tmp_dir: Path, total_seconds: float,
                 photo=photo,
                 progress=(index + 1) / len(cards),
             )
-            sequence.append((path, per_card))
+            sequence.append((path, hook_seconds
+                             if str(card.get("kind")) == "hook" else per_card))
         except Exception as exc:
             logger.warning("Short card %d failed (non-fatal): %s", index, exc)
     if not sequence:
         return []
+
+    # A plan too short for the narration puts every card back on screen for
+    # ten seconds, which is the slideshow this renderer replaced. The caller
+    # sizes the plan (shorts_builder._card_count) but is limited by how many
+    # usable phrases the script yields, so when that falls short it has to
+    # be visible rather than silently slow.
+    if per_card > MAX_CARD_SECONDS:
+        logger.warning(
+            "Short cards holding %.1fs each — the script yielded only %d "
+            "cards for %.0fs. Expect it to read as a slideshow.",
+            per_card, len(sequence), total_seconds)
+
     logger.info("Short: %d cards over %.0fs (%.1fs each, %d photo backgrounds)",
                 len(sequence), total_seconds, per_card, len(photos))
     return sequence
