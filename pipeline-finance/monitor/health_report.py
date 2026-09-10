@@ -484,13 +484,28 @@ def _check_learning() -> tuple[str, str, str, list[str]]:
 # Which upload type each content slot is supposed to produce, and how long
 # to allow for the build before calling it missing. A long-form video takes
 # a few minutes to render on this instance; ninety minutes is generous.
-SLOT_PRODUCES = {
-    "weekday_premarket": "weekday",
-    "weekday_postmarket": "weekday",
-    "midday_short": "shorts",
-    "saturday_short": "shorts",
-    "sunday_educational": "sunday",
-}
+def _slot_produces() -> dict:
+    """
+    Which manifest video_type each slot is expected to produce.
+
+    The 8am slot's answer depends on settings.premarket_format, so this is a
+    function rather than a constant: left hardcoded to "weekday" it would
+    look for a long-form upload from a slot now publishing a Short and
+    report a failure every weekday morning — and pass by accident after
+    17:15, when the evening recap put a "weekday" upload in the manifest.
+    """
+    from config.settings import settings
+    return {
+        "weekday_premarket": ("shorts" if settings.premarket_format == "short"
+                              else "weekday"),
+        "weekday_postmarket": "weekday",
+        "midday_short": "shorts",
+        "saturday_short": "shorts",
+        "midweek_evergreen": "sunday",
+        "sunday_educational": "sunday",
+    }
+
+
 SLOT_GRACE_MINUTES = 90
 
 
@@ -545,11 +560,18 @@ def _check_todays_slots() -> tuple[str, str, str, list[str]]:
     if not due:
         return _OK, "Today's slots", "none due yet today", []
 
+    produces = _slot_produces()
+    # A slot with no mapping cannot be judged, and treating it as missing
+    # would fail the report every time a new slot is added — which is what
+    # the midweek explainer did on the day it was introduced.
+    unmapped = [slot for slot, _ in due if slot not in produces]
     missing = [(slot, fired) for slot, fired in due
-               if SLOT_PRODUCES.get(slot) not in published]
+               if slot in produces and produces[slot] not in published]
     lines = [f"   {CONTENT_SLOT_NAMES.get(slot, slot)} fired {fired:%H:%M %Z} "
-             f"— no {SLOT_PRODUCES.get(slot, '?')} upload recorded today"
+             f"— no {produces[slot]} upload recorded today"
              for slot, fired in missing]
+    lines += [f"   {CONTENT_SLOT_NAMES.get(slot, slot)} has no expected "
+              f"upload type — add it to _slot_produces()" for slot in unmapped]
     if missing:
         return (_FAIL, "Today's slots",
                 f"{len(missing)} of {len(due)} slot(s) due today produced nothing",

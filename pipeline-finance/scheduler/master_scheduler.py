@@ -219,6 +219,38 @@ def run_pipeline_retry() -> None:
         logger.error("Pipeline retry job failed: %s", exc)
 
 
+def run_premarket_short_retry() -> None:
+    """
+    Re-run the 8am Short if it produced nothing.
+
+    The long-form slot it replaced was covered by the checkpoint retry at
+    8:45; the Shorts pipeline keeps no checkpoint, so moving the morning to
+    a Short quietly removed that slot's only safety net. Rather than build a
+    checkpoint layer for it, this asks the question that actually matters:
+    did a Short reach the manifest today? At 8:45 the midday Short has not
+    run yet, so the answer is unambiguous.
+    """
+    from config.settings import settings
+    if settings.premarket_format != "short":
+        return
+    try:
+        from datetime import date
+        from uploader.uploader import load_upload_manifest
+        today = date.today().isoformat()
+        for record in load_upload_manifest() or []:
+            if ((record.get("uploaded_at") or "")[:10] == today
+                    and record.get("video_type") == "shorts"):
+                logger.debug("Pre-market Short already published today")
+                return
+    except Exception as exc:
+        # An unreadable manifest must not trigger a duplicate upload.
+        logger.warning("Cannot confirm today's Short (%s) — not retrying", exc)
+        return
+
+    logger.warning("No Short published this morning — re-running the slot")
+    run_themed_short_job("premarket")
+
+
 def run_deadman_check() -> None:
     """18:00 ET — alert if no video was uploaded today."""
     try:
@@ -571,6 +603,18 @@ def start_scheduler() -> None:
         CronTrigger(day_of_week="mon-fri", hour="8,17", minute=45, timezone=tz),
         id="pipeline_retry_weekday",
         name="Weekday Pipeline Retry (checkpoint resume)",
+        max_instances=1,
+        coalesce=True,
+    )
+
+    # The Shorts pipeline has no checkpoint, so the retry above cannot see
+    # it. Without this the morning slot lost the safety net it had as a
+    # long-form video.
+    scheduler.add_job(
+        run_premarket_short_retry,
+        CronTrigger(day_of_week="mon-fri", hour=8, minute=45, timezone=tz),
+        id="premarket_short_retry",
+        name="Pre-Market Short Retry",
         max_instances=1,
         coalesce=True,
     )

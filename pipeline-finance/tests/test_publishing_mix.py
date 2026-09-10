@@ -168,3 +168,112 @@ class TestEvergreenRatio:
         """The health report prints these; a missing one shows a raw job id."""
         from scheduler.master_scheduler import CONTENT_SLOTS, CONTENT_SLOT_NAMES
         assert set(CONTENT_SLOTS) == set(CONTENT_SLOT_NAMES)
+
+
+class TestTheScheduleChangeDidNotBreakTheReport:
+    """
+    Moving the 8am slot to a Short changed what that slot produces, and the
+    health report had it hardcoded. Both of these would have fired tomorrow
+    morning.
+    """
+
+    def test_the_expected_upload_type_follows_the_format(self, monkeypatch):
+        from config.settings import settings
+        from monitor.health_report import _slot_produces
+
+        monkeypatch.setattr(settings, "premarket_format", "short")
+        assert _slot_produces()["weekday_premarket"] == "shorts"
+        monkeypatch.setattr(settings, "premarket_format", "long")
+        assert _slot_produces()["weekday_premarket"] == "weekday"
+
+    def test_every_scheduled_slot_has_an_expected_upload_type(self):
+        """
+        A slot with no mapping was treated as having produced nothing, so
+        adding the midweek explainer would have failed the report every
+        Wednesday.
+        """
+        from scheduler.master_scheduler import CONTENT_SLOTS
+        from monitor.health_report import _slot_produces
+        assert set(CONTENT_SLOTS) <= set(_slot_produces())
+
+    def test_an_unmapped_slot_is_reported_as_unmapped_not_as_missing(self,
+                                                                     monkeypatch):
+        from monitor import health_report
+        monkeypatch.setattr(health_report, "_slot_produces", lambda: {})
+        status, _, _, lines = health_report._check_todays_slots()
+        # Either nothing was due, or the unmapped slots are named as such.
+        assert status != health_report._FAIL or any(
+            "no expected upload type" in line for line in lines)
+
+
+class TestPremarketShortRetry:
+    """
+    The long-form slot it replaced was covered by the 8:45 checkpoint retry.
+    The Shorts pipeline keeps no checkpoint, so the move quietly removed
+    that slot's only safety net.
+    """
+
+    @staticmethod
+    def _manifest(monkeypatch, records):
+        monkeypatch.setattr("uploader.uploader.load_upload_manifest",
+                            lambda: records)
+
+    def test_it_reruns_when_no_short_published_today(self, monkeypatch):
+        from scheduler import master_scheduler
+        from config.settings import settings
+        monkeypatch.setattr(settings, "premarket_format", "short")
+        self._manifest(monkeypatch, [])
+        called = {}
+        monkeypatch.setattr(master_scheduler, "run_themed_short_job",
+                            lambda slot: called.setdefault("slot", slot))
+        master_scheduler.run_premarket_short_retry()
+        assert called["slot"] == "premarket"
+
+    def test_it_does_nothing_when_the_short_already_published(self, monkeypatch):
+        from datetime import date
+        from scheduler import master_scheduler
+        from config.settings import settings
+        monkeypatch.setattr(settings, "premarket_format", "short")
+        self._manifest(monkeypatch, [{"uploaded_at": date.today().isoformat() + "T08:39",
+                                      "video_type": "shorts"}])
+        monkeypatch.setattr(master_scheduler, "run_themed_short_job",
+                            lambda slot: pytest.fail("should not re-run"))
+        master_scheduler.run_premarket_short_retry()
+
+    def test_yesterdays_short_does_not_count(self, monkeypatch):
+        from datetime import date, timedelta
+        from scheduler import master_scheduler
+        from config.settings import settings
+        monkeypatch.setattr(settings, "premarket_format", "short")
+        yesterday = (date.today() - timedelta(days=1)).isoformat()
+        self._manifest(monkeypatch, [{"uploaded_at": yesterday + "T08:39",
+                                      "video_type": "shorts"}])
+        called = {}
+        monkeypatch.setattr(master_scheduler, "run_themed_short_job",
+                            lambda slot: called.setdefault("slot", slot))
+        master_scheduler.run_premarket_short_retry()
+        assert called["slot"] == "premarket"
+
+    def test_an_unreadable_manifest_does_not_cause_a_duplicate_upload(self,
+                                                                      monkeypatch):
+        """Uncertainty must not resolve to publishing the same Short twice."""
+        from scheduler import master_scheduler
+        from config.settings import settings
+        monkeypatch.setattr(settings, "premarket_format", "short")
+
+        def boom():
+            raise OSError("manifest gone")
+
+        monkeypatch.setattr("uploader.uploader.load_upload_manifest", boom)
+        monkeypatch.setattr(master_scheduler, "run_themed_short_job",
+                            lambda slot: pytest.fail("should not re-run"))
+        master_scheduler.run_premarket_short_retry()
+
+    def test_it_is_inert_when_the_morning_is_long_form(self, monkeypatch):
+        """With PREMARKET_FORMAT=long the checkpoint retry owns that slot."""
+        from scheduler import master_scheduler
+        from config.settings import settings
+        monkeypatch.setattr(settings, "premarket_format", "long")
+        monkeypatch.setattr(master_scheduler, "run_themed_short_job",
+                            lambda slot: pytest.fail("should not re-run"))
+        master_scheduler.run_premarket_short_retry()
