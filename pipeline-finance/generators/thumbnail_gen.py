@@ -580,6 +580,47 @@ class ThumbnailGenerator:
         return " ".join(meaningful[:3]).upper() or title[:20].upper()
 
 
+def generate_thumbnail_safe(
+    video_title: str,
+    key_stat: str,
+    sentiment: str,
+    chart_path: Optional[Path] = None,
+    series: str = "",
+) -> Optional[ThumbnailFile]:
+    """
+    A thumbnail, or None — but never an exception.
+
+    The pipeline called generate_thumbnail_from_claude unguarded, so any
+    failure in copy generation or image rendering took the whole video with
+    it. That trade is backwards: a thumbnail is decoration and YouTube picks
+    a frame when one is missing, while a lost video is a lost publishing
+    slot that cannot be recovered.
+
+    Degrades in two steps — Claude copy plus artwork, then artwork alone
+    from the title and the figure the caller already has.
+    """
+    try:
+        return generate_thumbnail_from_claude(
+            video_title=video_title, key_stat=key_stat, sentiment=sentiment,
+            chart_path=chart_path, series=series,
+        )
+    except Exception as exc:
+        logger.error("Thumbnail generation failed (%s) — retrying without Claude", exc)
+
+    try:
+        words = [w for w in video_title.split() if not any(c.isdigit() for c in w)]
+        return generate_thumbnail(ThumbnailSpec(
+            headline=" ".join(words[:4]) or video_title[:30],
+            subtext=key_stat, ticker=None, emoji="",
+            sentiment=sentiment, chart_path=chart_path, logo_path=None,
+            key_stat=key_stat, series=series,
+        ))
+    except Exception as exc:
+        logger.error("Fallback thumbnail also failed (%s) — publishing without one "
+                     "so the video is not lost", exc)
+        return None
+
+
 def generate_thumbnail_from_claude(
     video_title: str,
     key_stat: str,

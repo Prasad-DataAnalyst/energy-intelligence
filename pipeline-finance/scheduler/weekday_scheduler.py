@@ -452,10 +452,13 @@ class WeekdayScheduler:
             )
             title = title_set.winner.title
 
+            # Never unguarded: a thumbnail is decoration and YouTube picks a
+            # frame without one, but a raise here used to take the whole
+            # video with it and a publishing slot cannot be recovered.
             from generators.thumbnail_gen import (
-                generate_thumbnail_from_claude, SERIES_PREMARKET, SERIES_MARKET_CLOSE,
+                generate_thumbnail_safe, SERIES_PREMARKET, SERIES_MARKET_CLOSE,
             )
-            thumbnail = generate_thumbnail_from_claude(
+            thumbnail = generate_thumbnail_safe(
                 video_title=title,
                 key_stat=f"{market.sp500.change_pct:+.2f}%",
                 sentiment=sentiment,
@@ -463,9 +466,10 @@ class WeekdayScheduler:
                 series=(SERIES_PREMARKET if self.slot == "premarket"
                         else SERIES_MARKET_CLOSE),
             )
+            thumbnail_path = thumbnail.path if thumbnail else None
             state.mark_done("generate_assets", artifacts={
                 "audio_path": audio.merged_path or "",
-                "thumbnail_path": thumbnail.path,
+                "thumbnail_path": thumbnail_path,
                 "title": title,
             })
 
@@ -492,7 +496,7 @@ class WeekdayScheduler:
                 video_assets = VideoAssets(
                     audio_path=audio.merged_path,
                     chart_paths=chart_paths,
-                    thumbnail_path=thumbnail.path,
+                    thumbnail_path=thumbnail_path,
                     script_segments=script.segments,
                     video_type="weekday",
                     title=title,
@@ -508,7 +512,7 @@ class WeekdayScheduler:
                 shorts_assets = ShortsAssets(
                     audio_path=audio.merged_path,
                     chart_paths=chart_paths,
-                    thumbnail_path=thumbnail.path,
+                    thumbnail_path=thumbnail_path,
                     script=script.script,
                     title=f"WATCH THIS → {market.sp500.change_pct:+.2f}% | Market Recap",
                     hook_text=hook_text[:80],
@@ -564,7 +568,7 @@ class WeekdayScheduler:
                     from uploader.preflight import PreflightChecker
                     preflight = PreflightChecker(quota_tracker=quota).run(
                         video_path=video_path,
-                        thumbnail_path=thumbnail.path,
+                        thumbnail_path=thumbnail_path,
                         title=config.title,
                         description=config._compliance_description(),
                         script_path=script_path,
@@ -579,7 +583,7 @@ class WeekdayScheduler:
                         upload_result = upload_full(
                             video_path=video_path,
                             config=config,
-                            thumbnail_path=thumbnail.path,
+                            thumbnail_path=thumbnail_path,
                             quota_tracker=quota,
                         )
                         video_id = upload_result.video_id

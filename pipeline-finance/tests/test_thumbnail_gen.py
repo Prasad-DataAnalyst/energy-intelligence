@@ -346,3 +346,66 @@ class TestTitleLedLayout:
         img = Image.open(path).convert("L")
         band = img.crop((0, int(THUMB_H * 0.20), img.width // 2, int(THUMB_H * 0.60)))
         assert max(band.getdata()) > 170, "middle of the frame is empty"
+
+
+class TestAThumbnailNeverCostsTheVideo:
+    """
+    The pipeline called generate_thumbnail_from_claude unguarded, so any
+    failure in copy generation or rendering took the whole video with it.
+    That trade is backwards: YouTube picks a frame when a thumbnail is
+    missing, and a lost publishing slot cannot be recovered.
+    """
+
+    def test_a_claude_failure_still_produces_artwork(self, monkeypatch):
+        from generators import thumbnail_gen
+        pytest.importorskip("PIL.Image")
+
+        def boom(**kwargs):
+            raise RuntimeError("anthropic unreachable")
+
+        monkeypatch.setattr(thumbnail_gen, "generate_thumbnail_from_claude", boom)
+        result = thumbnail_gen.generate_thumbnail_safe(
+            video_title="S&P 500 Falls 0.55% On Yield Spike",
+            key_stat="-0.55%", sentiment="bearish", series="MARKET CLOSE")
+        assert result is not None
+        assert result.path.exists()
+
+    def test_the_fallback_headline_drops_the_number(self, monkeypatch):
+        """The number is the hero element; repeating it wastes the frame."""
+        from generators import thumbnail_gen
+        pytest.importorskip("PIL.Image")
+        captured = {}
+
+        monkeypatch.setattr(thumbnail_gen, "generate_thumbnail_from_claude",
+                            lambda **kw: (_ for _ in ()).throw(RuntimeError("x")))
+        real = thumbnail_gen.generate_thumbnail
+
+        def spy(spec, **kwargs):
+            captured["spec"] = spec
+            return real(spec, **kwargs)
+
+        monkeypatch.setattr(thumbnail_gen, "generate_thumbnail", spy)
+        thumbnail_gen.generate_thumbnail_safe(
+            video_title="S&P 500 Falls 0.55% On Yield Spike",
+            key_stat="-0.55%", sentiment="bearish")
+        assert "0.55%" not in captured["spec"].headline
+
+    def test_total_failure_returns_none_rather_than_raising(self, monkeypatch):
+        from generators import thumbnail_gen
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("no Pillow, no fonts, nothing")
+
+        monkeypatch.setattr(thumbnail_gen, "generate_thumbnail_from_claude", boom)
+        monkeypatch.setattr(thumbnail_gen, "generate_thumbnail", boom)
+        assert thumbnail_gen.generate_thumbnail_safe(
+            video_title="T", key_stat="", sentiment="neutral") is None
+
+    def test_the_weekday_pipeline_uses_the_guarded_call(self):
+        import inspect
+        from scheduler import weekday_scheduler
+        source = inspect.getsource(weekday_scheduler)
+        assert "generate_thumbnail_safe" in source
+        assert "generate_thumbnail_from_claude" not in source
+        # And nothing downstream may dereference a thumbnail that is None.
+        assert "thumbnail_path=thumbnail.path" not in source

@@ -425,3 +425,26 @@ class TestShortsCardPlan:
             "Energy was the only sector in the green.",
             "Wall Street gave back a week of gains",
         )
+
+    def test_an_undecodable_audio_file_falls_back_to_silence(self, tmp_path):
+        """
+        A truncated or half-written TTS file passes any size check and then
+        fails the whole encode, because the command maps its audio stream
+        explicitly. A Short with music instead of narration still publishes.
+        """
+        from builders.shorts_builder import _has_audio
+        junk = tmp_path / "half_written.wav"
+        junk.write_bytes(b"\x00" * 5000)
+        assert _has_audio(junk) is False
+
+    def test_real_audio_is_recognised(self, tmp_path):
+        import subprocess
+        from builders.shorts_builder import _has_audio
+        wav = tmp_path / "vo.wav"
+        result = subprocess.run(
+            ["ffmpeg", "-y", "-f", "lavfi", "-i", "sine=f=440:d=1",
+             "-ar", "44100", str(wav)],
+            capture_output=True)
+        if result.returncode != 0:
+            pytest.skip("ffmpeg unavailable")
+        assert _has_audio(wav) is True

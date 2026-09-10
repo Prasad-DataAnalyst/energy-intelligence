@@ -355,10 +355,30 @@ def _background_photos(limit: int = 6) -> list:
 
 
 def _has_audio(path: Path) -> bool:
-    """/dev/null is the historic 'no voiceover' placeholder — ffmpeg rejects it."""
+    """
+    Whether ffmpeg can actually decode an audio stream from this file.
+
+    A size check is not enough. /dev/null is the historic "no voiceover"
+    placeholder and ffmpeg rejects it outright, but so is a truncated or
+    half-written TTS file — it passes any size test and then fails the whole
+    build at the encode step, because the command maps its audio stream
+    explicitly. Better to find out here and fall back to a silent track: a
+    Short with music instead of narration still publishes.
+    """
     try:
-        return path.is_file() and path.stat().st_size > 1024
+        if not path.is_file() or path.stat().st_size <= 1024:
+            return False
     except OSError:
+        return False
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "a:0",
+             "-show_entries", "stream=codec_type", "-of", "csv=p=0", str(path)],
+            capture_output=True, text=True, timeout=30,
+        )
+        return result.returncode == 0 and "audio" in result.stdout
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.warning("Could not probe %s (%s) — treating as silent", path.name, exc)
         return False
 
 
