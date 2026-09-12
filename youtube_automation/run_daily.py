@@ -950,7 +950,7 @@ def main():
                              "tarotweekly = weekly all-signs tarot reading "
                              "(default: daily)")
     parser.add_argument("--category",    default="sports",
-                        choices=["sports", "crypto", "political", "celebrity"],
+                        choices=["sports", "crypto", "political", "celebrity", "love"],
                         help="For --type prediction: which prediction category "
                              "(default: sports)")
     parser.add_argument("--format",      default="short", choices=["short", "long"])

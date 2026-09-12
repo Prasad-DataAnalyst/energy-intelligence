@@ -41,7 +41,78 @@ import astro_chart
 load_dotenv()
 
 HERE = Path(__file__).parent
-CATEGORIES = ("sports", "crypto", "political", "celebrity")
+CATEGORIES = ("sports", "crypto", "political", "celebrity", "love")
+
+# ── Love compatibility (synastry by sign) ─────────────────────────────────────
+# Real, classical astrology — NOT invented. The aspect between two signs is a
+# function of how many signs apart they are, and element/modality are fixed
+# traditional attributions. Computing these here (rather than letting Claude
+# make them up) is the same principle as feeding the real chart to the other
+# categories: the model INTERPRETS given facts, it never invents them.
+_ELEMENT = {
+    "Aries": "Fire", "Leo": "Fire", "Sagittarius": "Fire",
+    "Taurus": "Earth", "Virgo": "Earth", "Capricorn": "Earth",
+    "Gemini": "Air", "Libra": "Air", "Aquarius": "Air",
+    "Cancer": "Water", "Scorpio": "Water", "Pisces": "Water",
+}
+_MODALITY = {
+    "Aries": "Cardinal", "Cancer": "Cardinal", "Libra": "Cardinal", "Capricorn": "Cardinal",
+    "Taurus": "Fixed", "Leo": "Fixed", "Scorpio": "Fixed", "Aquarius": "Fixed",
+    "Gemini": "Mutable", "Virgo": "Mutable", "Sagittarius": "Mutable", "Pisces": "Mutable",
+}
+# distance in signs -> (aspect name, flavour, score). The score is COMPUTED,
+# never model-chosen, so the same pairing always reports the same number — a
+# viewer who checks twice (or compares with a friend) sees consistency, which
+# is what makes the format feel credible rather than random.
+# Every score sits at 60+ by design: classical astrology treats every pairing
+# as workable, and a "your relationship is doomed, 14%" verdict about a real
+# couple watching would be both bad astrology and genuinely unkind.
+_ASPECT = {
+    0: ("Conjunction", "same-sign mirror — instant recognition, shared blind spots", 78),
+    1: ("Semi-sextile", "neighbouring signs — different tempos, learned patience", 66),
+    2: ("Sextile", "easy friendship energy — light, encouraging, low-friction", 82),
+    3: ("Square", "creative friction — real heat, real growth, needs work", 70),
+    4: ("Trine", "same element — natural flow and deep mutual understanding", 88),
+    5: ("Quincunx", "unlike each other — fascination that needs conscious adjustment", 64),
+    6: ("Opposition", "zodiac opposites — magnetic pull, complementary halves", 74),
+}
+
+
+def _pair_facts(a: str, b: str) -> dict:
+    """Classical synastry facts for a sign pair. Deterministic."""
+    ia, ib = SIGNS.index(a), SIGNS.index(b)
+    dist = abs(ia - ib)
+    dist = min(dist, 12 - dist)          # zodiac is circular: 12 signs apart == 0
+    name, flavour, score = _ASPECT[dist]
+    return {
+        "sign_a": a, "sign_b": b,
+        "element_a": _ELEMENT[a], "element_b": _ELEMENT[b],
+        "modality_a": _MODALITY[a], "modality_b": _MODALITY[b],
+        "signs_apart": dist, "aspect": name, "aspect_flavour": flavour,
+        "score": score,
+        "same_element": _ELEMENT[a] == _ELEMENT[b],
+        "same_modality": _MODALITY[a] == _MODALITY[b],
+    }
+
+
+def _all_pairs():
+    """All 78 unordered pairings (66 mixed + 12 same-sign). Same-sign pairs are
+    included because "Leo and Leo compatibility" is itself a searched query.
+    One per day cycles the full set every 78 days without repeats.
+
+    Computed lazily rather than at module scope: SIGNS is assigned further
+    down this file (from astro_chart), so a module-level comprehension here
+    raised NameError on import — which would have broken EVERY prediction
+    category, not just love."""
+    return [(SIGNS[i], SIGNS[j])
+            for i in range(len(SIGNS)) for j in range(i, len(SIGNS))]
+
+
+def _pair_of_the_day(date_tag: str):
+    """Deterministic pairing for a date. toordinal() (not day-of-year) so the
+    cycle runs continuously across a year boundary instead of jumping."""
+    pairs = _all_pairs()
+    return pairs[datetime.strptime(date_tag, "%Y%m%d").toordinal() % len(pairs)]
 
 SIGNS = astro_chart.SIGNS
 
@@ -71,6 +142,9 @@ DISCLAIMERS = {
     "crypto":    "For entertainment and astrology fun only — not financial or trading advice.",
     "political": "A general astrological mood reading for entertainment only — not a political prediction or endorsement.",
     "celebrity": "Entertainment astrology using publicly known birth signs only.",
+    "love": ("For entertainment and astrology fun only — sun-sign compatibility "
+             "is not relationship advice, and no chart can define a real "
+             "relationship."),
 }
 
 _COMMON_RULES = """
@@ -136,6 +210,26 @@ SYSTEM_PROMPTS = {
         "or speculate about anyone's private life, relationships, health, "
         "family, or future. NEVER predict anything about a real person. Keep it "
         "celebratory and light." + _COMMON_RULES
+    ),
+    "love": (
+        "You are the host of WORLD LOVE ASTROLOGY — a warm, fun zodiac "
+        "compatibility channel. You are given TWO zodiac signs and their REAL "
+        "classical synastry facts: the aspect between them (from how many "
+        "signs apart they sit), their elements, and their modalities. "
+        "Interpret ONLY those given facts — never invent a different aspect, "
+        "element or modality. Structure: beat 1 = what naturally CONNECTS "
+        "them, beat 2 = where they CLASH or need work, beat 3 = the LONG "
+        "GAME (what makes it last). "
+        "ABSOLUTE RULES: every pairing must get a fair, balanced reading — "
+        "name real strengths AND real growth areas for all of them. NEVER "
+        "tell viewers to start, leave, avoid or fix a relationship. NEVER "
+        "call any pairing doomed, toxic, hopeless or a mistake, and never "
+        "imply someone should break up. This is playful entertainment about "
+        "two SIGNS, never advice about a real person's relationship. "
+        "AUDIENCE: worldwide — this OVERRIDES the US framing below. Keep "
+        "references international; never assume the viewer is American. Name "
+        "BOTH signs in the first sentence and in the title, because viewers "
+        "search for their exact pairing." + _COMMON_RULES
     ),
 }
 
@@ -225,6 +319,23 @@ def _build_user_msg(category: str, date_tag: str) -> tuple:
                f"sign: {celebs}.\n\nDescribe {sign}'s celebrity archetype using "
                f"these public examples.\n\n{_JSON_SHAPE}")
         return msg, "red carpet celebrity", {"sign": sign, "celebs": celebs}
+
+    if category == "love":
+        a, b = _pair_of_the_day(date_tag)
+        f = _pair_facts(a, b)
+        msg = (
+            f"PAIRING: {a} + {b}\n"
+            f"REAL SYNASTRY FACTS (interpret these, do not invent others):\n"
+            f"- They sit {f['signs_apart']} sign(s) apart -> classical aspect: "
+            f"{f['aspect']} ({f['aspect_flavour']}).\n"
+            f"- {a}: {f['element_a']} element, {f['modality_a']} modality.\n"
+            f"- {b}: {f['element_b']} element, {f['modality_b']} modality.\n"
+            f"- Same element: {f['same_element']}. Same modality: {f['same_modality']}.\n"
+            f"- Compatibility score to present: {f['score']}%.\n\n"
+            f"Give the {a} + {b} love-compatibility reading. Use the score "
+            f"{f['score']} as verdict.confidence_pct EXACTLY — do not choose a "
+            f"different number.\n\n{_JSON_SHAPE}")
+        return msg, "romantic couple sunset", {"pair": f}
 
     raise ValueError(f"unknown category: {category}")
 
@@ -321,10 +432,36 @@ def generate(category: str, date_tag: str) -> str:
         ])
         data.setdefault("hashtags", ["#WorldSportsAstrology", "#SportsAstrology",
                                      "#astrology", "#football", "#cricket"])
+    elif category == "love":
+        pf = context["pair"]
+        a, b = pf["sign_a"], pf["sign_b"]
+        # The score is COMPUTED from the real aspect, so overwrite whatever the
+        # model returned: the same pairing must always report the same number
+        # (viewers do re-check, and compare with friends). Also guarantees the
+        # "never crushingly low" floor baked into _ASPECT.
+        data.setdefault("verdict", {})["confidence_pct"] = pf["score"]
+        # Long-tail search is the whole point of this format — people type
+        # their exact pairing, in both word orders.
+        data.setdefault("tags", [
+            f"{a.lower()} and {b.lower()} compatibility",
+            f"{b.lower()} and {a.lower()} compatibility",
+            f"{a.lower()} {b.lower()} love", "zodiac compatibility",
+            "love astrology", "star sign compatibility", "astrology love match",
+            "zodiac love match", "synastry astrology",
+        ])
+        data.setdefault("hashtags", [f"#{a.lower()}", f"#{b.lower()}",
+                                     "#zodiaccompatibility", "#loveastrology",
+                                     "#astrology"])
+        data.setdefault("subject_label", f"{a} + {b}")
     else:
         data.setdefault("tags", ["astrology", category, "prediction"])
         data.setdefault("hashtags", ["#astrology", f"#{category}", "#prediction"])
-    if category == "sports":
+    if category == "love":
+        # Pairing FIRST — it is the search term. Brand suffix trails it.
+        pf = context["pair"]
+        data["title"] = (f"{pf['sign_a']} + {pf['sign_b']} Love Compatibility "
+                         f"| {pf['score']}% Match")[:100]
+    elif category == "sports":
         # Brand suffix so the series is recognisable in search/suggested; the
         # fixture stays FIRST because that's what fans actually search for.
         data["title"] = f"{data['title_en']} | World Sports Astrology"[:100]
@@ -332,10 +469,18 @@ def generate(category: str, date_tag: str) -> str:
         data["title"] = f"{data['title_en']} | {when}"[:100]
     data["outro"] = f"{str(data['outro']).rstrip('. ')}. {disclaimer}"
     data["description"] = f"{data['description']}\n\n{disclaimer}"
-    data["pinned_comment"] = (
-        f"What do the stars say for you today? Comment below ⬇️\n"
-        f"New astrology prediction every day — Subscribe 🔔\n\n{disclaimer}"
-    )
+    if category == "love":
+        pf = context["pair"]
+        data["pinned_comment"] = (
+            f"Are you a {pf['sign_a']} or a {pf['sign_b']}? Tag your other "
+            f"half and tell us if this one landed ⬇️\n"
+            f"A new zodiac pairing every day — Subscribe 🔔\n\n{disclaimer}"
+        )
+    else:
+        data["pinned_comment"] = (
+            f"What do the stars say for you today? Comment below ⬇️\n"
+            f"New astrology prediction every day — Subscribe 🔔\n\n{disclaimer}"
+        )
     # carry any computed context (chart/match) for reference/debugging
     data["_context"] = {k: v for k, v in context.items() if k != "match"}
     if "match" in context:
