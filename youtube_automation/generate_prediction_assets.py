@@ -299,6 +299,27 @@ def _build_user_msg(category: str, date_tag: str) -> tuple:
                f"(away/7th house).\n\n{_JSON_SHAPE}")
         return msg, f"{m['sport']} stadium", {"match": m, "chart": chart}
 
+    if category == "love":
+        # BEFORE the transit-chart computation on purpose: sun-sign synastry is
+        # sign-to-sign, so love needs no ephemeris call at all. Sitting below it
+        # meant paying for a full chart it discards — and crashing with it if
+        # swisseph ever failed, for data it never used.
+        a, b = _pair_of_the_day(date_tag)
+        f = _pair_facts(a, b)
+        msg = (
+            f"PAIRING: {a} + {b}\n"
+            f"REAL SYNASTRY FACTS (interpret these, do not invent others):\n"
+            f"- They sit {f['signs_apart']} sign(s) apart -> classical aspect: "
+            f"{f['aspect']} ({f['aspect_flavour']}).\n"
+            f"- {a}: {f['element_a']} element, {f['modality_a']} modality.\n"
+            f"- {b}: {f['element_b']} element, {f['modality_b']} modality.\n"
+            f"- Same element: {f['same_element']}. Same modality: {f['same_modality']}.\n"
+            f"- Compatibility score to present: {f['score']}%.\n\n"
+            f"Give the {a} + {b} love-compatibility reading. Use the score "
+            f"{f['score']} as verdict.confidence_pct EXACTLY — do not choose a "
+            f"different number.\n\n{_JSON_SHAPE}")
+        return msg, "romantic couple sunset", {"pair": f}
+
     chart = astro_chart.compute_chart(_now_utc(date_tag))
     if category == "crypto":
         msg = (f"TODAY ({when}) real sky: {_chart_summary(chart)}\n\n"
@@ -319,23 +340,6 @@ def _build_user_msg(category: str, date_tag: str) -> tuple:
                f"sign: {celebs}.\n\nDescribe {sign}'s celebrity archetype using "
                f"these public examples.\n\n{_JSON_SHAPE}")
         return msg, "red carpet celebrity", {"sign": sign, "celebs": celebs}
-
-    if category == "love":
-        a, b = _pair_of_the_day(date_tag)
-        f = _pair_facts(a, b)
-        msg = (
-            f"PAIRING: {a} + {b}\n"
-            f"REAL SYNASTRY FACTS (interpret these, do not invent others):\n"
-            f"- They sit {f['signs_apart']} sign(s) apart -> classical aspect: "
-            f"{f['aspect']} ({f['aspect_flavour']}).\n"
-            f"- {a}: {f['element_a']} element, {f['modality_a']} modality.\n"
-            f"- {b}: {f['element_b']} element, {f['modality_b']} modality.\n"
-            f"- Same element: {f['same_element']}. Same modality: {f['same_modality']}.\n"
-            f"- Compatibility score to present: {f['score']}%.\n\n"
-            f"Give the {a} + {b} love-compatibility reading. Use the score "
-            f"{f['score']} as verdict.confidence_pct EXACTLY — do not choose a "
-            f"different number.\n\n{_JSON_SHAPE}")
-        return msg, "romantic couple sunset", {"pair": f}
 
     raise ValueError(f"unknown category: {category}")
 
