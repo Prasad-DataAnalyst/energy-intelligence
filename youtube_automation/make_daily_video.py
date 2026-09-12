@@ -745,10 +745,44 @@ def render_thumbnail(date_str: str, out_path: str) -> None:
     draw.rectangle([0, 0, TW, 6], fill=GOLD)
     draw.rectangle([0, TH - 6, TW, TH], fill=GOLD)
 
-    # Title
+    # Title / subtitle / CTA — CONTENT-TYPE AWARE.
+    # These were hardcoded to the daily wording, so the Sunday weekly, Monday
+    # weekly-full and monthly videos all shipped a thumbnail reading "DAILY
+    # HOROSCOPES" with the daily's category list. A thumbnail that mislabels
+    # the video is a direct CTR cost, which is the one metric a channel with a
+    # discovery problem cannot afford to leak.
+    _THUMB = {
+        "daily":      ("DAILY HOROSCOPES",
+                       "Love  •  Career  •  Money  •  Health  •  Lucky Guidance",
+                       "DAILY UPDATES"),
+        "weekly":     ("WEEKLY HOROSCOPES",
+                       "Love  •  Career  •  Money  •  Health  •  Lucky Guidance",
+                       "EVERY SUNDAY"),
+        "weeklyfull": ("YOUR WEEK AHEAD",
+                       "All 12 Signs  •  In Depth  •  Love, Career, Money, Health",
+                       "EVERY MONDAY"),
+        "monthly":    ("MONTHLY HOROSCOPES",
+                       "Love  •  Career  •  Money  •  Health  •  Lucky Guidance",
+                       "EVERY MONTH"),
+        "loveweekly": ("WEEKLY LOVE MATCH",
+                       "Best Match  •  Chemistry  •  Watch Out  •  If You're Single",
+                       "EVERY FRIDAY"),
+        "deep":       ("FULL HOROSCOPE TODAY",
+                       "All 12 Signs  •  In Depth  •  Love, Career, Money, Health",
+                       "DAILY UPDATES"),
+    }
+    title, desc_text, cta_text = _THUMB.get(CONTENT_TYPE, _THUMB["daily"])
+
+    # Auto-fit: the longest titles ("MONTHLY HOROSCOPES", "FULL HOROSCOPE
+    # TODAY") overflow 1280px at the fixed 124px the single daily title was
+    # tuned for. Shrink until it fits the safe width instead of clipping.
     f_big = _display_font(124, weight=700)
-    title = "DAILY HOROSCOPES"
-    tw_   = _tw(title, f_big)
+    tw_ = _tw(title, f_big)
+    size = 124
+    while tw_ > TW - 80 and size > 60:
+        size -= 4
+        f_big = _display_font(size, weight=700)
+        tw_ = _tw(title, f_big)
     tx    = (TW - tw_) // 2
     draw.text((tx + 3, 44), title, font=f_big, fill=(0, 0, 0, 160))
     draw.text((tx,     41), title, font=f_big, fill=GOLD)
@@ -773,13 +807,13 @@ def render_thumbnail(date_str: str, out_path: str) -> None:
     draw.text(((TW - dw) // 2, 336), date_str, font=f_sm, fill=SILVER)
 
     f_desc = _ui_font(42, 500)
-    desc   = "Love  •  Career  •  Money  •  Health  •  Lucky Guidance"
+    desc   = desc_text
     dw2    = _tw(desc, f_desc)
     draw.text(((TW - dw2) // 2, 402), desc, font=f_desc, fill=WHITE)
 
     # CTA button
     f_cta = _ui_font(52, 700)
-    cta   = "DAILY UPDATES"
+    cta   = cta_text
     cw    = _tw(cta, f_cta)
     cx    = (TW - cw) // 2
     draw.rounded_rectangle([cx - 26, 486, cx + cw + 26, 560], radius=16, fill=GOLD)
