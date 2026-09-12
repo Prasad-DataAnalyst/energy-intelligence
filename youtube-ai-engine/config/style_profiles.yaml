@@ -1,0 +1,110 @@
+# style_profiles.yaml — Video Style DNA Profiles
+# Each profile defines the complete visual / audio / pacing identity of a video style.
+
+tech-dark:
+  name: "Tech Dark"
+  description: "Dark, neon-accented. Feels like a hacker's terminal meets a NASA control room."
+  colours:
+    background: [5, 10, 25]
+    background_2: [10, 20, 50]
+    accent: [0, 212, 255]
+    text: [255, 255, 255]
+  typography:
+    title_weight: bold
+    title_size_ratio: 0.167       # fraction of video height
+    body_size_ratio: 0.042
+  pacing: fast
+  transitions:
+    default: cut
+    section_change: crossfade
+    duration_ms: 200
+  colour_grade:
+    r_curve: "0/0 0.5/0.45 1/0.9"
+    g_curve: "0/0 0.5/0.50 1/0.95"
+    b_curve: "0/0.05 0.5/0.55 1/1.0"
+  music:
+    bpm: 128
+    mood: electronic/ambient
+    energy: medium-high
+  best_for: [AI, technology, coding, science, data]
+
+vlog-warm:
+  name: "Vlog Warm"
+  description: "Warm, earthy tones. Feels personal, authentic, like a trusted friend talking."
+  colours:
+    background: [40, 20, 10]
+    background_2: [70, 40, 15]
+    accent: [255, 170, 50]
+    text: [255, 240, 200]
+  typography:
+    title_weight: regular
+    title_size_ratio: 0.139
+    body_size_ratio: 0.042
+  pacing: medium
+  transitions:
+    default: crossfade
+    section_change: crossfade
+    duration_ms: 400
+  colour_grade:
+    r_curve: "0/0 0.5/0.55 1/1.0"
+    g_curve: "0/0 0.5/0.48 1/0.92"
+    b_curve: "0/0 0.5/0.40 1/0.80"
+  music:
+    bpm: 95
+    mood: acoustic/indie
+    energy: low-medium
+  best_for: [lifestyle, finance, health, personal development, travel]
+
+news-clean:
+  name: "News Clean"
+  description: "Crisp, authoritative. Feels like a premium news broadcast with graphic overlays."
+  colours:
+    background: [20, 20, 35]
+    background_2: [35, 35, 60]
+    accent: [220, 40, 60]
+    text: [255, 255, 255]
+  typography:
+    title_weight: bold
+    title_size_ratio: 0.139
+    body_size_ratio: 0.042
+  pacing: medium-fast
+  transitions:
+    default: cut
+    section_change: cut
+    duration_ms: 100
+  colour_grade:
+    r_curve: "0/0 0.5/0.50 1/1.0"
+    g_curve: "0/0 0.5/0.50 1/1.0"
+    b_curve: "0/0 0.5/0.50 1/1.0"
+  music:
+    bpm: 110
+    mood: orchestral/corporate
+    energy: medium
+  best_for: [news, politics, current events, business, economics]
+
+motivation-epic:
+  name: "Motivation Epic"
+  description: "Cinematic, powerful. Feels like a movie trailer crossed with a TED talk."
+  colours:
+    background: [15, 5, 30]
+    background_2: [30, 10, 50]
+    accent: [255, 200, 0]
+    text: [255, 255, 255]
+  typography:
+    title_weight: bold
+    title_size_ratio: 0.194
+    body_size_ratio: 0.056
+  pacing: slow-dramatic
+  transitions:
+    default: crossfade
+    section_change: zoom_in
+    duration_ms: 600
+  colour_grade:
+    r_curve: "0/0 0.5/0.55 1/1.05"
+    g_curve: "0/0 0.5/0.48 1/0.95"
+    b_curve: "0/0 0.5/0.45 1/0.90"
+  music:
+    bpm: 80
+    mood: cinematic/epic
+    energy: high
+  best_for: [motivation, self-improvement, success, entrepreneurship, sport]

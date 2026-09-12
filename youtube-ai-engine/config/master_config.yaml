@@ -1,0 +1,82 @@
+# master_config.yaml — Primary system configuration
+# Auto-updated by Brain.apply_learned_settings() when performance data improves
+
+ai:
+  model: claude-sonnet-4-6
+  max_tokens: 4096
+  temperature: 0.7
+
+video:
+  platform: youtube
+  style_preset: tech-dark          # auto-updated by Brain
+  resolution: "1280x720"
+  fps: 15
+  duration_seconds: 600            # auto-updated by Brain (target 10-min)
+  colour_grade: auto               # auto | tech-dark | vlog-warm | news-clean | motivation-epic
+  captions: true
+  captions_language: en
+  auto_translate: false
+
+audio:
+  voice_provider: elevenlabs       # elevenlabs | openai | edge_tts | espeak
+  espeak_voice: en-us+f3
+  espeak_speed: 168
+  espeak_pitch: 58
+  music_enabled: true
+  music_db: -18
+  voice_db: -6
+  loudnorm_target: -16
+
+script:
+  model: claude-sonnet-4-6
+  hook_style: shocking_stat        # auto-updated by Brain
+  sections: 7
+  words_per_minute: 150
+  min_duration_s: 480
+  max_duration_s: 720
+
+visuals:
+  image_provider: replicate        # replicate | stability | pexels | mock
+  broll_provider: pexels
+  ken_burns: true
+  ken_burns_zoom_rate: 0.0015
+
+thumbnails:
+  variants: 3
+  width: 1280
+  height: 720
+  preferred_variant: A             # auto-updated by Brain
+
+publishing:
+  auto_publish: true
+  schedule_days_ahead: 0          # 0 = immediate
+  preferred_upload_hour_utc: 14
+  preferred_upload_day: Wednesday
+  playlist_id: ""                  # optional playlist
+
+ab_testing:
+  enabled: true
+  min_impressions: 500
+  check_interval_hours: 24
+
+evolution:
+  weekly_audit: true
+  audit_day: Sunday
+  audit_hour_utc: 1
+  auto_commit: true
+  min_test_score: 70               # minimum pass score to apply upgrade
+
+analytics:
+  checkpoint_windows_hours: [24, 72, 168, 672]
+  competitor_spy_daily: true
+  competitor_channels:
+    - UCsvn_Po0SmunchJYOWpOxMg    # Veritasium
+    - UCHnyfMqiRRG1u-2MsSQLbXA    # Vsauce
+    - UCWX3yGbOcA4lMXHoAjJixAQ    # What If
+    - UCpCSAcbqs-sjEVfk_hMfY9w    # Zach Star
+    - UC9-y-6csu5WGm29I7JiwpnA    # Computerphile
+
+output:
+  base_dir: output/
+  keep_raw_frames: false
+  keep_intermediate_clips: false

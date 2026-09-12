@@ -1,0 +1,74 @@
+## GetMindFuelNow — Channel Identity
+## Safety level: locked (never auto-modified)
+
+channel:
+  name: GetMindFuelNow
+  handle: "@GetMindFuelNow"
+  email: prasad2t@gmail.com
+  niche: all_categories
+  upload_time_utc: "15:00"
+  target_audience:
+    age_range: "18-45"
+    geography: "US primary, global secondary"
+    income: "middle class and aspirational"
+    interests:
+      - personal finance
+      - self improvement
+      - science and technology
+      - health and longevity
+      - true crime
+      - geopolitics
+      - AI and future
+      - history
+      - psychology
+
+style:
+  tone: cinematic_authoritative
+  voice_character: "confident, calm, slightly urgent — never shouty"
+  script_persona: "brilliant friend who read everything so you don't have to"
+  forbidden_openers:
+    - "Hey"
+    - "Welcome"
+    - "Today"
+    - "In this video"
+    - "Hi"
+    - "Hello"
+    - "What's up"
+    - "Guys"
+    - "So"
+
+quality_standard:
+  visual_reference: "Netflix documentary + National Geographic"
+  audio_reference: "broadcast journalism, NPR quality"
+  editing_reference: "Kurzgesagt + Vox + Johnny Harris"
+  minimum_score: 85
+  target_score: 95
+
+rpm_tiers:
+  tier_1:
+    categories: [Finance, Insurance, Legal, Real Estate, Business, AI, Technology]
+    rpm_range: "$15-50"
+  tier_2:
+    categories: [Health, Science, Education, Psychology, History, True Crime]
+    rpm_range: "$8-15"
+  tier_3:
+    categories: [Entertainment, Gaming, Sports, Food, Travel, Lifestyle]
+    rpm_range: "$3-8"
+
+video_format:
+  target_duration_minutes: 8
+  min_duration_minutes: 6
+  max_duration_minutes: 12
+  resolution: "1920x1080"
+  fps: 24
+  codec: libx264
+  crf: 18
+  audio_lufs: -14
+  audio_true_peak: -1
+
+shorts:
+  enabled: true
+  count: 3
+  min_duration_seconds: 28
+  max_duration_seconds: 55
+  aspect_ratio: "9:16"

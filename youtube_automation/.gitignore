@@ -1,0 +1,19 @@
+.venv/
+__pycache__/
+*.pyc
+output/
+outputs/
+logs/
+youtube_token.json
+client_secrets.json
+.env
+# runtime artifacts
+.run_daily.lock
+.tarot_cards/
+# generated per-day asset JSONs (pipeline inputs — regenerated daily, never committed)
+*_horoscope_2*.json
+*_short_2*.json
+topic_2*.json
+sports_2*.json
+tarotweekly_2*.json
+prediction_*_2*.json

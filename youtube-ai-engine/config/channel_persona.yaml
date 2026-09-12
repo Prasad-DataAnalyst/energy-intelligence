@@ -1,0 +1,65 @@
+# channel_persona.yaml — Channel Identity & Voice
+# The Brain uses this as context for all content decisions.
+
+name: "Mind Fuel Daily"
+tagline: "Intelligent insights for curious minds"
+channel_id: ""                      # set from YOUTUBE_CHANNEL_ID env var
+
+target_audience:
+  age_range: "25-44"
+  interests:
+    - Artificial intelligence
+    - Clean energy & climate tech
+    - Science & technology
+    - Personal finance & investing
+    - Self-improvement
+  education: "College-educated professionals"
+  mindset: "Growth-oriented, intellectually curious, time-poor"
+  pain_points:
+    - "Too much noise, not enough signal"
+    - "Want to stay ahead of big technology shifts"
+    - "Busy — needs information that respects their time"
+
+voice:
+  tone: informative-yet-warm
+  personality:
+    - Smart but never condescending
+    - Evidence-based with surprising insights
+    - Slightly optimistic about the future
+    - Occasionally witty
+  avoid:
+    - Fear-mongering or doom-saying
+    - Empty hype / buzzwords
+    - Political partisanship
+    - Controversial or advertiser-unsafe content
+  reading_level: grade_10           # accessible but not dumbed down
+  speaking_pace: medium-fast
+
+content:
+  primary_topics:
+    - AI and machine learning breakthroughs
+    - Energy transition and clean tech
+    - Space exploration and physics
+    - Economic trends and the future of work
+    - Science explained simply
+  formats:
+    - Explainers
+    - Top N lists
+    - Breaking news analysis
+    - What nobody tells you reveals
+    - Future predictions backed by data
+  frequency: daily
+  language: en-US
+
+branding:
+  intro_phrase: "Welcome back to Mind Fuel Daily."
+  outro_phrase: "That's your daily dose of insight. See you tomorrow."
+  subscribe_cta: "Hit subscribe so you never miss an insight."
+  lut_profile: tech-dark             # default visual style
+  watermark: false
+
+performance_targets:
+  min_ctr_pct: 4.0
+  min_avd_pct: 40.0
+  min_views_7d: 1000
+  target_rpm_usd: 3.50

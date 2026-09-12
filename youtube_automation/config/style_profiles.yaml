@@ -1,0 +1,119 @@
+## GetMindFuelNow — Visual Style Profiles
+## Safety level: upgradeable
+
+color_grades:
+  tech_dark:
+    description: "Teal shadows, orange highlights — AI/tech topics"
+    bg_primary: "#0A0A1A"
+    bg_secondary: "#0D1B2A"
+    accent_primary: "#00D4FF"
+    accent_secondary: "#FF4500"
+    text_primary: "#FFFFFF"
+    text_secondary: "#B0B0C0"
+    ffmpeg_filter: "curves=r='0/0 0.5/0.4 1/0.9':g='0/0 0.5/0.5 1/0.95':b='0/0.05 0.5/0.55 1/1',eq=contrast=1.05:saturation=1.1,vignette=PI/5,noise=alls=8:allf=t+u"
+
+  documentary:
+    description: "Warm, natural — history/science/psychology topics"
+    bg_primary: "#1A1208"
+    bg_secondary: "#2A1E0A"
+    accent_primary: "#F5A623"
+    accent_secondary: "#E8E0D0"
+    text_primary: "#FFFFFF"
+    text_secondary: "#D4C8A8"
+    ffmpeg_filter: "curves=r='0/0.05 0.5/0.55 1/0.98':g='0/0.02 0.5/0.52 1/0.95':b='0/0 0.5/0.45 1/0.85',eq=contrast=1.03:saturation=0.95,vignette=PI/6,noise=alls=5:allf=t+u"
+
+  thriller:
+    description: "Cold shadows, crushed blacks — crime/geopolitics topics"
+    bg_primary: "#050810"
+    bg_secondary: "#0A0F1A"
+    accent_primary: "#FF2244"
+    accent_secondary: "#CCCCDD"
+    text_primary: "#FFFFFF"
+    text_secondary: "#9090A0"
+    ffmpeg_filter: "curves=r='0/0 0.5/0.42 1/0.88':g='0/0 0.5/0.45 1/0.88':b='0/0.02 0.5/0.5 1/0.95',eq=contrast=1.12:saturation=0.85,vignette=PI/4,noise=alls=10:allf=t+u"
+
+  education:
+    description: "Warm, bright, punchy — finance/career/health topics"
+    bg_primary: "#0F0A1E"
+    bg_secondary: "#1A1230"
+    accent_primary: "#FF6B35"
+    accent_secondary: "#FFD700"
+    text_primary: "#FFFFFF"
+    text_secondary: "#E0D0B0"
+    ffmpeg_filter: "curves=r='0/0 0.5/0.52 1/1':g='0/0 0.5/0.5 1/0.97':b='0/0 0.5/0.48 1/0.9',eq=contrast=1.02:saturation=1.15:brightness=0.02,vignette=PI/7,noise=alls=4:allf=t+u"
+
+  news_clean:
+    description: "Neutral, warm, high clarity — breaking news topics"
+    bg_primary: "#0E0E0E"
+    bg_secondary: "#181818"
+    accent_primary: "#0066CC"
+    accent_secondary: "#FF3300"
+    text_primary: "#FFFFFF"
+    text_secondary: "#BBBBBB"
+    ffmpeg_filter: "curves=r='0/0 0.5/0.5 1/1':g='0/0 0.5/0.5 1/1':b='0/0 0.5/0.5 1/1',eq=contrast=1.01:saturation=1.02,unsharp=5:5:0.8:3:3:0"
+
+category_to_grade:
+  Finance: education
+  Business: education
+  AI: tech_dark
+  Technology: tech_dark
+  Health: documentary
+  Science: documentary
+  Psychology: documentary
+  History: documentary
+  True Crime: thriller
+  Geopolitics: thriller
+  Entertainment: tech_dark
+  Lifestyle: education
+  Career: education
+  Gaming: tech_dark
+  Sports: education
+  default: tech_dark
+
+fonts:
+  hook:
+    name: Montserrat ExtraBold
+    size_pt: 80
+    fallback: DejaVuSans-Bold
+    color: "#FFFFFF"
+    shadow: "#00D4FF"
+    animation: slam
+
+  caption:
+    name: Montserrat Bold
+    size_pt: 36
+    fallback: LiberationSans-Bold
+    active_bg: "#FFFFFF"
+    active_text: "#000000"
+    inactive_text: "#FFFFFF"
+    position: lower_third
+
+  stat:
+    name: Bebas Neue
+    size_pt: 72
+    fallback: DejaVuSans-Bold
+    color: "#00D4FF"
+    animation: count_up
+
+  lower_third:
+    name: Montserrat Light
+    size_pt: 28
+    fallback: LiberationSans-Regular
+    color: "#CCCCCC"
+    animation: slide_left
+
+particles:
+  count: 80
+  min_size: 1
+  max_size: 4
+  drift_amplitude: 30
+  alpha_min: 40
+  alpha_max: 160
+
+transitions:
+  default: hard_cut
+  scene_change: zoom_punch
+  time_skip: cross_dissolve
+  impact_moment: smash_cut
+  data_reveal: glitch
+  positive_reveal: light_leak
