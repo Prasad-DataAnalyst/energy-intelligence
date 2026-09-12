@@ -397,7 +397,8 @@ def render_intro_card(date_str: str) -> Image.Image:
     # Display label for the intro headline — keep it a clean single real word
     # even for compound internal type names like "weeklyfull" or "deep".
     intro_label = {"daily": "DAILY", "weekly": "WEEKLY", "monthly": "MONTHLY",
-                  "weeklyfull": "WEEKLY", "deep": "DAILY"}.get(CONTENT_TYPE, CONTENT_TYPE.upper())
+                  "weeklyfull": "WEEKLY", "loveweekly": "WEEKLY",
+                  "deep": "DAILY"}.get(CONTENT_TYPE, CONTENT_TYPE.upper())
     for line in [intro_label, "HOROSCOPE"]:
         w = _tw(line, f_big)
         draw.text(((WIDTH - w) // 2 + 3, y + 3), line, font=f_big, fill=(0, 0, 0, 170))
@@ -654,10 +655,7 @@ def render_sign_card(sign: str, fields: dict, idx: int) -> Image.Image:
     TXT_W  = P_X1 - TXT_X - 30
 
     cats = [
-        ("♥", "❤", "LOVE",   fields.get("love",   "—")),
-        ("★", "*", "CAREER", fields.get("career", "—")),
-        ("$", "$", "MONEY",  fields.get("money",  "—")),
-        ("✚", "+", "HEALTH", fields.get("health", "—")),
+        *panel_spec(fields),
     ]
     for (sym, fb, label, value), py in zip(cats, cat_rects):
         iy = py + 32
@@ -803,6 +801,28 @@ def render_thumbnail(date_str: str, out_path: str) -> None:
 LS_W, LS_H = 1920, 1080
 
 
+def panel_spec(fields: dict) -> list:
+    """The four on-screen glass panels: (symbol, ascii-fallback, label, value).
+
+    Content-type aware so the weekly LOVE MATCH reading can reuse the proven
+    all-signs card layout with compatibility content instead of the standard
+    love/career/money/health set. Falls back to the horoscope panels for every
+    other type, so existing videos are byte-identical."""
+    if CONTENT_TYPE == "loveweekly":
+        return [
+            ("♥", "❤", "BEST MATCH", fields.get("best_match", "—")),
+            ("✦", "*", "CHEMISTRY",  fields.get("chemistry",  "—")),
+            ("!", "!", "WATCH OUT",  fields.get("watch_out",  "—")),
+            ("☽", ")", "IF SINGLE",  fields.get("if_single",  "—")),
+        ]
+    return [
+        ("♥", "❤", "LOVE",   fields.get("love",   "—")),
+        ("★", "*", "CAREER", fields.get("career", "—")),
+        ("$", "$", "MONEY",  fields.get("money",  "—")),
+        ("✚", "+", "HEALTH", fields.get("health", "—")),
+    ]
+
+
 def render_intro_card_ls(date_str: str) -> Image.Image:
     img = _cosmic_bg(LS_W, LS_H, (6, 3, 22), (14, 6, 40), (170, 120, 255), seed=42)
     d = ImageDraw.Draw(img)
@@ -810,7 +830,8 @@ def render_intro_card_ls(date_str: str) -> Image.Image:
     d.rectangle([0, LS_H - 8, LS_W, LS_H], fill=GOLD)
 
     intro_label = {"daily": "DAILY", "weekly": "WEEKLY", "monthly": "MONTHLY",
-                   "weeklyfull": "WEEKLY", "deep": "DAILY"}.get(CONTENT_TYPE,
+                   "weeklyfull": "WEEKLY", "loveweekly": "WEEKLY",
+                   "deep": "DAILY"}.get(CONTENT_TYPE,
                                                                 CONTENT_TYPE.upper())
     f_big = _display_font(116, weight=700)
     title = f"{intro_label} HOROSCOPE"
@@ -939,10 +960,7 @@ def render_sign_card_ls(sign: str, fields: dict, idx: int) -> Image.Image:
     lf = _ui_font(38, 600)
     vf2 = _ui_font(46, 400)
     cats = [
-        ("♥", "❤", "LOVE",   fields.get("love",   "—")),
-        ("★", "*", "CAREER", fields.get("career", "—")),
-        ("$", "$", "MONEY",  fields.get("money",  "—")),
-        ("✚", "+", "HEALTH", fields.get("health", "—")),
+        *panel_spec(fields),
     ]
     for (sym, fb, label, value), (x0, y0) in zip(cats, cat_boxes):
         tx = x0 + 36
@@ -1090,20 +1108,31 @@ def _voice_script(sign: str, fields: dict) -> str:
     reading = fields.get("reading")
     if reading and str(reading).strip():
         return f"{sign.title()}. {str(reading).strip()}"
-    love   = fields.get("love",   "")
-    career = fields.get("career", "")
-    money  = fields.get("money",  "")
-    health = fields.get("health", "")
     num    = fields.get("lucky_number", "")
     color  = fields.get("lucky_color",  "")
     btime  = fields.get("best_time",    "")
     advice = fields.get("advice", fields.get("note", ""))
 
     parts = [f"{sign.title()}."]
-    if love:   parts.append(f"Love: {love}.")
-    if career: parts.append(f"Career: {career}.")
-    if money:  parts.append(f"Money: {money}.")
-    if health: parts.append(f"Health: {health}.")
+    if CONTENT_TYPE == "loveweekly":
+        # The love reading has an entirely different field set. Without this
+        # branch every sign's narration would collapse to just the name and
+        # the lucky values — the cards would show a full reading while the
+        # voice said almost nothing.
+        for label, key in (("Best match", "best_match"), ("Chemistry", "chemistry"),
+                           ("Watch out", "watch_out"), ("If you're single", "if_single")):
+            v = fields.get(key, "")
+            if v:
+                parts.append(f"{label}: {v}.")
+    else:
+        love   = fields.get("love",   "")
+        career = fields.get("career", "")
+        money  = fields.get("money",  "")
+        health = fields.get("health", "")
+        if love:   parts.append(f"Love: {love}.")
+        if career: parts.append(f"Career: {career}.")
+        if money:  parts.append(f"Money: {money}.")
+        if health: parts.append(f"Health: {health}.")
     lucky_bits = ", ".join(str(x) for x in (num, color, btime) if x)
     if lucky_bits:
         parts.append(f"Lucky: {lucky_bits}.")
@@ -2197,6 +2226,7 @@ def process(json_path: str) -> str:
 
     # Save metadata for uploader
     cadence_label = {"daily": "daily", "weekly": "weekly", "monthly": "monthly",
+                     "loveweekly": "weekly love",
                      "deep": "daily", "weeklyfull": "weekly"}.get(CONTENT_TYPE, CONTENT_TYPE)
     meta = {
         "title":       data.get("title", f"{cadence_label.title()} Horoscope — {date_str} — All 12 Zodiac Signs"),

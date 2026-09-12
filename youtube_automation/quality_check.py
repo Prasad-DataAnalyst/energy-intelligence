@@ -149,7 +149,7 @@ def check_video(video_path: str) -> list:
             is_prediction = ctype == "prediction"
             if is_prediction:
                 max_dur = 100          # 90s target + a little slack
-            elif ctype in ("weekly", "weeklyfull", "deep"):
+            elif ctype in ("weekly", "weeklyfull", "deep", "loveweekly"):
                 max_dur = 600          # the weekly-horoscope exception
             elif ctype in ("topic", "monthly", "tarotweekly", "sports"):
                 max_dur = 200          # 3min + encode slack

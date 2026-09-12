@@ -58,6 +58,20 @@ TYPE_CONFIG = {
         "sign_secs":    13,      # 4 + 12x13 = 160s — under the 3-minute cap
         "max_words":    6,
     },
+    # WEEKLY LOVE MATCH READING (Fridays). Same proven landscape all-signs
+    # pipeline as the weekly horoscope, but the four on-screen panels carry
+    # compatibility content instead of love/career/money/health — see
+    # make_daily_video.panel_spec(). 4 + 12x18 + 2s disclaimer = 222s
+    # (~3m42s): a real reading per sign, but shorter than the 4m54s weekly so
+    # Friday's added render load stays modest on the burstable vCPU.
+    "loveweekly": {
+        "noun":         "Weekly Love",
+        "timeframe":    "this week",
+        "period_label": "LOVE WEEK",
+        "sign_secs":    18,
+        "max_words":    8,
+        "love": True,
+    },
     # LONG-FORM daily for MONETIZATION: ~8.5 min (mid-roll-ad eligible), all 12
     # signs in depth. Card stays punchy (max_words 6); the extra "reading"
     # paragraph is what the narrator reads for ~35s/sign.
@@ -85,6 +99,11 @@ TYPE_CONFIG = {
 
 _REQUIRED_FIELDS = ("love", "career", "money", "health",
                     "lucky_number", "lucky_color", "best_time", "advice")
+# The weekly love reading fills the same four on-screen panels with
+# compatibility content, so it has its own required set (validated instead
+# of, not in addition to, the horoscope fields).
+_LOVE_REQUIRED_FIELDS = ("best_match", "chemistry", "watch_out", "if_single",
+                         "lucky_number", "lucky_color", "best_time", "advice")
 
 # Default lucky-value seeds so Claude has a template to overwrite (kept varied).
 _SEED = {
@@ -120,6 +139,43 @@ def _system_prompt(cfg: dict) -> str:
                 not just a longer version of the short fields above (this text
                 is NOT shown on screen, only spoken).
 """
+    if cfg.get("love"):
+        # Compatibility reading. best_match is grounded, not invented: a sign's
+        # natural matches are its TRINE partners (same element) and its SEXTILE
+        # partners — the same classical synastry the daily love category uses,
+        # so the two formats never contradict each other.
+        return f"""You are a warm, fun relationship astrologer creating a WEEKLY LOVE MATCH reading for all 12 zodiac signs.
+
+For each sign, cover who they connect with {tf} and how their love life feels.
+The short fields below appear ON SCREEN and must be MAX {mw} words — punchy and
+specific, never vague.
+
+Fields per sign:
+- best_match:   the ONE most compatible sign {tf}, plus 2-4 words why
+                (e.g. "Leo — effortless spark"). Prefer a sign of the SAME
+                element (trine) or 2 signs away (sextile) — that is real
+                classical compatibility, not a random pick.
+- chemistry:    what the spark/attraction feels like {tf} (MAX {mw} words)
+- watch_out:    the friction or miscommunication to avoid (MAX {mw} words)
+- if_single:    what to do / what to expect if single {tf} (MAX {mw} words)
+- lucky_number: one integer 1-99
+- lucky_color:  one color name (1-2 words)
+- best_time:    the best day for romance, e.g. "Friday" (1-3 words)
+- advice:       one simple actionable love tip for {tf} (MAX {mw} words)
+
+Style rules:
+- Direct, warm, specific. No generic fluff.
+- Vary across signs — not all glowing; some weeks are about patience or repair.
+- ABSOLUTE RULES: never tell a viewer to leave, avoid or fix a relationship,
+  and never call any pairing doomed, toxic or hopeless. This is playful
+  entertainment about SIGNS, never advice about a real relationship.
+- Speak to BOTH partnered and single viewers — never assume the viewer is
+  in a relationship.
+- Worldwide audience: keep references international.
+- lucky_number, lucky_color and best_time must be single values (no lists).
+
+Return ONLY valid raw JSON. No markdown. No explanation. No code fences."""
+
     return f"""You are a professional astrologer creating {cfg['noun'].lower()} horoscope content for all 12 zodiac signs.
 
 Cover the 5 things people actually check in a horoscope:
@@ -148,6 +204,8 @@ Return ONLY valid raw JSON. No markdown. No explanation. No code fences."""
 
 def _title(cfg: dict, when: str) -> str:
     n = cfg["noun"]
+    if cfg.get("love"):
+        return f"Weekly Love Match {when} — Best Match for All 12 Zodiac Signs"
     if cfg is TYPE_CONFIG["daily"]:
         return f"{n} Horoscope Today, {when} — All 12 Zodiac Signs (Love, Career, Money)"
     if cfg is TYPE_CONFIG["weekly"]:
@@ -159,7 +217,7 @@ def _title(cfg: dict, when: str) -> str:
     return f"{n} Horoscope {when} — All 12 Zodiac Signs (Love, Career, Money, Health)"
 
 
-def _validate(data: dict, deep: bool = False) -> None:
+def _validate(data: dict, deep: bool = False, love: bool = False) -> None:
     """Raise ValueError if any sign or required field is missing/empty."""
     signs = data.get("signs")
     if not isinstance(signs, dict):
@@ -167,7 +225,10 @@ def _validate(data: dict, deep: bool = False) -> None:
     missing_signs = [s for s in SIGNS if s not in signs]
     if missing_signs:
         raise ValueError(f"missing signs: {missing_signs}")
-    required = _REQUIRED_FIELDS + (("reading",) if deep else ())
+    if love:
+        required = _LOVE_REQUIRED_FIELDS
+    else:
+        required = _REQUIRED_FIELDS + (("reading",) if deep else ())
     for s in SIGNS:
         f = signs[s]
         if not isinstance(f, dict):
@@ -187,7 +248,7 @@ def _when_label(ctype: str, date_tag: str) -> str:
     d = datetime.strptime(date_tag, "%Y%m%d")
     if ctype == "daily":
         return d.strftime("%B %d, %Y")
-    if ctype in ("weekly", "weeklyfull"):
+    if ctype in ("weekly", "weeklyfull", "loveweekly"):
         end = d + timedelta(days=6)
         if d.month == end.month:
             return f"{d.strftime('%B %d')}–{end.strftime('%d, %Y')}"
@@ -205,10 +266,18 @@ def generate(period: str, date_tag: str = None, ctype: str = "daily") -> str:
     when = _when_label(ctype, date_tag)
 
     is_deep = bool(cfg.get("deep"))
+    is_love = bool(cfg.get("love"))
     # Build the per-sign JSON skeleton with seeded lucky values.
     sign_lines = []
     for s in SIGNS:
         n, c, t = _SEED[s]
+        if is_love:
+            sign_lines.append(
+                f'    "{s}": {{"best_match": "...", "chemistry": "...", '
+                f'"watch_out": "...", "if_single": "...", "lucky_number": {n}, '
+                f'"lucky_color": "{c}", "best_time": "{t}", "advice": "..."}}'
+            )
+            continue
         reading = ', "reading": "..."' if is_deep else ""
         sign_lines.append(
             f'    "{s}": {{"love": "...", "career": "...", "money": "...", '
@@ -219,17 +288,30 @@ def generate(period: str, date_tag: str = None, ctype: str = "daily") -> str:
 
     title = _title(cfg, when)
     tf    = cfg["timeframe"]
-    desc  = (f"Complete {cfg['noun'].lower()} horoscope for all 12 zodiac signs — {when}. "
-             f"Love, career, money, health, lucky number, lucky color and best time. "
-             f"Subscribe for {cfg['noun'].lower()} cosmic guidance. "
-             f"#horoscope #astrology #zodiac")
-    tags = [f"{cfg['noun'].lower()} horoscope", "all 12 signs horoscope",
-            f"horoscope {tf}", "astrology", "zodiac reading",
-            f"love horoscope {tf}", "health horoscope", f"money horoscope {tf}",
-            f"horoscope {when}"]
+    if is_love:
+        desc = (f"Weekly love match reading for all 12 zodiac signs — {when}. "
+                f"Your best match this week, the chemistry, what to watch out "
+                f"for, and what's coming if you're single. "
+                f"Subscribe for a new love reading every Friday. "
+                f"#lovehoroscope #zodiaccompatibility #astrology")
+        tags = ["weekly love horoscope", "zodiac compatibility",
+                "love match astrology", "best match zodiac", "love astrology",
+                f"love horoscope {tf}", "star sign compatibility",
+                "weekly love reading", f"love horoscope {when}"]
+    else:
+        desc  = (f"Complete {cfg['noun'].lower()} horoscope for all 12 zodiac signs — {when}. "
+                 f"Love, career, money, health, lucky number, lucky color and best time. "
+                 f"Subscribe for {cfg['noun'].lower()} cosmic guidance. "
+                 f"#horoscope #astrology #zodiac")
+        tags = [f"{cfg['noun'].lower()} horoscope", "all 12 signs horoscope",
+                f"horoscope {tf}", "astrology", "zodiac reading",
+                f"love horoscope {tf}", "health horoscope", f"money horoscope {tf}",
+                f"horoscope {when}"]
 
     luckiest_line = '  "luckiest_sign": "...",\n' if is_deep else ""
-    user_msg = f"""Generate the {cfg['noun'].lower()} horoscope for all 12 signs.
+    what = ("weekly LOVE MATCH reading" if is_love
+            else f"{cfg['noun'].lower()} horoscope")
+    user_msg = f"""Generate the {what} for all 12 signs.
 When: {when}
 Period: {period}
 
@@ -255,7 +337,7 @@ Return this EXACT JSON structure (fill in all 12 signs, every "..." replaced):
             raw = re.sub(r"^```[a-z]*\n?", "", raw)
             raw = re.sub(r"\n?```$", "", raw)
             candidate = json.loads(raw)
-            _validate(candidate, deep=is_deep)
+            _validate(candidate, deep=is_deep, love=is_love)
             data = candidate
             break
         except Exception as e:

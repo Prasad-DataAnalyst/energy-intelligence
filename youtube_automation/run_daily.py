@@ -169,6 +169,7 @@ _PUBLISH_ET_HOURS = {
     "weekly":     10,    # Sundays
     "weeklyfull": 10,    # Mondays
     "tarotweekly":10,    # Saturdays
+    "loveweekly": 10,    # Fridays — weekly love match reading
     "monthly":    11,    # 1st of the month
 }
 
@@ -825,7 +826,7 @@ def run_all_signs_pipeline(args) -> int:
         # inside ONE outer attempt. The 6:00/6:30 jobs tolerate this via the
         # 90-min lock wait.
         render_timeout = {"weekly": 9000, "weeklyfull": 12600,
-                          "deep": 12600}.get(ctype, 5400)
+                          "deep": 12600, "loveweekly": 7200}.get(ctype, 5400)
         ok = run_live([PYTHON, "make_daily_video.py", json_file],
                       timeout=render_timeout)
         if not ok:
@@ -939,7 +940,7 @@ def main():
                         help="'all' = one combined 12-sign video (default), "
                              "'short' = 12 separate per-sign videos")
     parser.add_argument("--type",        default="daily",
-                        choices=["daily", "weekly", "monthly", "topic", "weeklyfull",
+                        choices=["daily", "weekly", "monthly", "topic", "weeklyfull", "loveweekly",
                                  "sports", "prediction", "tarotweekly"],
                         help="daily/weekly/monthly = combined 12-sign video; "
                              "topic = long-form astrology topic-of-the-day; "

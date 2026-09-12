@@ -169,6 +169,12 @@ PRED_POLI_CMD="30 6 * * 0 cd $REPO && $VENV_PYTHON run_daily.py --type predictio
 # WEEKLY TAROT — Saturdays 09:00. All-signs tarot reading with real
 # public-domain Rider-Waite card imagery, under the 3-minute cap.
 TAROT_CMD="0 9 * * 6 cd $REPO && $VENV_PYTHON run_daily.py --type tarotweekly --date \$(date +\\%Y\\%m\\%d) --period \"\$(date +'\\%B \\%Y')\" --upload >> $LOG 2>&1"
+# WEEKLY LOVE MATCH READING — Fridays 09:00. All 12 signs' best match,
+# chemistry, friction and single-life outlook for the week (~3m42s,
+# landscape). Friday is the lightest render day (3 jobs), so this adds
+# load where the burstable vCPU has the most credit headroom, and keeps
+# every day at 4 uploads max = 6800 of the 10000-unit API quota.
+LOVEWEEK_CMD="0 9 * * 5 cd $REPO && $VENV_PYTHON run_daily.py --type loveweekly --date \$(date +\\%Y\\%m\\%d) --period \"\$(date +'\\%B \\%Y')\" --upload >> $LOG 2>&1"
 # Heartbeat check at 12:00 — emails an alert if no successful run in >28h
 # (catches: cron never fired, pipeline failing every day, crontab wiped).
 HEARTBEAT_CMD="0 12 * * * cd $REPO && $VENV_PYTHON heartbeat.py --check >> $LOG 2>&1"
@@ -187,9 +193,9 @@ COMMENTS_CMD="15 11-17 * * * cd $REPO && $VENV_PYTHON heartbeat.py --comments >>
 # Tue/Fri crypto, Wed/Sat celebrity, Sun political) + weekly (Sun 7:30,
 # landscape) + monthly (1st 8:00, landscape) + weekly tarot (Sat 9:00,
 # landscape) + weekly long-form (Mon 9:00, landscape) + heartbeat (12:00)
-( crontab -l 2>/dev/null; echo "$DOCTOR_CMD"; echo "$CRON_CMD"; echo "$TOPIC_CMD"; echo "$PRED_SPORTS_CMD"; echo "$PRED_CRYPTO_CMD"; echo "$PRED_CELEB_CMD"; echo "$PRED_POLI_CMD"; echo "$TAROT_CMD"; echo "$WEEKLY_CMD"; echo "$MONTHLY_CMD"; echo "$WEEKLYFULL_CMD"; echo "$HEARTBEAT_CMD"; echo "$COMMENTS_CMD" ) | crontab -
+( crontab -l 2>/dev/null; echo "$DOCTOR_CMD"; echo "$CRON_CMD"; echo "$TOPIC_CMD"; echo "$PRED_SPORTS_CMD"; echo "$PRED_CRYPTO_CMD"; echo "$PRED_CELEB_CMD"; echo "$PRED_POLI_CMD"; echo "$TAROT_CMD"; echo "$WEEKLY_CMD"; echo "$MONTHLY_CMD"; echo "$WEEKLYFULL_CMD"; echo "$LOVEWEEK_CMD"; echo "$HEARTBEAT_CMD"; echo "$COMMENTS_CMD" ) | crontab -
 
-echo "  OK: cron jobs installed (doctor 5:00, daily-short 5:30, topic 6:00, one rotating prediction 6:30 (Mon/Thu sports, Tue/Fri crypto, Wed/Sat celebrity, Sun political), tarot Sat 9:00, weekly-short Sun 7:30, monthly 1st 8:00, weekly-long-form Mon 9:00, heartbeat 12:00, comment-poster hourly 11:15-17:15)"
+echo "  OK: cron jobs installed (doctor 5:00, daily-short 5:30, topic 6:00, one rotating prediction 6:30 (Mon/Thu sports, Tue/Fri crypto, Wed/Sat celebrity, Sun political), tarot Sat 9:00, weekly-short Sun 7:30, monthly 1st 8:00, weekly-long-form Mon 9:00, love-match Fri 9:00, heartbeat 12:00, comment-poster hourly 11:15-17:15)"
 
 # ── 3b. Log rotation so $LOG doesn't grow without bound ───────────────────────
 echo ""
@@ -221,7 +227,7 @@ echo ""
 crontab -l | grep -E "run_daily|doctor|heartbeat" || echo "  WARNING: cron jobs not found!"
 N_JOBS=$(crontab -l | grep -cE "run_daily|doctor|heartbeat")
 echo ""
-echo "  Installed: $N_JOBS cron jobs (expected 13: 10 render + doctor + heartbeat + comment-poster)"
+echo "  Installed: $N_JOBS cron jobs (expected 14: 11 render + doctor + heartbeat + comment-poster)"
 
 echo ""
 echo "============================================"
