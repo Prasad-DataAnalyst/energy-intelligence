@@ -11,7 +11,6 @@ dashboards. **Live site: [prasad-dataanalyst.github.io/energy-intelligence](http
 | [Integrated Oil & Gas HSE Command Center](https://prasad-dataanalyst.github.io/energy-intelligence/HSE_CommandCenter_FULL.html) | 20-tab HSE reporting tool: incidents, permits to work and performance KPIs |
 | [Offshore Asset Integrity & Predictive Maintenance](https://prasad-dataanalyst.github.io/energy-intelligence/Offshore_Asset_Integrity_Dashboard_2026.html) | Interactive asset map, failure-probability simulator and cost-benefit calculator |
 | [Middle East Oil & Gas Executive Intelligence 2026](https://prasad-dataanalyst.github.io/energy-intelligence/ME_oil_gas_executive_intelligence_2026.html) | GCC investment flows, NOC strategies, disruption analysis, 2026–2030 outlook, ESG roadmap and a scenario simulator |
-| [Qatar LNG Restart Scenario Monitor 2026](https://prasad-dataanalyst.github.io/energy-intelligence/Qatar_LNG_Restart_Scenario_Monitor_2026.html) | Scenario analysis of LNG train status, capacity recovery, contract exposure and market rebalancing, from public reporting |
 
 Each dashboard is a single HTML file that runs in the browser — no installation.
 
